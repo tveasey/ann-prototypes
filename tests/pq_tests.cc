@@ -25,7 +25,7 @@ std::vector<T> toVector(std::priority_queue<T>& queue) {
 }
 
 bool testReadVectors() {
-    std::filesystem::path file{std::filesystem::current_path() / "tests" / "vectors.csv"};
+    std::filesystem::path file{std::filesystem::path(__FILE__).parent_path() / "vectors.csv"};
     auto [vectors, dimension] = readVectors(file);
     bool passed{true};
     if (dimension != 4) {
@@ -211,7 +211,7 @@ bool testStepLloyd() {
 
     std::vector<float> counts(numBooks * bookSize, 0.0F);
     std::vector<float> expectedCentres(centres.size(), 0.0F);
-    std::vector<std::int8_t> expectedDocsCodes;
+    std::vector<code_t> expectedDocsCodes;
 
     for (std::size_t i = 0; i < docs.size(); i += dim) {
         std::vector<int> codes(numBooks);
@@ -236,11 +236,11 @@ bool testStepLloyd() {
                     alpha * expectedCentres[book * bookDim + j] +
                     beta * docs[i + b * bookDim + j];
             }
-            expectedDocsCodes.push_back(static_cast<std::int8_t>(codes[b] - 127));
+            expectedDocsCodes.push_back(static_cast<code_t>(codes[b] - offset()));
         }
     }
 
-    std::vector<std::int8_t> docsCodes(expectedDocsCodes);
+    std::vector<code_t> docsCodes(expectedDocsCodes);
 
     stepLloyd(numBooks, bookSize, dim, docs, centres, docsCodes);
 
@@ -274,7 +274,14 @@ bool testComputeDispersion() {
                             3.0, 2.5, 3.0, 3.0, 3.5, 0.0, 4.0, 0.0, 4.0, 4.0,
                             1.0, 2.0, 1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 4.0,
                             3.5, 2.5, 3.5, 2.0, 3.5, 4.0, 5.0, 4.0, 4.0, 3.0};
-    std::vector<std::int8_t> docsCentres{-127, -126, -125, -124, -127, -126, -125, -124};
+    std::vector<code_t> docsCentres{static_cast<code_t>(0 - offset()),
+                                    static_cast<code_t>(1 - offset()),
+                                    static_cast<code_t>(2 - offset()),
+                                    static_cast<code_t>(3 - offset()),
+                                    static_cast<code_t>(0 - offset()),
+                                    static_cast<code_t>(1 - offset()),
+                                    static_cast<code_t>(2 - offset()),
+                                    static_cast<code_t>(3 - offset())};
 
     normalize(dim, centres);
     normalize(dim, docs);
@@ -306,7 +313,7 @@ bool testBuildCodeBook() {
     for (std::size_t i = 0; i < docsCodes.size(); i += numBooks()) {
         float sim{0.0F};
         for (std::size_t b = 0; b < numBooks(); ++b) {
-            std::size_t book{b * bookSize() + (127 + docsCodes[i + b])};
+            std::size_t book{b * bookSize() + (offset() + docsCodes[i + b])};
             for (std::size_t j = 0; j < bookDim; ++j) {
                 sim += codeBooks[book * bookDim + j] * docs[(i + b) * bookDim + j];
             }
@@ -340,7 +347,6 @@ bool testBuildDistTable() {
     std::vector<float> table{buildDistTable(codeBooks, query)};
 
     std::vector<float> expectedTable;
-    std::vector<std::int8_t> book{-127};
     for (std::size_t b = 0; b < numBooks(); ++b) {
         for (std::size_t i = 0; i < bookSize(); ++i) {
             float sim{0.0F};
@@ -386,10 +392,10 @@ bool testComputeDist() {
 
     std::generate_n(&table[0], table.size(), [&] { return norm(rng); });
 
-    std::vector<std::int8_t> codes;
+    std::vector<code_t> codes;
     float expectedDist{0.0F};
     for (auto i : rawCodes) {
-        codes.push_back(static_cast<std::int8_t>((i % bookSize()) - 127));
+        codes.push_back(static_cast<code_t>((i % bookSize()) - offset()));
         expectedDist += table[i];
     }
     expectedDist = 1.0F - expectedDist;

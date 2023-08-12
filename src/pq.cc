@@ -26,6 +26,12 @@
 namespace {
 constexpr int NUM_BOOKS{8};
 constexpr int BOOK_SIZE{256};
+constexpr int OFFSET{[] {
+    if constexpr (sizeof(code_t) == 1) {
+        return 127;
+    }
+    return std::min((1 << (8 * sizeof(code_t) - 1)) - BOOK_SIZE, 0);
+}()};
 }
 
 int numBooks() {
@@ -34,6 +40,10 @@ int numBooks() {
 
 int bookSize() {
     return BOOK_SIZE;
+}
+
+int offset() {
+    return OFFSET;
 }
 
 void zeroPad(std::size_t dim, std::vector<float>& vectors) {
@@ -101,7 +111,7 @@ void stepLloyd(std::size_t numBooks,
                std::size_t dim,
                const std::vector<float>& docs,
                std::vector<float>& centres,
-               std::vector<std::int8_t>& docsCodes) {
+               std::vector<code_t>& docsCodes) {
 
     std::size_t bookDim{dim / numBooks};
 
@@ -138,7 +148,7 @@ void stepLloyd(std::size_t numBooks,
             bookCount += 1.0F;
 
             // Encode the document.
-            docsCodes[pos + b] = static_cast<std::int8_t>(nearestCentre - 127);
+            docsCodes[pos + b] = static_cast<code_t>(nearestCentre - OFFSET);
         }
     }
 
@@ -148,12 +158,12 @@ void stepLloyd(std::size_t numBooks,
 float computeDispersion(std::size_t dim,
                         const std::vector<float>& centres,
                         const std::vector<float>& docs,
-                        const std::vector<std::int8_t>& docsCentres) {
+                        const std::vector<code_t>& docsCentres) {
     float dispersion{0.0F};
     for (std::size_t i = 0; i < docsCentres.size(); ++i) {
         float dist{0.0F};
         for (std::size_t j = 0; j < dim; ++j) {
-            float d{centres[(127 + docsCentres[i]) * dim + j] - docs[i * dim + j]};
+            float d{centres[(OFFSET + docsCentres[i]) * dim + j] - docs[i * dim + j]};
             dist += d * d;
         }
         dispersion += std::sqrt(dist);
@@ -161,13 +171,13 @@ float computeDispersion(std::size_t dim,
     return dispersion;
 }
 
-std::pair<std::vector<float>,std::vector<std::int8_t>>
+std::pair<std::vector<float>, std::vector<code_t>>
 buildCodeBook(std::size_t dim,
               const std::vector<float>& docs) {
     std::size_t bookDim{dim / NUM_BOOKS};
     std::minstd_rand rng;
     std::vector<float> codeBooks{initForgy(BOOK_SIZE, bookDim, dim, docs, rng)};
-    std::vector<std::int8_t> docsCodes(docs.size() / bookDim);
+    std::vector<code_t> docsCodes(docs.size() / bookDim);
     for (std::size_t i = 0; i < 5; ++i) {
         stepLloyd(NUM_BOOKS, BOOK_SIZE, dim, docs, codeBooks, docsCodes);
     }
@@ -193,18 +203,18 @@ std::vector<float> buildDistTable(const std::vector<float>& codeBooks,
 }
 
 float computeDist(const std::vector<float>& distTable,
-                  const std::int8_t* docCode) {
+                  const code_t* docCode) {
     float dist{0.0F};
     #pragma clang loop unroll_count(8)
     for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
-        dist += distTable[BOOK_SIZE * b + 127 + docCode[b]];
+        dist += distTable[BOOK_SIZE * b + OFFSET + docCode[b]];
     }
     return 1.0 - dist;
 }
 
 void searchPQ(std::size_t k,
               const std::vector<float>& codeBooks,
-              const std::vector<std::int8_t>& docsCodes,
+              const std::vector<code_t>& docsCodes,
               const std::vector<float>& query,
               std::priority_queue<std::pair<float, std::size_t>>& topk) {
 

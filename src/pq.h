@@ -6,6 +6,8 @@
 #include <utility>
 #include <vector>
 
+using code_t = std::int8_t;
+
 template<typename U, typename V>
 std::ostream& operator<<(std::ostream& o, const std::pair<U, V>& pair) {
     o << "(" << pair.first << "," << pair.second << ")";
@@ -33,6 +35,8 @@ int numBooks();
 
 int bookSize();
 
+int offset();
+
 void zeroPad(std::size_t dim, std::vector<float>& vectors);
 
 void normalize(std::size_t dim, std::vector<float>& vectors);
@@ -52,14 +56,14 @@ void stepLloyd(std::size_t numBooks,
                std::size_t dim,
                const std::vector<float>& docs,
                std::vector<float>& centres,
-               std::vector<std::int8_t>& docsCodes);
+               std::vector<code_t>& docsCodes);
 
 float computeDispersion(std::size_t dim,
                         const std::vector<float>& centres,
                         const std::vector<float>& docs,
-                        const std::vector<std::int8_t>& docsCentres);
+                        const std::vector<code_t>& docsCentres);
 
-std::pair<std::vector<float>, std::vector<std::int8_t>>
+std::pair<std::vector<float>, std::vector<code_t>>
 buildCodeBook(std::size_t dim,
               const std::vector<float>& docs);
 
@@ -67,11 +71,11 @@ std::vector<float> buildDistTable(const std::vector<float>& codeBooks,
                                   const std::vector<float>& query);
 
 float computeDist(const std::vector<float>& distTable,
-                  const std::int8_t* docCode);
+                  const code_t* docCode);
 
 void searchPQ(std::size_t k,
               const std::vector<float>& codeBooks,
-              const std::vector<std::int8_t>& docsCodes,
+              const std::vector<code_t>& docsCodes,
               const std::vector<float>& query,
               std::priority_queue<std::pair<float, std::size_t>>& topk);
 
