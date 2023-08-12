@@ -39,7 +39,7 @@ bool toFloat(const std::string str, float& value) {
 }
 
 std::pair<std::vector<float>, std::size_t>
-readVectors(std::filesystem::path &source, bool verbose) {
+readVectors(const std::filesystem::path &source, bool verbose) {
     if (verbose) {
         std::cout << "Reading " << source << std::endl;
     }
@@ -75,8 +75,10 @@ readVectors(std::filesystem::path &source, bool verbose) {
             std::cout << "\rProcessed " << i << " lines" << std::flush;
         }
     }
+
     if (verbose) {
-        std::cout << std::endl;
+        std::cout << "\rRead " << result.size() / dimension
+                  << " vectors       " << std::endl;
     }
 
     result.shrink_to_fit();

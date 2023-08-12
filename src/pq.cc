@@ -121,7 +121,7 @@ void stepLloyd(std::size_t numBooks,
     std::size_t pos{0};
     for (auto doc = docs.begin(); doc != docs.end(); doc += dim, pos += numBooks) {
         for (std::size_t b = 0; b < numBooks; ++b) {
-            // Find nearest centroid.
+            // Find the nearest centroid.
             int nearestCentre{0};
             float minDist{std::numeric_limits<float>::max()};
             for (int i = 0; i < bookSize; ++i) {
@@ -136,7 +136,7 @@ void stepLloyd(std::size_t numBooks,
                 }
             }
 
-            // Update centroid.
+            // Update the centroid.
             std::size_t nearestBook{b * bookSize + nearestCentre};
             auto& bookCount = bookCounts[nearestBook];
             auto* newCentre = &newCentres[nearestBook * bookDim];

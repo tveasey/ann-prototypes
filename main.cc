@@ -1,16 +1,26 @@
 #include "src/pq.h"
+#include "src/loaders.h"
 #include "tests/pq_tests.h"
 
 #include <fstream>
 #include <iostream>
 
 namespace {
-void runExample(std::string dir) {
-    std::ifstream file{dir.c_str(), std::ios_base::binary};
-    int vecSize;
-    file.read(reinterpret_cast<char*>(&vecSize), 4);
-    std::cout << vecSize << std::endl;
-    // file.read(reinterpret_cast<char*>(docHashes.data()), docHashesBytes);
+bool runExample(const std::string& dataset) {
+
+    auto root = std::filesystem::path(__FILE__).parent_path();
+    auto [docs, dimension] = readVectors(
+        root / "data" / ("corpus-" + dataset + ".csv"), true);
+    auto [queries, queryDimension] = readVectors(
+        root / "data" / ("queries-" + dataset + ".csv"), true);
+
+    if (dimension != queryDimension) {
+        std::cout << "Query and document dimensions don't match "
+                  << queryDimension << " != " << dimension << std::endl;
+        return false;
+    }
+
+    runPQBenchmark(dimension, docs, queries);
 }
 
 void runSmokeTest() {
@@ -34,7 +44,7 @@ std::string usage() {
            "\t--help\t\tShow this help\n"
            "\t--unit\t\tRun the unit tests\n"
            "\t--smoke\t\tRun the smoke test\n"
-           "\t--run DIR\tRun the example from the gist in DIR";
+           "\t--run DATASET\tRun a test dataset";
 }
 }
 
