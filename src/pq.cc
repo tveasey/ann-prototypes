@@ -113,6 +113,9 @@ void stepLloyd(std::size_t numBooks,
                std::vector<float>& centres,
                std::vector<code_t>& docsCodes) {
 
+    // Since we sum up non-negative losses from each book we can compute
+    // the optimal codebooks independently.
+
     std::size_t bookDim{dim / numBooks};
 
     std::vector<float> bookCounts(numBooks * bookSize, 0.0F);
@@ -127,8 +130,8 @@ void stepLloyd(std::size_t numBooks,
             for (int i = 0; i < bookSize; ++i) {
                 float dist{0.0F};
                 for (std::size_t j = 0; j < bookDim; ++j) {
-                    float d{centres[(b * bookSize + i) * bookDim + j] - doc[b * bookDim + j]};
-                    dist += d * d;
+                    float dij{centres[(b * bookSize + i) * bookDim + j] - doc[b * bookDim + j]};
+                    dist += dij * dij;
                 }
                 if (dist < minDist) {
                     nearestCentre = i;
@@ -146,6 +149,60 @@ void stepLloyd(std::size_t numBooks,
                 newCentre[j] = alpha * newCentre[j] + beta * doc[b * bookDim + j];
             }
             bookCount += 1.0F;
+
+            // Encode the document.
+            docsCodes[pos + b] = static_cast<code_t>(nearestCentre - OFFSET);
+        }
+    }
+
+    centres = std::move(newCentres);
+}
+
+void stepScann(float t,
+               std::size_t numBooks,
+               std::size_t bookSize,
+               std::size_t dim,
+               const std::vector<float>& docs,
+               std::vector<float>& centres,
+               std::vector<code_t>& docsCodes) {
+
+    // Since we sum up non-negative losses from each book we can compute
+    // the optimal codebooks independently.
+
+    std::size_t bookDim{dim / numBooks};
+
+    // See theorem 3.4 https://arxiv.org/pdf/1908.10396.pdf. This assumes
+    // vectors are normalised.
+    float eta{static_cast<float>(dim- 1) * t / 1 - t};
+
+    std::vector<float> bookCounts(numBooks * bookSize, 0.0F);
+    std::vector<float> newCentres(centres.size(), 0.0F);
+
+    std::size_t pos{0};
+    for (auto doc = docs.begin(); doc != docs.end(); doc += dim, pos += numBooks) {
+        for (std::size_t b = 0; b < numBooks; ++b) {
+            // Find the centroid which minimizes the anisotropic loss.
+            int nearestCentre{0};
+            float minDist{std::numeric_limits<float>::max()};
+            for (int i = 0; i < bookSize; ++i) {
+                float distParallel{0.0F};
+                float distPerpendicular{0.0F};
+                for (std::size_t j = 0; j < bookDim; ++j) {
+                    float ci{centres[(b * bookSize + i) * bookDim + j]};
+                    float xi{doc[b * bookDim + j]};
+                    float r{xi - ci};
+                    // TODO we need to have per book vector norms.
+                    float rp{xi * xi * r};
+                    distParallel += rp;
+                    distPerpendicular += r - rp;
+                }
+                if (eta * distParallel + distPerpendicular < minDist) {
+                    nearestCentre = i;
+                    minDist = eta * distParallel + distPerpendicular;
+                }
+            }
+
+            // TODO Centroid update needs to maintain partition statistics.
 
             // Encode the document.
             docsCodes[pos + b] = static_cast<code_t>(nearestCentre - OFFSET);
@@ -173,14 +230,38 @@ float computeDispersion(std::size_t dim,
 
 std::pair<std::vector<float>, std::vector<code_t>>
 buildCodeBook(std::size_t dim,
-              const std::vector<float>& docs) {
+              const std::vector<float>& docs,
+              std::size_t iterations) {
     std::size_t bookDim{dim / NUM_BOOKS};
     std::minstd_rand rng;
     std::vector<float> codeBooks{initForgy(BOOK_SIZE, bookDim, dim, docs, rng)};
     std::vector<code_t> docsCodes(docs.size() / bookDim);
-    for (std::size_t i = 0; i < 5; ++i) {
+    for (std::size_t i = 0; i < iterations; ++i) {
         stepLloyd(NUM_BOOKS, BOOK_SIZE, dim, docs, codeBooks, docsCodes);
     }
+    return std::make_pair(std::move(codeBooks), std::move(docsCodes));
+}
+
+std::pair<std::vector<float>, std::vector<code_t>>
+buildCodeBookScann(float t,
+                   std::size_t dim,
+                   const std::vector<float>& docs,
+                   std::size_t iterations) {
+    std::size_t bookDim{dim / NUM_BOOKS};
+    std::minstd_rand rng;
+    std::vector<float> codeBooks{initForgy(BOOK_SIZE, bookDim, dim, docs, rng)};
+    std::vector<code_t> docsCodes(docs.size() / bookDim);
+
+    // Initialize with k-means.
+    for (std::size_t i = 0; i < iterations / 2; ++i) {
+        stepLloyd(NUM_BOOKS, BOOK_SIZE, dim, docs, codeBooks, docsCodes);
+    }
+
+    // Fine-tune with anisotropic loss.
+    for (std::size_t i = 0; i < iterations / 2 + iterations % 2; ++i) {
+        stepScann(t, NUM_BOOKS, BOOK_SIZE, dim, docs, codeBooks, docsCodes);
+    }
+
     return std::make_pair(std::move(codeBooks), std::move(docsCodes));
 }
 
@@ -205,7 +286,7 @@ std::vector<float> buildDistTable(const std::vector<float>& codeBooks,
 float computeDist(const std::vector<float>& distTable,
                   const code_t* docCode) {
     float dist{0.0F};
-    #pragma clang loop unroll_count(8)
+    #pragma clang loop unroll_count(NUM_BOOKS)
     for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
         dist += distTable[BOOK_SIZE * b + OFFSET + docCode[b]];
     }

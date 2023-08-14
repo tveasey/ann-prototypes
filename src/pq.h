@@ -58,6 +58,14 @@ void stepLloyd(std::size_t numBooks,
                std::vector<float>& centres,
                std::vector<code_t>& docsCodes);
 
+void stepScann(float t,
+               std::size_t numBooks,
+               std::size_t bookSize,
+               std::size_t dim,
+               const std::vector<float>& docs,
+               std::vector<float>& centres,
+               std::vector<code_t>& docsCodes);
+
 float computeDispersion(std::size_t dim,
                         const std::vector<float>& centres,
                         const std::vector<float>& docs,
@@ -65,7 +73,13 @@ float computeDispersion(std::size_t dim,
 
 std::pair<std::vector<float>, std::vector<code_t>>
 buildCodeBook(std::size_t dim,
-              const std::vector<float>& docs);
+              const std::vector<float>& docs,
+              std::size_t iterations = 10);
+
+std::pair<std::vector<float>, std::vector<code_t>>
+buildCodeBookScann(std::size_t dim,
+                   const std::vector<float>& docs,
+                   std::size_t iterations = 10);
 
 std::vector<float> buildDistTable(const std::vector<float>& codeBooks,
                                   const std::vector<float>& query);

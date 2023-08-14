@@ -41,7 +41,7 @@ bool toFloat(const std::string str, float& value) {
 std::pair<std::vector<float>, std::size_t>
 readVectors(const std::filesystem::path &source, bool verbose) {
     if (verbose) {
-        std::cout << "Reading " << source << std::endl;
+        std::cout << "Reading " << source << "\n" << std::endl;
     }
     
     std::vector<float> result;
@@ -71,7 +71,7 @@ readVectors(const std::filesystem::path &source, bool verbose) {
         if (failedToParse) {
             break;
         }
-        if (verbose && ++i % 10000 == 0) {
+        if (verbose && (++i % 10000 == 0)) {
             std::cout << "\rProcessed " << i << " lines" << std::flush;
         }
     }
