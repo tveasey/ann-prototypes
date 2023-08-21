@@ -1,5 +1,5 @@
 #include "../src/pq.h"
-#include "../src/loaders.h"
+#include "../src/io.h"
 
 #include <algorithm>
 #include <chrono>
@@ -24,21 +24,26 @@ std::vector<T> toVector(std::priority_queue<T>& queue) {
     return result;
 }
 
+bool testReadDimension() {
+    auto file = std::filesystem::path(__FILE__).parent_path() / "dim-vectors.txt";
+    auto dim = readDimension(file);
+    if (dim != 4) {
+        std::cout << "FAILED: output " << dim << " != 4" << std::endl;
+        return false;
+    }
+    return true;
+}
+
 bool testReadVectors() {
-    std::filesystem::path file{std::filesystem::path(__FILE__).parent_path() / "vectors.csv"};
-    auto [vectors, dimension] = readVectors(file);
-    bool passed{true};
-    if (dimension != 4) {
-        std::cout << "FAILED: dimension " << dimension << "!= 4" << std::endl;
-        passed = false;
-    } 
+    auto file = std::filesystem::path(__FILE__).parent_path() / "vectors.csv";
+    auto vectors = readVectors(4, file);
     std::ostringstream result;
     result << vectors;
     if (result.str() != "[-1.1,2.1,0.3,1.7,1.2,3.1,-0.9,1.8]") {
         std::cout << "FAILED: output " << vectors << std::endl;
-        passed = false;
+        return false;
     }
-    return passed;
+    return true;
 }
 
 bool testZeroPad() {
@@ -411,12 +416,13 @@ bool testComputeDist() {
 
 #define RUN_TEST(x)                                      \
     do {                                                 \
-    std::cout << "Running" << #x << " ";                 \
+    std::cout << "Running " << #x << " ";                \
     if ((x)()) { std::cout << "PASSED!" << std::endl;} } \
     while (false)
 }
 
 void runUnitTests() {
+    RUN_TEST(testReadDimension);
     RUN_TEST(testReadVectors);
     RUN_TEST(testZeroPad);
     RUN_TEST(testNormalize);

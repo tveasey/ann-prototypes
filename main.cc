@@ -1,5 +1,5 @@
 #include "src/pq.h"
-#include "src/loaders.h"
+#include "src/io.h"
 #include "tests/pq_tests.h"
 
 #include <fstream>
@@ -25,18 +25,14 @@ void runSmokeTest() {
 void runExample(const std::string& dataset) {
 
     auto root = std::filesystem::path(__FILE__).parent_path();
-    auto [docs, dimension] = readVectors(
-        root / "data" / ("corpus-" + dataset + ".csv"), true);
-    auto [queries, queryDimension] = readVectors(
-        root / "data" / ("queries-" + dataset + ".csv"), true);
+    auto dim = readDimension(
+        root / "data" / ("dim-" + dataset + ".txt"));
+    auto docs = readVectors(
+        dim, root / "data" / ("corpus-" + dataset + ".csv"), true);
+    auto queries = readVectors(
+        dim, root / "data" / ("queries-" + dataset + ".csv"), true);
 
-    if (dimension != queryDimension) {
-        std::cout << "Query and document dimensions don't match "
-                  << queryDimension << " != " << dimension << std::endl;
-        return;
-    }
-
-    runPQBenchmark(dimension, docs, queries);
+    runPQBenchmark(dim, docs, queries);
 }
 
 std::string usage() {
@@ -52,7 +48,7 @@ int main(int argc, char* argv[]) {
 
     bool unit{false};
     bool smoke{false};
-    std::string dir;
+    std::string dataset;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg{argv[i]};
@@ -68,7 +64,7 @@ int main(int argc, char* argv[]) {
                 std::cerr << "Bad input. Usage:\n\n" << usage() << std::endl;
                 return 1;
             }
-            dir = argv[i + 1];
+            dataset = argv[i + 1];
         }
     }
 
@@ -78,8 +74,8 @@ int main(int argc, char* argv[]) {
     if (smoke) {
         runSmokeTest();
     }
-    if (!dir.empty()) {
-        runExample(dir);
+    if (!dataset.empty()) {
+        runExample(dataset);
     }
 
     return 0;

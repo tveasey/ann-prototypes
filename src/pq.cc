@@ -16,12 +16,11 @@
 // Notes
 // -----
 //
-// * Hardcoded dot product: other metrics should perform similarly.
+// * Hardcode dot product: other metrics should perform similarly.
 // * Data-oriented design to maximize memory access efficiency.
-// * Hardcoded all loop limits where possible since this helps the
+// * Hardcode all loop limits where possible since this helps the
 //   compiler vectorise code.
-// * Doesn't try and optimize k-means at all since we're not currently
-//   trying to benchmark k-means.
+// * Brute force k-means performs well for moderate k.
 
 namespace {
 constexpr int NUM_BOOKS{8};
