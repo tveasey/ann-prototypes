@@ -16,7 +16,9 @@ Next install dvc and pull test data sets:
 ```
 Note that this requires gsutils and access to our gcp bucket. You can also download just a single data set using:
 ```
->>> dvc pull data quora-E5-small.csv.bz2.dvc
+>>> dvc pull data dim-quora-E5-small.csv.bz2.dvc
+>>> dvc pull data queries-quora-E5-small.csv.bz2.dvc
+>>> dvc pull data corpus-quora-E5-small.csv.bz2.dvc
 ```
 
 To build native code navigate to the root directory and run:
@@ -28,7 +30,7 @@ To build native code navigate to the root directory and run:
 This should create an executable in build/run_pq. You can run help on this and you should see:
 ```
 >>> ./build/run_pq -h
-pq [-h,--help] [-u,--unit] [-s,--smoke] [-r,--run DIR]
+run_pq [-h,--help] [-u,--unit] [-s,--smoke] [-r,--run DIR]
 	--help		Show this help
 	--unit		Run the unit tests
 	--smoke		Run the smoke test
