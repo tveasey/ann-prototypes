@@ -1,8 +1,12 @@
 #include "pq.h"
+#include "metrics.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <functional>
+#include <iomanip>
+#include <ios>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -284,12 +288,12 @@ std::vector<float> buildDistTable(const std::vector<float>& codeBooks,
 
 float computeDist(const std::vector<float>& distTable,
                   const code_t* docCode) {
-    float dist{0.0F};
+    float sim{0.0F};
     #pragma clang loop unroll_count(NUM_BOOKS)
     for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
-        dist += distTable[BOOK_SIZE * b + OFFSET + docCode[b]];
+        sim += distTable[BOOK_SIZE * b + OFFSET + docCode[b]];
     }
-    return 1.0 - dist;
+    return 1.0F - sim;
 }
 
 void searchPQ(std::size_t k,
@@ -339,60 +343,86 @@ void searchBruteForce(std::size_t k,
     }
 }
 
-void runPQBenchmark(std::size_t dim,
+void runPQBenchmark(const std::string& tag,
+                    std::size_t k,
+                    std::size_t dim,
                     std::vector<float>& docs,
-                    std::vector<float>& queries) {
+                    std::vector<float>& queries,
+                    const std::function<void(const PQStats&)>& writeStats) {
 
     normalize(dim, docs);
     normalize(dim, queries);
     zeroPad(dim, docs);
     zeroPad(dim, queries);
 
+    std::chrono::duration<double> diff{0};
     std::chrono::steady_clock::time_point start;
     std::chrono::steady_clock::time_point end;
-    std::chrono::duration<double> diff{0};
+
     std::vector<float> query(dim);
     std::priority_queue<std::pair<float, std::size_t>> topk;
 
-    std::vector<std::vector<std::pair<float, std::size_t>>> nearestExact(queries.size() / dim);
+    std::size_t nq{queries.size() / dim};
+    std::size_t nd{docs.size() / dim};
+    std::cout << std::setprecision(3)
+              << "# queries = " << nq << ", # docs = " << nd << ", k = " << k << std::endl;
+
+    std::vector<std::vector<std::size_t>> nnExact(nq, std::vector<std::size_t>(k));
     for (std::size_t i = 0; i < queries.size(); i += dim) {
-        std::copy(&queries[i], &queries[i + dim], &query[0]);
+        std::copy(queries.begin() + i, queries.begin() + i + dim, query.begin());
 
         start = std::chrono::high_resolution_clock::now();
-        searchBruteForce(10, docs, query, topk);
+        searchBruteForce(k, docs, query, topk);
         end = std::chrono::high_resolution_clock::now();
         diff += std::chrono::duration<double>(end - start);
 
-        while (!topk.empty()) {
-            nearestExact[i / dim].push_back(topk.top());
+        for (std::size_t j = 1; j <= k && !topk.empty(); ++j) {
+            nnExact[i / dim][k - j] = topk.top().second;
             topk.pop();
         }
     }
+    std::cout << "Brute force took " << diff.count() << "s" << std::endl;
 
-    std::cout << "Brute force search duration " << diff.count() << "s" << std::endl;
+    PQStats stats{tag, nq, nd, k};
+    stats.bfQPS = static_cast<std::size_t>(
+        std::round(static_cast<double>(nq) / diff.count()));
 
     start = std::chrono::high_resolution_clock::now();
     auto [codeBooks, docsCodes] = buildCodeBook(dim, docs);
     end = std::chrono::high_resolution_clock::now();
     diff = std::chrono::duration<double>(end - start);
+    std::cout << "Building codebooks took " << diff.count() << "s" << std::endl;
 
-    std::cout << "Building codebooks duration " << diff.count() << "s" << std::endl;
+    stats.pqCodeBookBuildTime = diff.count();
+    stats.pqCompressionRatio = computeCompressionRatio(dim);
 
-    diff = std::chrono::duration<double>{0};
-    std::vector<std::vector<std::pair<float, std::size_t>>> nearestPQ(queries.size() / dim);
-    for (std::size_t i = 0; i < queries.size(); i += dim) {
-        std::copy(&queries[i], &queries[i + dim], &query[0]);
+    std::vector<std::size_t> expansion{1, 2, 4, 6, 8, 10};
 
-        start = std::chrono::high_resolution_clock::now();
-        searchPQ(10, codeBooks, docsCodes, query, topk);
-        end = std::chrono::high_resolution_clock::now();
-        diff += std::chrono::duration<double>(end - start);
+    for (std::size_t m : PQStats::EXPANSIONS) {
 
-        while (!topk.empty()) {
-            nearestPQ[i / dim].push_back(topk.top());
-            topk.pop();
+        std::vector<std::vector<std::size_t>> nnPQ(nq, std::vector<std::size_t>(m * k));
+
+        diff = std::chrono::duration<double>{0};
+        for (std::size_t i = 0; i < queries.size(); i += dim) {
+            std::copy(queries.begin() + i, queries.begin() + i + dim, query.begin());
+
+            start = std::chrono::high_resolution_clock::now();
+            searchPQ(m * k, codeBooks, docsCodes, query, topk);
+            end = std::chrono::high_resolution_clock::now();
+            diff += std::chrono::duration<double>(end - start);
+
+            for (std::size_t j = 1; j <= m * k && !topk.empty(); ++j) {
+                nnPQ[i / dim][m * k - j] = topk.top().second;
+                topk.pop();
+            }
         }
+
+        stats.pqQPS.push_back(std::round(static_cast<double>(nq) / diff.count()));
+        stats.pqRecalls.push_back(computeRecalls(nnExact, nnPQ));
+        std::cout << "PQ(" << m * k << ") search took " << diff.count()
+                  << "s, average recall = " << stats.pqRecalls.back()[PQStats::AVG_RECALL]
+                  << std::endl;
     }
 
-    std::cout << "PQ search duration " << diff.count() << "s" << std::endl;
+    writeStats(stats);
 }

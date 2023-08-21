@@ -1,5 +1,5 @@
-#include "src/pq.h"
 #include "src/io.h"
+#include "src/pq.h"
 #include "tests/pq_tests.h"
 
 #include <fstream>
@@ -19,7 +19,7 @@ void runSmokeTest() {
     std::vector<float> queries(25600);
     std::generate_n(queries.begin(), queries.size(), [&] { return norm(rng); });
 
-    runPQBenchmark(256, docs, queries);
+    runPQBenchmark("smoke", 10, 256, docs, queries);
 }
 
 void runExample(const std::string& dataset) {
@@ -32,7 +32,7 @@ void runExample(const std::string& dataset) {
     auto queries = readVectors(
         dim, root / "data" / ("queries-" + dataset + ".csv"), true);
 
-    runPQBenchmark(dim, docs, queries);
+    runPQBenchmark(dataset, 10, dim, docs, queries, writePQStats);
 }
 
 std::string usage() {

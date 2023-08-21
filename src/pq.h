@@ -1,12 +1,15 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <ostream>
 #include <queue>
 #include <random>
 #include <set>
 #include <utility>
 #include <vector>
+
+struct PQStats;
 
 using code_t = std::int8_t;
 
@@ -100,6 +103,9 @@ void searchBruteForce(std::size_t k,
                       const std::vector<float>& query,
                       std::priority_queue<std::pair<float, std::size_t>>& topk);
 
-void runPQBenchmark(std::size_t dim,
+void runPQBenchmark(const std::string& tag,
+                    std::size_t k,
+                    std::size_t dim,
                     std::vector<float>& docs,
-                    std::vector<float>& queries);
+                    std::vector<float>& queries,
+                    const std::function<void(const PQStats&)>& writeStats = [](const PQStats&) {});
