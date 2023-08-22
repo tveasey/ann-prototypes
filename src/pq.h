@@ -99,6 +99,7 @@ void searchPQ(std::size_t k,
               const std::vector<float>& codeBooks,
               const std::vector<code_t>& docsCodes,
               const std::vector<float>& query,
+              bool normalise,
               std::priority_queue<std::pair<float, std::size_t>>& topk);
 
 void searchBruteForce(std::size_t k,
@@ -111,4 +112,5 @@ void runPQBenchmark(const std::string& tag,
                     std::size_t dim,
                     std::vector<float>& docs,
                     std::vector<float>& queries,
+                    bool normalise,
                     const std::function<void(const PQStats&)>& writeStats = [](const PQStats&) {});

@@ -19,10 +19,10 @@ void runSmokeTest() {
     std::vector<float> queries(25600);
     std::generate_n(queries.begin(), queries.size(), [&] { return norm(rng); });
 
-    runPQBenchmark("smoke", 10, 256, docs, queries);
+    runPQBenchmark("smoke", 10, 256, docs, queries, false);
 }
 
-void runExample(const std::string& dataset) {
+void runExample(const std::string& dataset, bool normalise) {
 
     auto root = std::filesystem::path(__FILE__).parent_path();
     auto dim = readDimension(
@@ -32,15 +32,16 @@ void runExample(const std::string& dataset) {
     auto queries = readVectors(
         dim, root / "data" / ("queries-" + dataset + ".csv"), true);
 
-    runPQBenchmark(dataset, 10, dim, docs, queries, writePQStats);
+    runPQBenchmark(dataset, 10, dim, docs, queries, normalise, writePQStats);
 }
 
 std::string usage() {
-    return "run_pq [-h,--help] [-u,--unit] [-s,--smoke] [-r,--run DIR]\n"
+    return "run_pq [-h,--help] [-u,--unit] [-s,--smoke] [-r,--run DATASET] [-n, --norm]\n"
            "\t--help\t\tShow this help\n"
            "\t--unit\t\tRun the unit tests\n"
            "\t--smoke\t\tRun the smoke test\n"
-           "\t--run DATASET\tRun a test dataset";
+           "\t--run DATASET\tRun a test dataset\n"
+           "\t--norm\t\tNormalise quantised document vectors";
 }
 }
 
@@ -48,6 +49,7 @@ int main(int argc, char* argv[]) {
 
     bool unit{false};
     bool smoke{false};
+    bool normalise{false};
     std::string dataset;
 
     for (int i = 1; i < argc; ++i) {
@@ -60,11 +62,13 @@ int main(int argc, char* argv[]) {
         } else if (arg == "-s" || arg == "--smoke") {
             smoke = true;
         } else if (arg == "-r" || arg == "--run") {
-            if (i +1 == argc) {
+            if (i + 1 == argc) {
                 std::cerr << "Bad input. Usage:\n\n" << usage() << std::endl;
                 return 1;
             }
             dataset = argv[i + 1];
+        } else if (arg == "-n" || arg == "--norm") {
+            normalise = true;
         }
     }
 
@@ -75,7 +79,7 @@ int main(int argc, char* argv[]) {
         runSmokeTest();
     }
     if (!dataset.empty()) {
-        runExample(dataset);
+        runExample(dataset, normalise);
     }
 
     return 0;

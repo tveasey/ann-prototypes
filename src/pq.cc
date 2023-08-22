@@ -58,7 +58,7 @@ void zeroPad(std::size_t dim, std::vector<float>& vectors) {
     // Zero pad the vectors so their dimension is a multiple of NUM_BOOKS.
     if (dim % NUM_BOOKS != 0) {
         std::size_t numVectors{vectors.size() / dim};
-        std::size_t paddedDim{NUM_BOOKS * ((dim + 7) / NUM_BOOKS)};
+        std::size_t paddedDim{NUM_BOOKS * ((dim + NUM_BOOKS - 1) / NUM_BOOKS)};
         vectors.resize(paddedDim * numVectors, 0.0F);
         for (std::size_t i = numVectors; i > 1; --i) {
             std::copy(&vectors[dim * (i - 1)], &vectors[dim * i],
@@ -72,6 +72,7 @@ void normalize(std::size_t dim, std::vector<float>& vectors) {
     // Ensure vectors are unit (Euclidean) norm.
     for (std::size_t i = 0; i < vectors.size(); i += dim) {
         float norm{0.0F};
+        #pragma clang loop vectorize(assume_safety)
         for (std::size_t j = 0; j < dim; ++j) {
             norm += vectors[i + j] * vectors[i + j];
         }
@@ -126,7 +127,7 @@ void stepLloyd(std::size_t numBooks,
 
     std::size_t bookDim{dim / numBooks};
 
-    std::vector<float> bookCounts(numBooks * bookSize, 0.0F);
+    std::vector<std::size_t> bookCounts(numBooks * bookSize, 0);
     std::vector<float> newCentres(centres.size(), 0.0F);
 
     std::size_t pos{0};
@@ -151,12 +152,13 @@ void stepLloyd(std::size_t numBooks,
             std::size_t nearestBook{b * bookSize + nearestCentre};
             auto& bookCount = bookCounts[nearestBook];
             auto* newCentre = &newCentres[nearestBook * bookDim];
-            float alpha{bookCount / (bookCount + 1.0F)};
-            float beta{1.0F - alpha};
+            // Switch to double so epsilon << 1 / "largest possible cluster".
+            double alpha{static_cast<double>(bookCount) / static_cast<double>(bookCount + 1)};
+            double beta{1.0 - alpha};
             for (std::size_t j = 0; j < bookDim; ++j) {
-                newCentre[j] = alpha * newCentre[j] + beta * doc[b * bookDim + j];
+                newCentre[j] = static_cast<float>(alpha * newCentre[j] + beta * doc[b * bookDim + j]);
             }
-            bookCount += 1.0F;
+            ++bookCount;
 
             // Encode the document.
             docsCodes[pos + b] = static_cast<code_t>(nearestCentre - OFFSET);
@@ -181,7 +183,7 @@ void stepScann(float t,
 
     // See theorem 3.4 https://arxiv.org/pdf/1908.10396.pdf. This assumes
     // vectors are normalised.
-    float eta{static_cast<float>(dim- 1) * t / 1 - t};
+    float eta{static_cast<float>(dim - 1) * t / (1 - t)};
 
     std::vector<float> bookCounts(numBooks * bookSize, 0.0F);
     std::vector<float> newCentres(centres.size(), 0.0F);
@@ -196,13 +198,13 @@ void stepScann(float t,
                 float distParallel{0.0F};
                 float distPerpendicular{0.0F};
                 for (std::size_t j = 0; j < bookDim; ++j) {
-                    float ci{centres[(b * bookSize + i) * bookDim + j]};
-                    float xi{doc[b * bookDim + j]};
-                    float r{xi - ci};
+                    float cij{centres[(b * bookSize + i) * bookDim + j]};
+                    float xj{doc[b * bookDim + j]};
+                    float dij{xj - cij};
                     // TODO we need to have per book vector norms.
-                    float rp{xi * xi * r};
-                    distParallel += rp;
-                    distPerpendicular += r - rp;
+                    float dpij{xj * xj * dij};
+                    distParallel += dpij;
+                    distPerpendicular += dij - dpij;
                 }
                 if (eta * distParallel + distPerpendicular < minDist) {
                     nearestCentre = i;
@@ -268,9 +270,9 @@ double quantisationMse(std::size_t dim,
         for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
             #pragma clang loop vectorize(assume_safety)
             for (std::size_t i = 0; i < bookDim; ++i) {
-                float d{doc[b * bookDim + i] -
-                        codeBooks[(BOOK_SIZE * b + OFFSET + docCodes[b]) * bookDim + i]};
-                mse += d * d;
+                float di{doc[b * bookDim + i] -
+                         codeBooks[(BOOK_SIZE * b + OFFSET + docCodes[b]) * bookDim + i]};
+                mse += di * di;
             }
         }
 
@@ -300,34 +302,78 @@ std::vector<float> buildDistTable(const std::vector<float>& codeBooks,
     return distTable;
 }
 
+std::vector<float> buildDistNorm2Table(const std::vector<float>& codeBooks,
+                                       const std::vector<float>& query) {
+    std::size_t bookDim{query.size() / NUM_BOOKS};
+    std::vector<float> distTable(2 * NUM_BOOKS * BOOK_SIZE);
+    for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+        for (std::size_t i = 0; i < BOOK_SIZE; ++i) {
+            float sim{0.0F};
+            float norm2{0.0F};
+            #pragma clang loop vectorize(assume_safety)
+            for (std::size_t j = 0; j < bookDim; ++j) {
+                float cij{codeBooks[(BOOK_SIZE * b + i) * bookDim + j]};
+                sim += query[b * bookDim + j] * cij;
+                norm2 += cij * cij;
+            }
+            auto* t = &distTable[2 * (BOOK_SIZE * b + i)];
+            t[0] = sim;
+            t[1] = norm2;
+        }
+    }
+    return distTable;    
+}
+
 float computeDist(const std::vector<float>& distTable,
                   const code_t* docCode) {
     float sim{0.0F};
-    #pragma clang loop unroll_count(NUM_BOOKS)
+    #pragma clang loop unroll_count(8)
     for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
         sim += distTable[BOOK_SIZE * b + OFFSET + docCode[b]];
     }
     return 1.0F - sim;
 }
 
+float computeNormedDist(const std::vector<float>& distTable,
+                        const code_t* docCode) {
+    float sim{0.0F};
+    float norm2{0.0F};
+    #pragma clang loop unroll_count(8)
+    for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+        const auto* t = &distTable[2 * (BOOK_SIZE * b + OFFSET + docCode[b])];
+        sim += t[0];
+        norm2 += t[1];
+    }
+    // Project the quantised document vector back onto unit sphere.
+    return 1.0F - sim / std::sqrt(norm2);
+}
+
 void searchPQ(std::size_t k,
               const std::vector<float>& codeBooks,
               const std::vector<code_t>& docsCodes,
               const std::vector<float>& query,
+              bool normalise,
               std::priority_queue<std::pair<float, std::size_t>>& topk) {
 
     std::size_t dim{query.size()};
     std::size_t bookDim{dim / NUM_BOOKS};
 
-    auto distTable = buildDistTable(codeBooks, query);
+    auto distTable = normalise ?
+        buildDistNorm2Table(codeBooks, query) :
+        buildDistTable(codeBooks, query);
 
     std::size_t docId{0};
     auto docCodes = docsCodes.begin();
     for (/**/; docId < k; ++docId, docCodes += NUM_BOOKS) {
-        topk.push(std::make_pair(computeDist(distTable, &(*docCodes)), docId));
+        float dist{normalise ?
+                   computeNormedDist(distTable, &(*docCodes)) :
+                   computeDist(distTable, &(*docCodes))};
+        topk.push(std::make_pair(dist, docId));
     }
     for (/**/; docCodes != docsCodes.end(); ++docId, docCodes += NUM_BOOKS) {
-        float dist{computeDist(distTable, &(*docCodes))};
+        float dist{normalise ?
+                   computeNormedDist(distTable, &(*docCodes)) :
+                   computeDist(distTable, &(*docCodes))};
         if (dist < topk.top().first) {
             topk.pop();
             topk.push(std::make_pair(dist, docId));
@@ -362,6 +408,7 @@ void runPQBenchmark(const std::string& tag,
                     std::size_t dim,
                     std::vector<float>& docs,
                     std::vector<float>& queries,
+                    bool normalise,
                     const std::function<void(const PQStats&)>& writeStats) {
 
     normalize(dim, docs);
@@ -425,7 +472,7 @@ void runPQBenchmark(const std::string& tag,
             std::copy(queries.begin() + i, queries.begin() + i + dim, query.begin());
 
             start = std::chrono::high_resolution_clock::now();
-            searchPQ(m * k, codeBooks, docsCodes, query, topk);
+            searchPQ(m * k, codeBooks, docsCodes, query, normalise, topk);
             end = std::chrono::high_resolution_clock::now();
             diff += std::chrono::duration<double>(end - start);
 
