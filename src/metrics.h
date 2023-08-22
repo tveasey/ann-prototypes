@@ -22,6 +22,7 @@ struct PQStats {
     // PQ build stats
     double pqCodeBookBuildTime;
     double pqCompressionRatio;
+    double pqMse;
     // PQ query stats
     std::vector<double> pqQPS;
     std::vector<recalls_t> pqRecalls;

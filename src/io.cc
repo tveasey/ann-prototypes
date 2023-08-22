@@ -36,7 +36,7 @@ std::vector<float> readVectors(std::size_t dim,
                                const std::filesystem::path &source,
                                bool verbose) {
     if (verbose) {
-        std::cout << "Reading " << source << "\n" << std::endl;
+        std::cout << "Reading " << source << std::endl;
     }
     
     std::vector<float> result;
@@ -73,7 +73,7 @@ std::vector<float> readVectors(std::size_t dim,
     }
 
     if (verbose) {
-        std::cout << "\rRead " << result.size()
+        std::cout << "\rRead " << (result.size() / dim)
                   << " vectors       " << std::endl;
     }
 
@@ -93,9 +93,8 @@ void writePQStats(const PQStats& stats) {
     if (!fileExists(statsFile)) {
         // Header
         std::ofstream writer(statsFile, std::ios_base::out);
-        writer << "tag,num_queries,num_docs,"
-               << "num_books,book_size,top_k,"
-               << "bf_qps,pq_build_time,pq_compression";
+        writer << "tag,num_queries,num_docs,num_books,book_size,top_k,"
+               << "bf_qps,pq_build_time,pq_k_means_itr,pq_compression,pq_mse";
         for (const auto& m : PQStats::EXPANSIONS) {
             writer << ",pq_qps_" << m;
         }
@@ -113,7 +112,8 @@ void writePQStats(const PQStats& stats) {
            << numBooks() << "," << bookSize() << ","
            << stats.k << "," << stats.bfQPS << ","
            << stats.pqCodeBookBuildTime << ","
-           << stats.pqCompressionRatio;
+           << kMeansItr() << "," << stats.pqCompressionRatio << ","
+           << stats.pqMse;
     for (const auto& qps : stats.pqQPS) {
         writer << "," << qps;
     }

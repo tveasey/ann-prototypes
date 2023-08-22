@@ -271,35 +271,6 @@ bool testStepLloyd() {
     return passed;
 }
 
-bool testComputeDispersion() {
-    std::size_t dim{5};
-    std::vector<float> centres{1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0, 1.0, 2.0, 2.0,
-                               3.0, 3.0, 1.0, 3.0, 1.0, 0.0, 4.0, 0.0, 4.0, 4.0};
-    std::vector<float> docs{1.0, 1.0, 1.0, 2.0, 1.0, 3.0, 2.0, 1.0, 2.0, 2.0,
-                            3.0, 2.5, 3.0, 3.0, 3.5, 0.0, 4.0, 0.0, 4.0, 4.0,
-                            1.0, 2.0, 1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 4.0,
-                            3.5, 2.5, 3.5, 2.0, 3.5, 4.0, 5.0, 4.0, 4.0, 3.0};
-    std::vector<code_t> docsCentres{static_cast<code_t>(0 - offset()),
-                                    static_cast<code_t>(1 - offset()),
-                                    static_cast<code_t>(2 - offset()),
-                                    static_cast<code_t>(3 - offset()),
-                                    static_cast<code_t>(0 - offset()),
-                                    static_cast<code_t>(1 - offset()),
-                                    static_cast<code_t>(2 - offset()),
-                                    static_cast<code_t>(3 - offset())};
-
-    normalize(dim, centres);
-    normalize(dim, docs);
-
-    float dispersion{computeDispersion(dim, centres, docs, docsCentres)};
-
-    if (std::fabs(dispersion - 3.13844) > 1e-6) {
-        std::cout << "FAILED: " << dispersion << " != 3.13844" << std::endl;
-        return false;
-    }
-    return true;
-}
-
 bool testBuildCodeBook() {
     std::minstd_rand rng;
     std::normal_distribution<> norm(0.0, 2.0);
@@ -429,7 +400,6 @@ void runUnitTests() {
     RUN_TEST(testSearchBruteForce);
     RUN_TEST(testInitForgy);
     RUN_TEST(testStepLloyd);
-    RUN_TEST(testComputeDispersion);
     RUN_TEST(testBuildCodeBook);
     RUN_TEST(testBuildDistTable);
     RUN_TEST(testComputeDist);
