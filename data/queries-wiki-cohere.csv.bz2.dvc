@@ -1,0 +1,5 @@
+outs:
+- md5: f606a250ca30e6a624e3f0160e3ca21a
+  size: 5948833
+  hash: md5
+  path: queries-wiki-cohere.csv.bz2

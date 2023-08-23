@@ -94,7 +94,8 @@ void writePQStats(const PQStats& stats) {
         // Header
         std::ofstream writer(statsFile, std::ios_base::out);
         writer << "tag,num_queries,num_docs,num_books,book_size,top_k,"
-               << "bf_qps,pq_build_time,pq_k_means_itr,pq_compression,pq_mse";
+               << "bf_qps,pq_build_time,pq_k_means_itr,pq_compression,"
+               << "pq_mse,pq_normalise";
         for (const auto& m : PQStats::EXPANSIONS) {
             writer << ",pq_qps_" << m;
         }
@@ -113,7 +114,7 @@ void writePQStats(const PQStats& stats) {
            << stats.k << "," << stats.bfQPS << ","
            << stats.pqCodeBookBuildTime << ","
            << kMeansItr() << "," << stats.pqCompressionRatio << ","
-           << stats.pqMse;
+           << stats.pqMse << "," << stats.normalise;
     for (const auto& qps : stats.pqQPS) {
         writer << "," << qps;
     }

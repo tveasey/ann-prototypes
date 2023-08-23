@@ -1,0 +1,5 @@
+outs:
+- md5: 0634044fc2079ef4662ed1e1362ca3ce
+  size: 5577522483
+  hash: md5
+  path: corpus-wiki-cohere.csv.bz2

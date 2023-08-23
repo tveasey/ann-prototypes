@@ -426,8 +426,10 @@ void runPQBenchmark(const std::string& tag,
     std::size_t nq{queries.size() / dim};
     std::size_t nd{docs.size() / dim};
     std::cout << std::setprecision(3)
-              << "# queries = " << nq << ", # docs = " << nd
-              << ", dimension = " << dim << ", k = " << k << std::endl;
+              << "query count = " << nq << ", doc count = " << nd
+              << ", dimension = " << dim << std::endl;
+    std::cout << std::boolalpha << "top-k = " << k
+              << ", normalise = " << normalise << std::endl;
 
     std::vector<std::vector<std::size_t>> nnExact(nq, std::vector<std::size_t>(k));
     for (std::size_t i = 0; i < queries.size(); i += dim) {
@@ -446,6 +448,7 @@ void runPQBenchmark(const std::string& tag,
     std::cout << "Brute force took " << diff.count() << "s" << std::endl;
 
     PQStats stats{tag, nq, nd, k};
+    stats.normalise = normalise;
     stats.bfQPS = static_cast<std::size_t>(
         std::round(static_cast<double>(nq) / diff.count()));
 
@@ -484,9 +487,9 @@ void runPQBenchmark(const std::string& tag,
 
         stats.pqQPS.push_back(std::round(static_cast<double>(nq) / diff.count()));
         stats.pqRecalls.push_back(computeRecalls(nnExact, nnPQ));
-        std::cout << "PQ(" << m * k << ") search took " << diff.count()
-                  << "s, average recall = " << stats.pqRecalls.back()[PQStats::AVG_RECALL]
-                  << std::endl;
+        std::cout << "PQ search took " << diff.count() << "s, "
+                  << "average recall @ " << k << "|" << m * k << " = "
+                  << stats.pqRecalls.back()[PQStats::AVG_RECALL] << std::endl;
     }
 
     writeStats(stats);

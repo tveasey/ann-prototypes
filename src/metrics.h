@@ -24,6 +24,7 @@ struct PQStats {
     double pqCompressionRatio;
     double pqMse;
     // PQ query stats
+    bool normalise;
     std::vector<double> pqQPS;
     std::vector<recalls_t> pqRecalls;
 };

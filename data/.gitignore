@@ -7,3 +7,7 @@
 /queries-quora-E5-small.csv.bz2
 /queries-quora-E5-small.csv.bz2
 /dim-quora-E5-small.txt
+/corpus-wiki-cohere.csv.bz2
+/queries-wiki-cohere.csv.bz2
+/dim-wiki-cohere.txt
+/*.csv

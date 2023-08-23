@@ -1,0 +1,5 @@
+outs:
+- md5: 61a164366ecfdde874971cc5d81b3b16
+  size: 4
+  hash: md5
+  path: dim-wiki-cohere.txt
