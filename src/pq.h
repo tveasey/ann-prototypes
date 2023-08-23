@@ -13,6 +13,11 @@ struct PQStats;
 
 using code_t = std::int8_t;
 
+enum Metric {
+    Dot,
+    Cosine
+};
+
 template<typename U, typename V>
 std::ostream& operator<<(std::ostream& o, const std::pair<U, V>& pair) {
     o << "(" << pair.first << "," << pair.second << ")";
@@ -92,12 +97,20 @@ double quantisationMse(std::size_t dim,
 std::vector<float> buildDistTable(const std::vector<float>& codeBooks,
                                   const std::vector<float>& query);
 
+std::vector<float> buildDistNorm2Table(const std::vector<float>& codeBooks,
+                                       const std::vector<float>& query);
+
 float computeDist(const std::vector<float>& distTable,
                   const code_t* docCode);
+
+float computeNormedDist(const std::vector<float>& distTable,
+                        float norm2,
+                        const code_t* docCode);
 
 void searchPQ(std::size_t k,
               const std::vector<float>& codeBooks,
               const std::vector<code_t>& docsCodes,
+              const std::vector<float>& docsNorms,
               const std::vector<float>& query,
               bool normalise,
               std::priority_queue<std::pair<float, std::size_t>>& topk);
@@ -108,6 +121,7 @@ void searchBruteForce(std::size_t k,
                       std::priority_queue<std::pair<float, std::size_t>>& topk);
 
 void runPQBenchmark(const std::string& tag,
+                    Metric metric,
                     std::size_t k,
                     std::size_t dim,
                     std::vector<float>& docs,

@@ -19,10 +19,10 @@ void runSmokeTest() {
     std::vector<float> queries(25600);
     std::generate_n(queries.begin(), queries.size(), [&] { return norm(rng); });
 
-    runPQBenchmark("smoke", 10, 256, docs, queries, false);
+    runPQBenchmark("smoke", Cosine, 10, 256, docs, queries, false);
 }
 
-void runExample(const std::string& dataset, bool normalise) {
+void runExample(const std::string& dataset, Metric metric, bool normalise) {
 
     auto root = std::filesystem::path(__FILE__).parent_path();
     auto dim = readDimension(
@@ -32,7 +32,7 @@ void runExample(const std::string& dataset, bool normalise) {
     auto queries = readVectors(
         dim, root / "data" / ("queries-" + dataset + ".csv"), true);
 
-    runPQBenchmark(dataset, 10, dim, docs, queries, normalise, writePQStats);
+    runPQBenchmark(dataset, metric, 10, dim, docs, queries, normalise, writePQStats);
 }
 
 std::string usage() {
@@ -41,6 +41,7 @@ std::string usage() {
            "\t--unit\t\tRun the unit tests\n"
            "\t--smoke\t\tRun the smoke test\n"
            "\t--run DATASET\tRun a test dataset\n"
+           "\t--metric METRIC\tThe metric, must be cosine or dot, with which to compare vectors\n"
            "\t--norm\t\tNormalise quantised document vectors";
 }
 }
@@ -50,6 +51,7 @@ int main(int argc, char* argv[]) {
     bool unit{false};
     bool smoke{false};
     bool normalise{false};
+    Metric metric{Cosine};
     std::string dataset;
 
     for (int i = 1; i < argc; ++i) {
@@ -63,10 +65,23 @@ int main(int argc, char* argv[]) {
             smoke = true;
         } else if (arg == "-r" || arg == "--run") {
             if (i + 1 == argc) {
-                std::cerr << "Bad input. Usage:\n\n" << usage() << std::endl;
+                std::cerr << "Missing dataset. Usage:\n\n" << usage() << std::endl;
                 return 1;
             }
             dataset = argv[i + 1];
+        } else if (arg == "-m" || arg == "--metric") {
+            if (i + 1 == argc) {
+                std::cerr << "Missing metric. Usage:\n\n" << usage() << std::endl;
+                return 1;
+            }
+            if (std::strcmp(argv[i + 1], "cosine") == 0) {
+                metric = Cosine;
+            } else if (std::strcmp(argv[i + 1], "dot") == 0) {
+                metric = Dot;
+            } else {
+                std::cerr << "Bad metric " << argv[i + 1] << ". Usage:\n\n" << usage() << std::endl;
+                return 1;
+            }
         } else if (arg == "-n" || arg == "--norm") {
             normalise = true;
         }
@@ -79,7 +94,7 @@ int main(int argc, char* argv[]) {
         runSmokeTest();
     }
     if (!dataset.empty()) {
-        runExample(dataset, normalise);
+        runExample(dataset, metric, normalise);
     }
 
     return 0;

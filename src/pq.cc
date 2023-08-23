@@ -19,7 +19,6 @@
 
 // Notes
 // -----
-//
 // * Hardcode dot product: other metrics should perform similarly.
 // * Data-oriented design to maximize memory access efficiency.
 // * Hardcode all loop limits where possible since this helps the
@@ -36,6 +35,7 @@ constexpr int OFFSET{[] {
     return std::min((1 << (8 * sizeof(code_t) - 1)) - BOOK_SIZE, 0);
 }()};
 constexpr std::size_t K_MEANS_ITR{12};
+std::array<std::string, 2> METRICS{"dot", "cosine"}; 
 }
 
 int numBooks() {
@@ -82,6 +82,19 @@ void normalize(std::size_t dim, std::vector<float>& vectors) {
             vectors[i + j] /= norm;
         }
     }
+}
+
+std::vector<float> norms2(std::size_t dim, std::vector<float>& vectors) {
+    std::vector<float> norms2(vectors.size() / dim);
+    for (std::size_t i = 0; i < vectors.size(); i += dim) {
+        float norm2{0.0F};
+        #pragma clang loop vectorize(assume_safety)
+        for (std::size_t j = 0; j < dim; ++j) {
+            norm2 += vectors[i + j] * vectors[i + j];
+        }
+        norms2[i / dim] = norm2;
+    }
+    return norms2;
 }
 
 std::set<std::size_t> initForgy(std::size_t k,
@@ -153,10 +166,12 @@ void stepLloyd(std::size_t numBooks,
             auto& bookCount = bookCounts[nearestBook];
             auto* newCentre = &newCentres[nearestBook * bookDim];
             // Switch to double so epsilon << 1 / "largest possible cluster".
-            double alpha{static_cast<double>(bookCount) / static_cast<double>(bookCount + 1)};
+            double alpha{static_cast<double>(bookCount) /
+                         static_cast<double>(bookCount + 1)};
             double beta{1.0 - alpha};
             for (std::size_t j = 0; j < bookDim; ++j) {
-                newCentre[j] = static_cast<float>(alpha * newCentre[j] + beta * doc[b * bookDim + j]);
+                newCentre[j] = static_cast<float>(
+                    alpha * newCentre[j] + beta * doc[b * bookDim + j]);
             }
             ++bookCount;
 
@@ -314,6 +329,7 @@ std::vector<float> buildDistNorm2Table(const std::vector<float>& codeBooks,
             for (std::size_t j = 0; j < bookDim; ++j) {
                 float cij{codeBooks[(BOOK_SIZE * b + i) * bookDim + j]};
                 sim += query[b * bookDim + j] * cij;
+                // TODO the norm calculation can be cached for all queries.
                 norm2 += cij * cij;
             }
             auto* t = &distTable[2 * (BOOK_SIZE * b + i)];
@@ -335,22 +351,29 @@ float computeDist(const std::vector<float>& distTable,
 }
 
 float computeNormedDist(const std::vector<float>& distTable,
+                        float norm2,
                         const code_t* docCode) {
+    // Note that really norm2 is only needed for dot so this is slightly
+    // inefficient for cosine. It increases runtime by about 7% on my M1
+    // Mac for 8 codebooks. The absolute overhead should be fixed so the
+    // % overhead should decrease as the number of books increases.
     float sim{0.0F};
-    float norm2{0.0F};
+    float qnorm2{0.0F};
     #pragma clang loop unroll_count(8)
     for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
         const auto* t = &distTable[2 * (BOOK_SIZE * b + OFFSET + docCode[b])];
         sim += t[0];
-        norm2 += t[1];
+        qnorm2 += t[1];
     }
-    // Project the quantised document vector back onto unit sphere.
-    return 1.0F - sim / std::sqrt(norm2);
+    // Project the quantised representation onto the sphere on which the
+    // true document vector lies.
+    return 1.0F - sim * std::sqrt(norm2 / qnorm2);
 }
 
 void searchPQ(std::size_t k,
               const std::vector<float>& codeBooks,
               const std::vector<code_t>& docsCodes,
+              const std::vector<float>& docsNorms,
               const std::vector<float>& query,
               bool normalise,
               std::priority_queue<std::pair<float, std::size_t>>& topk) {
@@ -362,21 +385,22 @@ void searchPQ(std::size_t k,
         buildDistNorm2Table(codeBooks, query) :
         buildDistTable(codeBooks, query);
 
-    std::size_t docId{0};
     auto docCodes = docsCodes.begin();
-    for (/**/; docId < k; ++docId, docCodes += NUM_BOOKS) {
+    auto norm = docsNorms.begin();
+    std::size_t id{0};
+    for (/**/; id < k; docCodes += NUM_BOOKS, ++norm, ++id) {
         float dist{normalise ?
-                   computeNormedDist(distTable, &(*docCodes)) :
+                   computeNormedDist(distTable, *norm, &(*docCodes)) :
                    computeDist(distTable, &(*docCodes))};
-        topk.push(std::make_pair(dist, docId));
+        topk.push(std::make_pair(dist, id));
     }
-    for (/**/; docCodes != docsCodes.end(); ++docId, docCodes += NUM_BOOKS) {
+    for (/**/; docCodes != docsCodes.end(); docCodes += NUM_BOOKS, ++norm, ++id) {
         float dist{normalise ?
-                   computeNormedDist(distTable, &(*docCodes)) :
+                   computeNormedDist(distTable, *norm, &(*docCodes)) :
                    computeDist(distTable, &(*docCodes))};
         if (dist < topk.top().first) {
             topk.pop();
-            topk.push(std::make_pair(dist, docId));
+            topk.push(std::make_pair(dist, id));
         }
     }
 }
@@ -387,7 +411,7 @@ void searchBruteForce(std::size_t k,
                       std::priority_queue<std::pair<float, std::size_t>>& topk) {
     std::size_t dim{query.size()};
 
-    for (std::size_t i = 0; i < docs.size(); i += dim) {
+    for (std::size_t i = 0, id = 0; i < docs.size(); i += dim, ++id) {
         float sim{0.0F};
         #pragma clang loop vectorize(assume_safety)
         for (std::size_t j = 0; j < dim; ++j) {
@@ -395,15 +419,16 @@ void searchBruteForce(std::size_t k,
         }
         float dist{1.0F - sim};
         if (topk.size() < k) {
-            topk.push(std::make_pair(dist, i / dim));
+            topk.push(std::make_pair(dist, id));
         } else if (topk.top().first > dist) {
             topk.pop();
-            topk.push(std::make_pair(dist, i / dim));
+            topk.push(std::make_pair(dist, id));
         }
     }
 }
 
 void runPQBenchmark(const std::string& tag,
+                    Metric metric,
                     std::size_t k,
                     std::size_t dim,
                     std::vector<float>& docs,
@@ -411,8 +436,13 @@ void runPQBenchmark(const std::string& tag,
                     bool normalise,
                     const std::function<void(const PQStats&)>& writeStats) {
 
-    normalize(dim, docs);
-    normalize(dim, queries);
+    if (metric == Cosine) {
+        normalize(dim, docs);
+        normalize(dim, queries);
+    }
+
+    auto docsNorms2 = norms2(dim, docs);
+
     zeroPad(dim, docs);
     zeroPad(dim, queries);
 
@@ -426,9 +456,12 @@ void runPQBenchmark(const std::string& tag,
     std::size_t nq{queries.size() / dim};
     std::size_t nd{docs.size() / dim};
     std::cout << std::setprecision(3)
-              << "query count = " << nq << ", doc count = " << nd
+              << "query count = " << nq
+              << ", doc count = " << nd
               << ", dimension = " << dim << std::endl;
-    std::cout << std::boolalpha << "top-k = " << k
+    std::cout << std::boolalpha
+              << "metric = " << METRICS[metric]
+              << ", top-k = " << k
               << ", normalise = " << normalise << std::endl;
 
     std::vector<std::vector<std::size_t>> nnExact(nq, std::vector<std::size_t>(k));
@@ -475,7 +508,7 @@ void runPQBenchmark(const std::string& tag,
             std::copy(queries.begin() + i, queries.begin() + i + dim, query.begin());
 
             start = std::chrono::high_resolution_clock::now();
-            searchPQ(m * k, codeBooks, docsCodes, query, normalise, topk);
+            searchPQ(m * k, codeBooks, docsCodes, docsNorms2, query, normalise, topk);
             end = std::chrono::high_resolution_clock::now();
             diff += std::chrono::duration<double>(end - start);
 
