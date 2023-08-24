@@ -11,7 +11,7 @@
 
 struct PQStats;
 
-using code_t = std::int8_t;
+using code_t = std::uint8_t;
 
 enum Metric {
     Dot,
@@ -45,54 +45,55 @@ int numBooks();
 
 int bookSize();
 
-int offset();
-
 std::size_t kMeansItr();
 
 void zeroPad(std::size_t dim, std::vector<float>& vectors);
 
 void normalize(std::size_t dim, std::vector<float>& vectors);
 
-std::set<std::size_t> initForgy(std::size_t k,
-                                std::size_t numDocs,
+double quantisationMse(std::size_t dim,
+                       const std::vector<float>& codeBooks,
+                       const std::vector<float>& docs,
+                       const std::vector<code_t>& docsCodes);
+
+std::set<std::size_t> initForgy(std::size_t numDocs,
                                 std::minstd_rand& rng);
 
-std::vector<float> initForgy(std::size_t k,
-                             std::size_t bookDim,
-                             std::size_t dim,
+std::vector<float> initForgy(std::size_t dim,
                              const std::vector<float>& docs,
                              std::minstd_rand& rng);
 
-void stepLloyd(std::size_t numBooks,
-               std::size_t bookSize,
-               std::size_t dim,
+void stepLloyd(std::size_t dim,
                const std::vector<float>& docs,
                std::vector<float>& centres,
                std::vector<code_t>& docsCodes);
 
 void stepScann(float t,
-               std::size_t numBooks,
-               std::size_t bookSize,
                std::size_t dim,
                const std::vector<float>& docs,
                std::vector<float>& centres,
                std::vector<code_t>& docsCodes);
 
+std::vector<float> sampleDocs(double sampleProbability,
+                              std::size_t dim,
+                              const std::vector<float>& docs,
+                              std::minstd_rand& rng);
+
+std::vector<float> initCodeBooks(std::size_t dim,
+                                 const std::vector<float>& docs);
+
 std::pair<std::vector<float>, std::vector<code_t>>
 buildCodeBook(std::size_t dim,
+              double sampleProbability,
               const std::vector<float>& docs,
-              std::size_t iterations = 10);
+              std::size_t iterations);
 
 std::pair<std::vector<float>, std::vector<code_t>>
 buildCodeBookScann(float t,
                    std::size_t dim,
+                   double sampleProbability,
                    const std::vector<float>& docs,
-                   std::size_t iterations = 10);
-
-double quantisationMse(std::size_t dim,
-                       const std::vector<float>& codeBooks,
-                       const std::vector<float>& docs,
-                       const std::vector<code_t>& docsCodes);
+                   std::size_t iterations);
 
 std::vector<float> buildDistTable(const std::vector<float>& codeBooks,
                                   const std::vector<float>& query);

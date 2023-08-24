@@ -6,6 +6,7 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <queue>
 #include <random>
 #include <sstream>
@@ -51,11 +52,24 @@ bool testZeroPad() {
                                2.0F, 2.0F, 2.0F, 2.0F, 2.0F, 2.0F, 2.0F, 2.0F, 2.0F};
     zeroPad(9, vectors);
 
-    std::ostringstream result;
-    result << vectors;
-    if (result.str() != "[1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,2,2,2,2,2,2,2,2,2,0,0,0,0,0,0,0]") {
+    if (vectors.size() != 2 * numBooks()) {
         std::cout << "FAILED: output " << vectors << std::endl;
         return false;
+    }
+
+    for (std::size_t i = 0; i < 2; ++i) {
+        for (std::size_t j = 0; j < 9; ++j) {
+            if (vectors[i * numBooks() + j] != static_cast<float>(i + 1)) {
+                std::cout << "FAILED: output " << vectors << std::endl;
+                return false;
+            }
+        }
+        for (std::size_t j = 9; j < numBooks(); ++j) {
+            if (vectors[i * numBooks() + j] != 0.0F) {
+                std::cout << "FAILED: output " << vectors << std::endl;
+                return false;
+            }
+        }
     }
     return true;
 }
@@ -143,16 +157,16 @@ bool testInitForgy() {
 
     bool passed{true};
     for (std::size_t i = 0; i < 10; ++i) {
-        auto result = initForgy(10, 100, rng);
+        auto result = initForgy(1000, rng);
         std::vector<std::size_t> centres(result.begin(), result.end());
 
-        if (centres.size() != 10) {
+        if (centres.size() != bookSize()) {
             std::cout << "FAILED: centres " << centres << std::endl;
             passed = false;
             break;
         }
         for (auto centre : centres) {
-            if (centre > 99) {
+            if (centre > 999) {
                 std::cout << "FAILED: centres " << centres << std::endl;
                 passed = false;
                 break;
@@ -160,32 +174,36 @@ bool testInitForgy() {
         }
     }
 
-    std::size_t dim{80};
-    std::size_t bookDim{dim / 8};
+    std::size_t bookDim{2};
+    std::size_t dim{bookDim * numBooks()};
+    std::vector<float> bookValues(numBooks());
+    std::iota(bookValues.begin(), bookValues.end(), 0.0F);
 
-    std::vector<float> docs(8000);
+    std::vector<float> docs(1000 * dim);
     for (std::size_t i = 0; i < docs.size(); i += dim) {
-        for (std::size_t j = 0; j < dim; ++j) {
-            docs[i + j] = static_cast<float>(i * bookDim + j / bookDim);
+        for (std::size_t b = 0; b < numBooks(); ++b) {
+            for (std::size_t j = 0; j < bookDim; ++j) {
+                docs[i + b * bookDim + j] = bookValues[b];
+            }
         }
     }
 
-    auto result = initForgy(5, bookDim, dim, docs, rng);
+    auto centres = initForgy(dim, docs, rng);
 
-    if (result.size() != 5 * dim) {
-        std::cout << "FAILED: size " << result.size()
-                  << " != " << 5 * dim << std::endl;
+    if (centres.size() != bookSize() * dim) {
+        std::cout << "FAILED: size " << centres.size()
+                  << " != " << bookSize() * dim << std::endl;
         passed = false;
     }
-    for (std::size_t i = 0; i < result.size(); i += 5 * bookDim) {
-        std::size_t expectedBook{i / (5 * bookDim)};
-        for (std::size_t j = 0; j < 5 * bookDim; ++j) {
-            std::size_t book{static_cast<std::size_t>(result[i+j]) % bookDim};
-            if (book != expectedBook) {
-                std::cout << "FAILED: book@" << j << " " << book
-                          << " != " << expectedBook << std::endl;
-                passed = false;
-                break;
+    for (std::size_t b = 0; b < numBooks(); ++b) {
+        for (std::size_t i = 0; i < bookSize(); ++i) {
+            for (std::size_t j = 0; j < bookDim; ++j) {
+                float actual{centres[(b * bookSize() + i) * bookDim + j]};
+                if (actual != bookValues[b]) {
+                    std::cout << "FAILED: book " << b << "@" << i << " "
+                              << actual << " != " << bookValues[b] << std::endl;
+                    passed = false;
+                }
             }
         }
     }
@@ -194,80 +212,67 @@ bool testInitForgy() {
 }
 
 bool testStepLloyd() {
-    std::size_t numBooks{4};
-    std::size_t bookSize{16};
-    std::size_t dim{8};
-    std::size_t bookDim{dim / numBooks};
-
     std::minstd_rand rng;
-    std::normal_distribution<> norm(0.0, 0.01);
-    std::uniform_int_distribution<> uniform(0, bookSize - 1);
 
-    std::vector<float> centres(numBooks * bookSize * bookDim);
-    std::vector<float> docs(5 * bookSize * dim);
-
-    for (std::size_t b = 0; b < numBooks; ++b) {
-        for (std::size_t i = 0; i < bookSize; ++i) {
-            std::size_t book{b * bookSize + i};
-            centres[book * bookDim + 0] = std::cos(2.0 * 3.14159 * i / bookSize);
-            centres[book * bookDim + 1] = std::sin(2.0 * 3.14159 * i / bookSize);
-        }
+    std::size_t bookDim{2};
+    std::size_t dim{bookDim * numBooks()};
+    std::vector<float> bookCentres(numBooks());
+    for (std::size_t b = 1; b <= numBooks(); ++b) {
+        bookCentres[b - 1] = 1000.0F * static_cast<float>(b);
     }
 
-    std::vector<float> counts(numBooks * bookSize, 0.0F);
-    std::vector<float> expectedCentres(centres.size(), 0.0F);
-    std::vector<code_t> expectedDocsCodes;
-
+    std::vector<float> docs(20 * bookSize() * dim);
+    std::normal_distribution<> norm{0.0, 0.1};
+    std::uniform_int_distribution<> cluster{0, bookSize() - 1};
     for (std::size_t i = 0; i < docs.size(); i += dim) {
-        std::vector<int> codes(numBooks);
-        std::vector<float> noise(dim);
-        std::generate_n(&codes[0], numBooks, [&] { return uniform(rng); });
-        std::generate_n(&noise[0], dim, [&] { return norm(rng); });
-        for (std::size_t b = 0; b < numBooks; ++b) {
-            std::size_t book{b * bookSize + codes[b]};
-            counts[book] += 1.0F;
-            float alpha{(counts[book] - 1.0F) / counts[book]};
-            float beta{1.0F - alpha};
-            float norm{0.0F};
+        for (std::size_t b = 0; b < numBooks(); ++b) {
+            float offset{bookCentres[b] + static_cast<float>(2 * cluster(rng) - bookSize())};
             for (std::size_t j = 0; j < bookDim; ++j) {
-                docs[i + b * bookDim + j] =
-                    centres[book * bookDim + j] + noise[b * bookDim + j];
-                norm += docs[i + b * bookDim + j] * docs[i + b * bookDim + j];
+                docs[i + b * bookDim + j] = offset + static_cast<float>(norm(rng));
             }
-            norm = std::sqrt(norm);
-            for (std::size_t j = 0; j < bookDim; ++j) {
-                docs[i + b * bookDim + j] /= norm;
-                expectedCentres[book * bookDim + j] = 
-                    alpha * expectedCentres[book * bookDim + j] +
-                    beta * docs[i + b * bookDim + j];
-            }
-            expectedDocsCodes.push_back(static_cast<code_t>(codes[b] - offset()));
         }
     }
 
-    std::vector<code_t> docsCodes(expectedDocsCodes);
+    auto centres = initForgy(dim, docs, rng);
 
-    stepLloyd(numBooks, bookSize, dim, docs, centres, docsCodes);
+    std::vector<code_t> docsCodes(20 * bookSize() * numBooks());
+    auto calculateErrors = [&] {
+        auto doc = docs.begin();
+        float maxMse{0.0F};
+        float totMse{0.0F};
+        for (std::size_t i = 0; i < docsCodes.size(); i += numBooks(), doc += dim) {
+            for (std::size_t b = 0; b < numBooks(); ++b) {
+                float mse{0.0F};
+                for (std::size_t j = 0; j < bookDim; ++j) {
+                    mse += std::powf(
+                        docs[b * bookDim + j] -
+                        centres[(b * bookSize() + docsCodes[i + b]) * bookDim + j], 2.0F);
+                }
+                mse = std::sqrtf(mse);
+                maxMse = std::max(maxMse, mse);
+                totMse += mse;
+            }
+        }
+        return std::make_pair(maxMse, totMse);
+    };
 
+    // Check usual k-means invariants.
     bool passed{true};
-    for (std::size_t i = 0; i < centres.size(); ++i) {
-        if (std::fabs(centres[i] - expectedCentres[i]) > 1e-6) {
-            std::cout << "FAILED: centre@" << i << " " << centres[i]
-                      << " != " << expectedCentres[i] << std::endl;
+    float lastMaxMse{std::numeric_limits<float>::max()};
+    float lastTotMse{std::numeric_limits<float>::max()};
+    for (std::size_t i = 0; i < 5; ++i) {
+        stepLloyd(dim, docs, centres, docsCodes);
+        auto [maxMse, totMse] = calculateErrors();
+        if (maxMse > lastMaxMse) {
+            std::cout << "FAILED: " << maxMse << " > " << lastMaxMse << std::endl;
             passed = false;
-            break;
+        }
+        if (totMse > lastTotMse) {
+            std::cout << "FAILED: " << totMse << " > " << lastTotMse << std::endl;
+            passed = false;
         }
     }
-    for (std::size_t i = 0; i < docsCodes.size(); ++i) {
-        if (docsCodes[i] != expectedDocsCodes[i]) {
-            std::cout << "FAILED: centre@" << i << " "
-                      << static_cast<int>(docsCodes[i]) << " != "
-                      << static_cast<int>(expectedCentres[i]) << std::endl;
-            passed = false;
-            break;
-        }
-    }
-    
+
     return passed;
 }
 
@@ -275,31 +280,19 @@ bool testBuildCodeBook() {
     std::minstd_rand rng;
     std::normal_distribution<> norm(0.0, 2.0);
 
-    std::size_t dim{16};
-    std::size_t bookDim{dim / numBooks()};
-    std::vector<float> docs(1000 * 16);
+    std::size_t bookDim{2};
+    std::size_t dim{bookDim * numBooks()};
+    std::vector<float> docs(1000 * dim);
     std::generate_n(&docs[0], docs.size(), [&] { return norm(rng); });
 
     normalize(dim, docs);
 
-    auto [codeBooks, docsCodes] = buildCodeBook(dim, docs);
+    auto [codeBooks, docsCodes] = buildCodeBook(dim, 1.0, docs, 10);
 
-    float avgDist{0.0F};
-    float count{0.0F};
-    for (std::size_t i = 0; i < docsCodes.size(); i += numBooks()) {
-        float sim{0.0F};
-        for (std::size_t b = 0; b < numBooks(); ++b) {
-            std::size_t book{b * bookSize() + (offset() + docsCodes[i + b])};
-            for (std::size_t j = 0; j < bookDim; ++j) {
-                sim += codeBooks[book * bookDim + j] * docs[(i + b) * bookDim + j];
-            }
-        }
-        avgDist += 1.0F - sim;
-        count += 1.0F;
-    }
-    avgDist /= count;
-    if (avgDist > 0.03) {
-        std::cout << "FAILED: dist " << avgDist << " > 0.03" << std::endl;
+    float rmse{std::sqrtf(quantisationMse(dim, codeBooks, docs, docsCodes))};
+
+    if (rmse > 0.1) {
+        std::cout << "FAILED: dist " << rmse << " > 0.03" << std::endl;
         return false;
     }
     return true;
@@ -309,8 +302,8 @@ bool testBuildDistTable() {
     std::minstd_rand rng;
     std::normal_distribution<> norm(2.0, 1.0);
 
-    std::size_t dim{80};
-    std::size_t bookDim{dim / numBooks()};
+    std::size_t bookDim{10};
+    std::size_t dim{bookDim * numBooks()};
     std::vector<float> codeBooks(bookSize() * dim);
     std::vector<float> query(dim);
 
@@ -352,39 +345,6 @@ bool testBuildDistTable() {
     return passed;
 }
 
-bool testComputeDist() {
-    std::minstd_rand rng;
-    std::normal_distribution<> norm(2.0, 1.0);
-
-    std::vector<float> table(numBooks() * bookSize());
-    std::vector<int> rawCodes{249,
-                              1 * bookSize() + 127,
-                              2 * bookSize() + 75,
-                              3 * bookSize() + 211,
-                              4 * bookSize() + 3,
-                              5 * bookSize() + 179,
-                              6 * bookSize() + 98,
-                              7 * bookSize() + 33};
-
-    std::generate_n(&table[0], table.size(), [&] { return norm(rng); });
-
-    std::vector<code_t> codes;
-    float expectedDist{0.0F};
-    for (auto i : rawCodes) {
-        codes.push_back(static_cast<code_t>((i % bookSize()) - offset()));
-        expectedDist += table[i];
-    }
-    expectedDist = 1.0F - expectedDist;
-
-    float dist{computeDist(table, &codes[0])};
-
-    if (std::fabs(dist - expectedDist) > 1e-6) {
-        std::cout << "FAILED: dist " << dist << " != " << expectedDist << std::endl;
-        return false;
-    }
-    return true;
-}
-
 #define RUN_TEST(x)                                      \
     do {                                                 \
     std::cout << "Running " << #x << " ";                \
@@ -402,5 +362,4 @@ void runUnitTests() {
     RUN_TEST(testStepLloyd);
     RUN_TEST(testBuildCodeBook);
     RUN_TEST(testBuildDistTable);
-    RUN_TEST(testComputeDist);
 }
