@@ -74,7 +74,7 @@ bool testZeroPad() {
     return true;
 }
 
-bool testNormalize() {
+bool testNormalise() {
     std::minstd_rand rng;
     std::normal_distribution<> norm(2.0, 1.0);
 
@@ -82,7 +82,7 @@ bool testNormalize() {
     std::vector<float> vectors(800);
     std::generate_n(vectors.begin(), vectors.size(), [&] { return norm(rng); });
 
-    normalize(dim, vectors);
+    normalise(dim, vectors);
 
     bool passed{true};
     for (std::size_t i = 0; i < vectors.size(); i += dim) {
@@ -109,8 +109,8 @@ bool testSearchBruteForce() {
     std::vector<float> query(dim);
     std::generate_n(query.begin(), query.size(), [&] { return norm(rng); });
 
-    normalize(dim, docs);
-    normalize(dim, query);
+    normalise(dim, docs);
+    normalise(dim, query);
 
     std::priority_queue<std::pair<float, std::size_t>> topk;
     searchBruteForce(5, docs, query, topk);
@@ -285,7 +285,7 @@ bool testBuildCodeBook() {
     std::vector<float> docs(1000 * dim);
     std::generate_n(&docs[0], docs.size(), [&] { return norm(rng); });
 
-    normalize(dim, docs);
+    normalise(dim, docs);
 
     auto [codeBooks, docsCodes] = buildCodeBook(dim, 1.0, docs, 10);
 
@@ -310,8 +310,8 @@ bool testBuildDistTable() {
     std::generate_n(codeBooks.begin(), codeBooks.size(), [&] { return norm(rng); });
     std::generate_n(query.begin(), query.size(), [&] { return norm(rng); });
 
-    normalize(dim, codeBooks);
-    normalize(dim, query);
+    normalise(dim, codeBooks);
+    normalise(dim, query);
 
     std::vector<float> table{buildDistTable(codeBooks, query)};
 
@@ -356,7 +356,7 @@ void runUnitTests() {
     RUN_TEST(testReadDimension);
     RUN_TEST(testReadVectors);
     RUN_TEST(testZeroPad);
-    RUN_TEST(testNormalize);
+    RUN_TEST(testNormalise);
     RUN_TEST(testSearchBruteForce);
     RUN_TEST(testInitForgy);
     RUN_TEST(testStepLloyd);

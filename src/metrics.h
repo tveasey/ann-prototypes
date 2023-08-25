@@ -9,13 +9,15 @@ struct PQStats {
     static constexpr std::size_t MIN_RECALL{0};
     static constexpr std::size_t MAX_RECALL{1};
     static constexpr std::size_t AVG_RECALL{2};
-    static constexpr std::array<std::size_t, 6> EXPANSIONS{1, 2, 4, 6, 8, 10};
+    static constexpr std::array<std::size_t, 8> EXPANSIONS{1, 2, 4, 8, 10, 20, 40, 100};
     using recalls_t = std::array<double, AVG_RECALL + 1>;
 
     // Test stats
     std::string tag;
+    std::string metric;
     std::size_t numQueries;
     std::size_t numDocs;
+    std::size_t dim;
     std::size_t k;
     // Brute force stats
     double bfQPS;

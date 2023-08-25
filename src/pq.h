@@ -49,7 +49,7 @@ std::size_t kMeansItr();
 
 void zeroPad(std::size_t dim, std::vector<float>& vectors);
 
-void normalize(std::size_t dim, std::vector<float>& vectors);
+void normalise(std::size_t dim, std::vector<float>& vectors);
 
 double quantisationMse(std::size_t dim,
                        const std::vector<float>& codeBooks,
@@ -105,7 +105,6 @@ float computeDist(const std::vector<float>& distTable,
                   const code_t* docCode);
 
 float computeNormedDist(const std::vector<float>& distTable,
-                        float norm2,
                         const code_t* docCode);
 
 void searchPQ(std::size_t k,
@@ -127,5 +126,4 @@ void runPQBenchmark(const std::string& tag,
                     std::size_t dim,
                     std::vector<float>& docs,
                     std::vector<float>& queries,
-                    bool normalise,
                     const std::function<void(const PQStats&)>& writeStats = [](const PQStats&) {});

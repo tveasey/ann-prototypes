@@ -19,10 +19,10 @@ void runSmokeTest() {
     std::vector<float> queries(25600);
     std::generate_n(queries.begin(), queries.size(), [&] { return norm(rng); });
 
-    runPQBenchmark("smoke", Cosine, 10, 256, docs, queries, false);
+    runPQBenchmark("smoke", Cosine, 10, 256, docs, queries);
 }
 
-void runExample(const std::string& dataset, Metric metric, bool normalise) {
+void runExample(const std::string& dataset, Metric metric) {
 
     auto root = std::filesystem::path(__FILE__).parent_path();
     auto dim = readDimension(
@@ -32,7 +32,7 @@ void runExample(const std::string& dataset, Metric metric, bool normalise) {
     auto queries = readVectors(
         dim, root / "data" / ("queries-" + dataset + ".csv"), true);
 
-    runPQBenchmark(dataset, metric, 10, dim, docs, queries, normalise, writePQStats);
+    runPQBenchmark(dataset, metric, 10, dim, docs, queries, writePQStats);
 }
 
 std::string usage() {
@@ -50,7 +50,6 @@ int main(int argc, char* argv[]) {
 
     bool unit{false};
     bool smoke{false};
-    bool normalise{false};
     Metric metric{Cosine};
     std::string dataset;
 
@@ -82,8 +81,6 @@ int main(int argc, char* argv[]) {
                 std::cerr << "Bad metric " << argv[i + 1] << ". Usage:\n\n" << usage() << std::endl;
                 return 1;
             }
-        } else if (arg == "-n" || arg == "--norm") {
-            normalise = true;
         }
     }
 
@@ -94,7 +91,7 @@ int main(int argc, char* argv[]) {
         runSmokeTest();
     }
     if (!dataset.empty()) {
-        runExample(dataset, metric, normalise);
+        runExample(dataset, metric);
     }
 
     return 0;

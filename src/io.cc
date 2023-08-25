@@ -93,8 +93,8 @@ void writePQStats(const PQStats& stats) {
     if (!fileExists(statsFile)) {
         // Header
         std::ofstream writer(statsFile, std::ios_base::out);
-        writer << "tag,num_queries,num_docs,num_books,book_size,top_k,"
-               << "bf_qps,pq_build_time,pq_k_means_itr,pq_compression,"
+        writer << "tag,metric,num_queries,num_docs,dim,num_books,book_size,"
+               << "top_k,bf_qps,pq_build_time,pq_k_means_itr,pq_compression,"
                << "pq_mse,pq_normalise";
         for (const auto& m : PQStats::EXPANSIONS) {
             writer << ",pq_qps_" << m;
@@ -108,13 +108,12 @@ void writePQStats(const PQStats& stats) {
     }
 
     std::ofstream writer(statsFile, std::ios_base::app);
-    writer << stats.tag << ","
-           << stats.numQueries << "," << stats.numDocs << ","
-           << numBooks() << "," << bookSize() << ","
-           << stats.k << "," << stats.bfQPS << ","
-           << stats.pqCodeBookBuildTime << ","
-           << kMeansItr() << "," << stats.pqCompressionRatio << ","
-           << stats.pqMse << "," << stats.normalise;
+    writer << stats.tag << "," << stats.metric << "," << stats.numQueries << ","
+           << stats.numDocs << "," << stats.dim << "," << numBooks() << ","
+           << bookSize() << "," << stats.k << "," << stats.bfQPS << ","
+           << stats.pqCodeBookBuildTime << "," << kMeansItr() << ","
+           << stats.pqCompressionRatio << "," << stats.pqMse << ","
+           << stats.normalise;
     for (const auto& qps : stats.pqQPS) {
         writer << "," << qps;
     }
