@@ -1,0 +1,5 @@
+outs:
+- md5: a604c1858abbef63aef20d48e2a155a5
+  size: 3076000
+  hash: md5
+  path: queries-wiki-cohere.fvec

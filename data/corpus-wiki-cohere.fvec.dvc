@@ -1,0 +1,5 @@
+outs:
+- md5: d05b52bdcbd46826346d8ead826c60ec
+  size: 2873057824
+  hash: md5
+  path: corpus-wiki-cohere.fvec

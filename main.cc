@@ -23,16 +23,14 @@ void runSmokeTest() {
 }
 
 void runExample(const std::string& dataset, Metric metric) {
-
     auto root = std::filesystem::path(__FILE__).parent_path();
-    auto dim = readDimension(
-        root / "data" / ("dim-" + dataset + ".txt"));
-    auto docs = readVectors(
-        dim, root / "data" / ("corpus-" + dataset + ".csv"), true);
-    auto queries = readVectors(
-        dim, root / "data" / ("queries-" + dataset + ".csv"), true);
-
-    runPQBenchmark(dataset, metric, 10, dim, docs, queries, writePQStats);
+    auto [docs, ddim] = readFvecs(root / "data" / ("corpus-" + dataset + ".fvec"));
+    auto [queries, qdim] = readFvecs(root / "data" / ("queries-" + dataset + ".fvec"));
+    if (ddim != qdim) {
+        std::cout << "Dimension mismatch " << ddim << " != " << qdim << std::endl;
+        return;
+    }
+    runPQBenchmark(dataset, metric, 10, qdim, docs, queries, writePQStats);
 }
 
 std::string usage() {

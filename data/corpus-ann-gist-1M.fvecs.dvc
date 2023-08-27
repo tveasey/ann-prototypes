@@ -1,0 +1,5 @@
+outs:
+- md5: b77185fcf47fde607da6343d435165d8
+  size: 3844000000
+  hash: md5
+  path: corpus-ann-gist-1M.fvecs

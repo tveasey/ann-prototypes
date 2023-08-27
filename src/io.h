@@ -9,10 +9,6 @@
 
 struct PQStats;
 
-std::size_t readDimension(const std::filesystem::path &source);
-
-std::vector<float> readVectors(std::size_t dim,
-                               const std::filesystem::path &source,
-                               bool verbose = false);
+std::pair<std::vector<float>, std::size_t> readFvecs(const std::filesystem::path& file);
 
 void writePQStats(const PQStats& stats);

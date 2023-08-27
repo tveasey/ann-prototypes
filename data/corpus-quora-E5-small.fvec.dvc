@@ -1,0 +1,5 @@
+outs:
+- md5: d057a25c6f55729ab161e236f39c2332
+  size: 805313740
+  hash: md5
+  path: corpus-quora-E5-small.fvec

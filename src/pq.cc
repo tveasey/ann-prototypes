@@ -272,7 +272,7 @@ std::vector<float> initCodeBooks(std::size_t dim,
 
     std::minstd_rand rng;
 
-    // Using 20 docs per centroid is enough to get reasonable estimates.
+    // Using 20 vectors per centroid is enough to get reasonable estimates.
     std::size_t numDocs{docs.size() / dim};
     double sampleProbability{
         std::min(20 * BOOK_SIZE / static_cast<double>(numDocs), 1.0)};
@@ -545,11 +545,10 @@ void runPQBenchmark(const std::string& tag,
 
     PQStats stats{tag, METRICS[metric], numQueries, numDocs, dim, k};
     stats.normalise = (metric == Cosine);
-    stats.bfQPS = static_cast<std::size_t>(
-        std::round(static_cast<double>(numQueries) / diff.count()));
+    stats.bfQPS = std::round(static_cast<double>(numQueries) / diff.count());
 
     start = std::chrono::high_resolution_clock::now();
-    // Use 200 vectors per centroid for building the code book.
+    // Using 200 vectors per centroid is sufficient to build the code book.
     double sampleProbability{200 * NUM_BOOKS / static_cast<double>(numDocs)};
     auto [codeBooks, docsCodes] = buildCodeBook(dim, sampleProbability, docs, K_MEANS_ITR);
     end = std::chrono::high_resolution_clock::now();

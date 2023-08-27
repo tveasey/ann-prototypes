@@ -1,0 +1,5 @@
+outs:
+- md5: fb39cdbdb9ba941c16741bb0e699576c
+  size: 15400000
+  hash: md5
+  path: queries-quora-E5-small.fvec

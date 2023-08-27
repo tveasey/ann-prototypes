@@ -25,19 +25,13 @@ std::vector<T> toVector(std::priority_queue<T>& queue) {
     return result;
 }
 
-bool testReadDimension() {
-    auto file = std::filesystem::path(__FILE__).parent_path() / "dim-vectors.txt";
-    auto dim = readDimension(file);
+bool testReadFvecs() {
+    auto file = std::filesystem::path(__FILE__).parent_path() / "vectors.fvec";
+    auto [vectors, dim] = readFvecs(file);
     if (dim != 4) {
         std::cout << "FAILED: output " << dim << " != 4" << std::endl;
         return false;
     }
-    return true;
-}
-
-bool testReadVectors() {
-    auto file = std::filesystem::path(__FILE__).parent_path() / "vectors.csv";
-    auto vectors = readVectors(4, file);
     std::ostringstream result;
     result << vectors;
     if (result.str() != "[-1.1,2.1,0.3,1.7,1.2,3.1,-0.9,1.8]") {
@@ -353,8 +347,7 @@ bool testBuildDistTable() {
 }
 
 void runUnitTests() {
-    RUN_TEST(testReadDimension);
-    RUN_TEST(testReadVectors);
+    RUN_TEST(testReadFvecs);
     RUN_TEST(testZeroPad);
     RUN_TEST(testNormalise);
     RUN_TEST(testSearchBruteForce);
