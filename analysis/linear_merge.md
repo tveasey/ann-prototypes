@@ -128,7 +128,9 @@ In this example no segments were requantised.
 In the following we repeated this 100 times and tracked the relative difference
 between the merged dequantised vectors and original dequantised vectors and
 compared it to their difference from the raw vectors. Specifically, we computed
-$$\frac{\sum_{i,j}{\|d(q(\vec{x}_{i,j};l_i,u_i);l_m,u_m)-d(q(\vec{x}_{i,j};l_i,u_i);l_i,u_i)\|}}{\sum_{i,j}{\|\vec{x}_{i,j}-d(q(\vec{x}_{i,j};l_i,u_i);l_i,u_i)\|}}$$
+```math
+\frac{\sum_{i,j}{\|d(q(\vec{x}_{i,j};l_i,u_i);l_m,u_m)-d(q(\vec{x}_{i,j};l_i,u_i);l_i,u_i)\|}}{\sum_{i,j}{\|\vec{x}_{i,j}-d(q(\vec{x}_{i,j};l_i,u_i);l_i,u_i)\|}}
+```
 The maximum relative error for E5-small introduced by merge was 4%. In practice,
 this is essentially no different to the error introduced by requantising. On average
 only 1% of vectors were requantised and worst case only 15% of vectors were requantised.
