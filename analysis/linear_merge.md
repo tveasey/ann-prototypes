@@ -28,16 +28,16 @@ to clip components for linear quantisation.
 ## Quantisation
 
 Linear quantisation to 8 bits is computed as follows:
-$$
+```math
   \vec{x}_q = q(\vec{x};l,u) = \left[\frac{256 (clip(\vec{x}, l, u) - l)}{u - l}\right]
-$$
+```
 where the subtraction is broadcast over the vector $\vec{x}$, $l$ and $u$ are upper and
 lower quantiles (in the following we use central confidence intervals), the $clip$
 function truncates componentwise to the interval $[l, u]$ and $[\cdot]$ denotes
 round to the nearest integer. The inverse operation, or dequantise, is
-$$
+```math
   \vec{x}_d = d(\vec{x};l,u) = l + \frac{(u - l) \vec{x}_q}{256}
-$$
+```
 It is important to choose the confidence interval large enough such that no single
 outlying component is clipped if they are not close in magnitude. A sufficient
 condition for this is to use $CI > 1 - 1/d$ where $d$ is the vector dimension.
@@ -62,9 +62,9 @@ the definition of quantisation operation.
 
 Provided $|l_n - l_o| < \epsilon$ and $|u_n - u_o| < \epsilon$ for some small
 $\epsilon$ then
-$$
+```math
    d(q(\vec{x};l_o,u_o);l_n,u_n) \thickapprox d(q(\vec{x};l_o,u_o);l_o,u_o)
-$$
+```
 
 In such cases there is no point in requantising since the result will be no more
 accurate than retaining the current quantised vectors. We can deduce the largest
@@ -83,18 +83,18 @@ from each segment. The weight is proportional to the count of vectors in the seg
 This is to ensure that if any segment is very small the estimate is close to the
 large segments (which will be accurate) and so we will not requantise them. Specifically,
 the new quantiles are defined as
-$$
+```math
   l_m = \frac{\sum_i{ |\{\vec{x}_i\}| l_i }}{\sum_i{ |\{\vec{x}_i\}| }}
-$$
+```
 and
-$$
+```math
   u_m = \frac{\sum_i{ |\{\vec{x}_i\}| u_i }}{\sum_i{ |\{\vec{x}_i\}| }}
-$$
+```
 The criterion to choose to retain the original quantised vectors for a given
 segment is then
-$$
+```math
   |l_i - l_m| < \frac{0.2 (u_m - l_m)}{256} \text{ and } |u_i - u_m| < \frac{0.2 (u_m - l_m)}{256}
-$$
+```
 
 The figures below show the RMSE error distributions between the raw vectors
 and quantised vectors for a merge of four random segments.
@@ -143,9 +143,9 @@ recompute quantiles in the case that $\epsilon>\frac{u_m-l_m}{32}$, this dealt w
 all adversarial cases we discuss below. If this was the case for any segment then
 we recomputed quantiles using 25k random samples. We sample each segment in proportion
 to its count. In particular we sample a segment
-$$
+```math
 \left\lceil\frac{25000 |\{\vec{x}_i\}|}{\sum_i|\{\vec{x}_i\}|}\right\rceil
-$$
+```
 
 Two distinct adversarial cases were explored:
 1. For dot product (Cohere) vectors were sorted prior to partitioning,
