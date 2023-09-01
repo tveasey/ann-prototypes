@@ -71,7 +71,7 @@ def should_requantise(q: list[np.ndarray],
     ])
 
 def merge_quantisation(x_q: list[np.ndarray],
-                       q: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+                       q: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
 
     n = np.array([x.shape[0] for x in x_q])
     q_m = merged_quantiles(q, n)
@@ -84,6 +84,7 @@ def merge_quantisation(x_q: list[np.ndarray],
     requantise = should_requantise(q, q_m)
     copy = [i for i in range(len(x_q)) if i not in requantise]
 
+    n_requantise = sum(n[i] for i in requantise)
     for i in requantise:
         x_m[i] = quantise(
             dequantise(x_q[i], q[i][0], q[i][1]), q_m[0], q_m[1]
@@ -91,7 +92,7 @@ def merge_quantisation(x_q: list[np.ndarray],
     for i in copy:
         x_m[i] = x_q[i]
 
-    return np.concatenate(x_m, axis=0), q_m
+    return np.concatenate(x_m, axis=0), q_m, n_requantise / sum(n)
 
 
 # Test functionality
