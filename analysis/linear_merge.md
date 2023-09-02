@@ -18,9 +18,9 @@ We generate 100 random samples of 25k vectors then plot relative error in the lo
 and upper ends of the 99th percentile central confidence. The maximum error is 0.15%
 for E5-small and 0.2% for Cohere. The error distributions are as follows:
 
-![alt text](./E5-small-CI-Errors.png)
+<img src="./E5-small-CI-Errors.png" width=70% height=50%>
 
-![alt text](./Cohere-CI-Errors.png)
+<img src="./Cohere-CI-Errors.png" width=70% height=50%>
 
 In the following, we always use at most 25k samples to compute the percentiles used
 to clip components for linear quantisation.
@@ -43,7 +43,7 @@ outlying component is clipped if they are not close in magnitude. A sufficient
 condition for this is to use $CI > 1 - 1/d$ where $d$ is the vector dimension.
 The Cohere embeddings have exactly this property as per the figure below.
 
-![alt text](./Cohere-components.png )
+<img src="./Cohere-components.png" width=70% height=50%>
 
 ## Merging Segment Quantisation
 
@@ -102,9 +102,9 @@ segment is
 The figures below show the RMSE distributions between the raw vectors and
 quantised vectors for a merge of four random segments.
 
-![alt text](./E5-small-quantisation-RMSE.png)
+<img src="./E5-small-quantisation-RMSE.png" width=70% height=50%>
 
-![alt text](./Cohere-quantisation-RMSE.png)
+<img src="./Cohere-quantisation-RMSE.png" width=70% height=50%>
 
 The data for these were generated as follows:
 ```python
@@ -140,7 +140,7 @@ quantisation from scratch on the merged segments. On average only 1% of vectors
 needed to be requantised and worst case only 15% of vectors were requantised in
 any single merge.
 
-![alt text](./E5-merge-relative-RMSE.png)
+<img src="./E5-merge-relative-RMSE.png" width=70% height=50%>
 
 The decision to recompute quantiles rather than use the weighted average uses the
 same form of test, but a different value for $\epsilon$. It was sufficient to only
@@ -157,8 +157,8 @@ times.
 
 We explored two adversarial cases:
 1. For dot product (Cohere) vectors were sorted prior to partitioning,
-2. For both dot and cosine similarity the vectors were clustered by k-means
-   to generate partitions.
+2. For cosine (E5-small) vectors were clustered by k-means to generate
+   partitions.
 
 The top figure below shows the RMSE distribution in the case the segments
 correspond to distinct clusters of the E5-small embeddings. The bottom
@@ -168,9 +168,9 @@ need to requantise all segments. Without requantisation, the green dashed
 line, the RMSE is significantly higher so as expected it is important
 to detect and handle this case.
 
-![alt text](./E5-small-adversary-RMSE.png)
+<img src="./E5-small-adversary-RMSE.png" width=70% height=50%>
 
-![alt text](./Cohere-adversary-RMSE.png)
+<img src="./Cohere-adversary-RMSE.png" width=70% height=50%>
 
 Running this 100 times the test detects the need to requantise every segment
 every time. The RMSE is at most 7% larger and on average 5% larger after merge.
@@ -189,9 +189,9 @@ is limited. Also as we can see from the bottom figure the component errors are
 tiny even with multiple rounds of requantisation. So in practice this shouldn't
 be a problem.
 
-![alt text](./Cohere-adversary-RMSE-2-merges.png)
+<img src="./Cohere-adversary-RMSE-2-merges.png" width=70% height=50%>
 
-![alt text](./Cohere-component-quantisation-errors.png)
+<img src="./Cohere-component-quantisation-errors.png" width=70% height=50%>
 
 # Multichannel Quantisation
 
