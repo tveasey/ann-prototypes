@@ -45,6 +45,10 @@ The Cohere embeddings have exactly this property as per the figure below.
 
 ![alt text](./Cohere-components.png )
 
+## Merging Segment Quantisation
+
+### Randomly Distributed Vectors
+
 In the following we explore how best to merge segments which contain different 
 quantisation parameters $\{(l_i, u_i)\}$. The basic requirements is to minimise the
 number of times we need to
@@ -56,9 +60,8 @@ quantiles and then requantise using the new quantiles. In general, if segments
 contain random samples of the full dataset then, as per the discussion above, we
 expect their quantiles to be very similar. Specifically, $l_i \thickapprox l_j$ 
 and $u_i \thickapprox u_j$ for $i \neq j$. However, in adversarial cases, such as
-if different segments contain disjoint regions vector space, we need to be able to
-detect a problem and requantise. We explore two criteria to achieve this based on
-the definition of quantisation operation.
+if different segments contain disjoint regions of vector space, we need to be able
+to detect we need to requantise. We explore two criteria to achieve this.
 
 Provided $|l_n - l_o| < \epsilon$ and $|u_n - u_o| < \epsilon$ for some small
 $\epsilon$ then
@@ -69,7 +72,7 @@ $\epsilon$ then
 In such cases there is no point in requantising since the result will be no more
 accurate than retaining the current quantised vectors. We can deduce the largest
 $\epsilon$ for which this is the case based on the definition of quantisation.
-In particular, if $\epsilon \ll \frac{u - l}{256}$ then we do not expect
+In particular, if $\epsilon \ll \frac{u_n - l_n}{256}$ then we do not expect
 $q(d(\vec{x};l_o,u_o);l_n,u_n)$ to change many values in the quantised vector. Roughly
 speaking we expect the dequantised values to be uniformly distributed on any of
 the 256 subdivisions of $[l_n,u_n]$ which implies the probability that a component
@@ -91,13 +94,13 @@ and
   u_m = \frac{\sum_i{ |\{\vec{x}_i\}| u_i }}{\sum_i{ |\{\vec{x}_i\}| }}
 ```
 The criterion to choose to retain the original quantised vectors for a given
-segment is then
+segment is
 ```math
   |l_i - l_m| < \frac{0.2 (u_m - l_m)}{256} \text{ and } |u_i - u_m| < \frac{0.2 (u_m - l_m)}{256}
 ```
 
-The figures below show the RMSE error distributions between the raw vectors
-and quantised vectors for a merge of four random segments.
+The figures below show the RMSE distributions between the raw vectors and
+quantised vectors for a merge of four random segments.
 
 ![alt text](./E5-small-quantisation-RMSE.png)
 
@@ -120,34 +123,76 @@ The data for these were generated as follows:
 >>> c_m, e_m = np.histogram(compute_quantisation_rmse(x_, x_m), bins=100)
 >>> c_p, e_p = np.histogram(compute_quantisation_rmse(x_, x_p), bins=100)
 ```
-Observe that the baseline uses the per segment quantiles to dequantise while
-the merged uses the weighted average of the segment quantiles. The decision
-for whether to requantise using the vectors was based on the criterion above.
-In this example no segments were requantised.
+Observe that the "baseline" uses the per segment quantiles to dequantise while
+"merged" uses the weighted average of the segment quantiles. The decision
+for whether to requantise was based on the criterion above. In this example
+no segments were requantised.
 
-In the following we repeated this 100 times and tracked the relative difference
-between the merged dequantised vectors and original dequantised vectors and
-compared it to their difference from the raw vectors. Specifically, we computed
+The figure below shows relative RMSE for 100 random between the quantised
+vectors (before and after merge) and between the quantised and raw vectors.
+Specifically, we compute for 100 different random partitions
 ```math
 \frac{\sum_{i,j}{\|d(q(\vec{x}_{i,j};l_i,u_i);l_m,u_m)-d(q(\vec{x}_{i,j};l_i,u_i);l_i,u_i)\|}}{\sum_{i,j}{\|\vec{x}_{i,j}-d(q(\vec{x}_{i,j};l_i,u_i);l_i,u_i)\|}}
 ```
-The maximum relative error for E5-small introduced by merge was 4%. In practice,
-this is essentially no different to the error introduced by requantising. On average
-only 1% of vectors were requantised and worst case only 15% of vectors were requantised.
+The maximum relative error for E5-small embeddings introduced by merge was 4%. In
+practice, this is essentially no different to the varition we see when we recompute
+quantisation from scratch on the merged segments. On average only 1% of vectors
+needed to be requantised and worst case only 15% of vectors were requantised in
+any single merge.
 
 ![alt text](./E5-merge-relative-RMSE.png)
 
 The decision to recompute quantiles rather than use the weighted average uses the
-same form but a different value for $\epsilon$. We found it was sufficient to only
-recompute quantiles in the case that $\epsilon>\frac{u_m-l_m}{32}$, this dealt with
-all adversarial cases we discuss below. If this was the case for any segment then
-we recomputed quantiles using 25k random samples. We sample each segment in proportion
-to its count. In particular we sample a segment
+same form of test, but a different value for $\epsilon$. It was sufficient to only
+recompute quantiles in the case that $\epsilon>\frac{u_m-l_m}{32}$: this dealt with
+all adversarial cases we discuss below. If any segment's quantile error is greater
+than this we recomputed quantiles using 25k random samples. We sample each segment
+in proportion to its count. In particular we sample a segment
 ```math
 \left\lceil\frac{25000 |\{\vec{x}_i\}|}{\sum_i|\{\vec{x}_i\}|}\right\rceil
 ```
+times.
 
-Two distinct adversarial cases were explored:
+### Adversarily Distributed Vectors
+
+We explored two adversarial cases:
 1. For dot product (Cohere) vectors were sorted prior to partitioning,
-2. For both dot and cosine similarity the vectors were clustered by k-means to
-   generate partitions.
+2. For both dot and cosine similarity the vectors were clustered by k-means
+   to generate partitions.
+
+The top figure below shows the RMSE distribution in the case the segments
+correspond to distinct clusters of the E5-small embeddings. The bottom
+figure shows the RMSE distribution in the case the vectors are sorted by
+length for Cohere embeddings. In both cases the condition identifies the
+need to requantise all segments. Without requantisation, the green dashed
+line, the RMSE is significantly higher so as expected it is important
+to detect and handle this case.
+
+![alt text](./E5-small-adversary-RMSE.png)
+
+![alt text](./Cohere-adversary-RMSE.png)
+
+Running this 100 times the test detects the need to requantise every segment
+every time. The RMSE is at most 7% larger and on average 5% larger after merge.
+
+The lower figure suggests quantisation errors can accumulate if one is forced
+to repeatedly requantise. It seems reasonable that quantisation errors from
+each merge would be independent. In which circumstances the we expect components
+to perform a random walk with step size equal to half the quantisation interval,
+i.e. $\frac{u-l}{256}$. So the error distribution would eventually settle to mean
+zero normal with variance proportional equal to
+```math
+0.25 \times \text{number merges} \times (\text{quantisation interval})^2
+```
+In Lucene the number of merges is small since there is a maximum segment size
+is limited. Also as we can see from the bottom figure the component errors are
+tiny even with multiple rounds of requantisation. So in practice this shouldn't
+be a problem.
+
+![alt text](./Cohere-adversary-RMSE-2-merges.png)
+
+![alt text](./Cohere-component-quantisation-errors.png)
+
+# Multichannel Quantisation
+
+TODO

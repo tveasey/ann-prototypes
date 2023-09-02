@@ -34,9 +34,9 @@ def dequantise(x_q: np.ndarray, lower: float, upper: float) -> np.ndarray:
 def dequantise_all(x_q: list[np.ndarray], q: list[np.ndarray]) -> list[np.ndarray]:
     return [dequantise(x_p, q_p[0], q_p[1]) for x_p, q_p in zip(x_q, q)]
 
-def central_confidence_interval(x: np.ndarray, q: float) -> np.ndarray:
-    lower = np.quantile(x, 0.5 * (1.0 - q))
-    upper = np.quantile(x, 0.5 * (1.0 + q))
+def central_confidence_interval(x: np.ndarray, interval: float) -> np.ndarray:
+    lower = np.quantile(x, 0.5 * (1.0 - interval))
+    upper = np.quantile(x, 0.5 * (1.0 + interval))
     return np.array([lower, upper])
 
 def merged_quantiles(q: list[np.ndarray], n: np.ndarray) -> np.ndarray:
@@ -45,13 +45,14 @@ def merged_quantiles(q: list[np.ndarray], n: np.ndarray) -> np.ndarray:
     return sum(n_p * q_p for n_p, q_p in zip(n, q)) / np.sum(n)
 
 def recompute_merged_quantiles(x_q: list[np.ndarray],
-                               q: list[np.ndarray]) -> np.ndarray:
+                               q: list[np.ndarray],
+                               interval: float) -> np.ndarray:
     # Sample partitions in proportion to their size. This means we should
     # avoid requantizing the large segments if they're very imbalanced.
     tot = sum(x.shape[0] for x in x_q)
-    w = [x.shape[0] / tot for x in x_q]
-    x_s = dequantise_all([sample(x, int(math.ceil(25000 * w))) for x in x_q], q)
-    return central_confidence_interval(np.concatenate(x_s, axis=0), 0.99)
+    w_p = [x.shape[0] / tot for x in x_q]
+    x_s = dequantise_all([sample(x, int(math.ceil(25000 * w))) for x,w in zip(x_q, w_p)], q)
+    return central_confidence_interval(np.concatenate(x_s, axis=0), interval)
 
 def should_recompute_quantiles(q: list[np.ndarray],
                                new_q: np.ndarray) -> bool:
@@ -71,14 +72,14 @@ def should_requantise(q: list[np.ndarray],
     ])
 
 def merge_quantisation(x_q: list[np.ndarray],
-                       q: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+                       q: list[np.ndarray],
+                       interval: float) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
 
     n = np.array([x.shape[0] for x in x_q])
     q_m = merged_quantiles(q, n)
 
     if should_recompute_quantiles(q, q_m):
-        q_m = recompute_merged_quantiles(x_q, q)
-
+        q_m = recompute_merged_quantiles(x_q, q, interval)
     x_m = [np.array([]) for _ in range(len(x_q))]
 
     requantise = should_requantise(q, q_m)
@@ -120,7 +121,7 @@ def sorted_partition(x: np.ndarray,
 
 def cluster_partition(x: np.ndarray,
                       n_partitions: int) -> list[np.ndarray]:
-    kmeans = KMeans(n_clusters=n_partitions, n_init=3, max_iter=10).fit(x)
+    kmeans = KMeans(n_clusters=n_partitions, n_init=5, max_iter=20).fit(x)
     return [x[kmeans.labels_==i] for i in range(n_partitions)]
         
 
