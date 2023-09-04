@@ -20,19 +20,55 @@ def sample(x: np.ndarray, n: int = 25000) -> np.ndarray:
         return x
     return x[np.random.choice(x.shape[0], n), :]
 
-def quantise(x: np.ndarray, lower: float, upper: float) -> np.ndarray:
+def quantise(x: np.ndarray,
+             lower: float,
+             upper: float,
+             pow_2_bits: float = 256) -> np.ndarray:
     x_q = np.clip(x, a_min=lower, a_max=upper)
-    x_q = np.round(256.0 * (x_q - lower) / (upper - lower))
+    x_q = np.round(pow_2_bits * (x_q - lower) / (upper - lower))
     return x_q
 
-def quantise_all(x: list[np.ndarray], q: list[np.ndarray]) -> list[np.ndarray]:
-    return [quantise(x_p, q_p[0], q_p[1]) for x_p, q_p in zip(x, q)]
+def quantise_all(x: list[np.ndarray],
+                 q: list[np.ndarray],
+                 pow_2_bits: float = 256.0) -> list[np.ndarray]:
+    return [quantise(x_p, q_p[0], q_p[1], pow_2_bits) for x_p, q_p in zip(x, q)]
 
-def dequantise(x_q: np.ndarray, lower: float, upper: float) -> np.ndarray:
-    return lower + (upper - lower) * x_q / 256.0
+def dequantise(x_q: np.ndarray,
+               lower: float,
+               upper: float,
+               pow_2_bits: float = 256.0) -> np.ndarray:
+    return lower + (upper - lower) * x_q / pow_2_bits
 
-def dequantise_all(x_q: list[np.ndarray], q: list[np.ndarray]) -> list[np.ndarray]:
-    return [dequantise(x_p, q_p[0], q_p[1]) for x_p, q_p in zip(x_q, q)]
+def dequantise_all(x_q: list[np.ndarray],
+                   q: list[np.ndarray],
+                   pow_2_bits: float = 256.0) -> list[np.ndarray]:
+    return [dequantise(x_p, q_p[0], q_p[1], pow_2_bits) for x_p, q_p in zip(x_q, q)]
+
+def channel_quantise(x: np.ndarray,
+                     interval: float,
+                     n_channels: int = 3,
+                     pow_2_bits: float = 16.0) -> tuple[np.ndarray, list[np.ndarray], list[np.ndarray]]:
+    m = np.array(np.mean(x, axis=0)).reshape(-1, 1)
+    kmeans = KMeans(n_clusters=n_channels, n_init="auto").fit(m)
+    indices = np.array(range(len(m)))
+    channels = [indices[kmeans.labels_ == i] for i in range(n_channels)]
+    q_c = [central_confidence_interval(x[:,c], interval) for c in channels]
+    x_q = quantise_all([x[:,c] for c in channels], q_c, pow_2_bits)
+    x_q = np.concatenate(x_q, axis=1)
+    return x_q, q_c, channels
+
+def channel_dequantise(x_q: np.ndarray,
+                       q: list[np.ndarray],
+                       channels: list[np.ndarray],
+                       pow_2_bits: float = 16.0) -> np.ndarray:
+    widths = np.cumsum([0] + [len(c) for c in channels])
+    x_q = [x_q[:,widths[i-1]:widths[i]] for i in range(1, len(widths))]
+    x_c = dequantise_all(x_q, q, pow_2_bits)
+    x = np.array([])
+    x.resize((x_q[0].shape[0], widths[-1]))
+    for i, channel in enumerate(channels):
+        x[:,channel] = x_c[i]
+    return x
 
 def central_confidence_interval(x: np.ndarray, interval: float) -> np.ndarray:
     lower = np.quantile(x, 0.5 * (1.0 - interval))
@@ -122,7 +158,7 @@ def sorted_partition(x: np.ndarray,
 def cluster_partition(x: np.ndarray,
                       n_partitions: int) -> list[np.ndarray]:
     kmeans = KMeans(n_clusters=n_partitions, n_init=5, max_iter=20).fit(x)
-    return [x[kmeans.labels_==i] for i in range(n_partitions)]
+    return [x[kmeans.labels_ == i] for i in range(n_partitions)]
         
 
 def compute_quantisation_rmse(x: np.ndarray,
