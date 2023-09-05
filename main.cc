@@ -19,10 +19,10 @@ void runSmokeTest() {
     std::vector<float> queries(25600);
     std::generate_n(queries.begin(), queries.size(), [&] { return norm(rng); });
 
-    runPQBenchmark("smoke", Cosine, 10, 256, docs, queries);
+    runPQBenchmark("smoke", false, Cosine, 10, 256, docs, queries);
 }
 
-void runExample(const std::string& dataset, Metric metric) {
+void runExample(const std::string& dataset, Metric metric, bool scann) {
     auto root = std::filesystem::path(__FILE__).parent_path();
     auto [docs, ddim] = readFvecs(root / "data" / ("corpus-" + dataset + ".fvec"));
     auto [queries, qdim] = readFvecs(root / "data" / ("queries-" + dataset + ".fvec"));
@@ -30,17 +30,17 @@ void runExample(const std::string& dataset, Metric metric) {
         std::cout << "Dimension mismatch " << ddim << " != " << qdim << std::endl;
         return;
     }
-    runPQBenchmark(dataset, metric, 10, qdim, docs, queries, writePQStats);
+    runPQBenchmark(dataset, scann, metric, 10, qdim, docs, queries, writePQStats);
 }
 
 std::string usage() {
-    return "run_pq [-h,--help] [-u,--unit] [-s,--smoke] [-r,--run DATASET] [-n, --norm]\n"
+    return "run_pq [-h,--help] [-u,--unit] [-s,--smoke] [-r,--run DATASET] [--scann]\n"
            "\t--help\t\tShow this help\n"
            "\t--unit\t\tRun the unit tests\n"
            "\t--smoke\t\tRun the smoke test\n"
            "\t--run DATASET\tRun a test dataset\n"
            "\t--metric METRIC\tThe metric, must be cosine or dot, with which to compare vectors\n"
-           "\t--norm\t\tNormalise quantised document vectors";
+           "\t--scann\t\tUse anisotrpoic loss when building code books";
 }
 }
 
@@ -48,6 +48,7 @@ int main(int argc, char* argv[]) {
 
     bool unit{false};
     bool smoke{false};
+    bool scann{false};
     Metric metric{Cosine};
     std::string dataset;
 
@@ -79,6 +80,8 @@ int main(int argc, char* argv[]) {
                 std::cerr << "Bad metric " << argv[i + 1] << ". Usage:\n\n" << usage() << std::endl;
                 return 1;
             }
+        } else if (arg == "--scann") {
+            scann = true;
         }
     }
 
@@ -89,7 +92,7 @@ int main(int argc, char* argv[]) {
         runSmokeTest();
     }
     if (!dataset.empty()) {
-        runExample(dataset, metric);
+        runExample(dataset, metric, scann);
     }
 
     return 0;

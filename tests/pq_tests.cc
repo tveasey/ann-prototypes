@@ -270,6 +270,38 @@ bool testStepLloyd() {
     return passed;
 }
 
+bool testStepScann() {
+    std::minstd_rand rng;
+
+    std::size_t bookDim{3};
+    std::size_t dim{bookDim * numBooks()};
+
+    std::vector<float> docs(20 * bookSize() * dim);
+    std::normal_distribution<> norm{10.0, 2.0};
+    std::generate_n(docs.begin(), docs.size(), [&] { return norm(rng); });
+    auto docsNorms2 = norms2(dim, docs);
+
+    auto centresKMeans = initForgy(dim, docs, rng);
+    auto centresScann = centresKMeans;
+
+    std::vector<code_t> docsCodesKMeans(20 * bookSize() * numBooks());
+    for (std::size_t i = 0; i < 20; ++i) {
+        stepLloyd(dim, docs, centresKMeans, docsCodesKMeans);
+    }
+
+    std::vector<code_t> docsCodesScann(20 * bookSize() * numBooks());
+    for (std::size_t i = 0; i < 20; ++i) {
+        stepScann(0.4F, dim, docs, docsNorms2, centresScann, docsCodesScann);
+    }
+
+    std::cout << quantisationMseLoss(dim, centresKMeans, docs, docsCodesKMeans) << std::endl;
+    std::cout << quantisationMseLoss(dim, centresScann, docs, docsCodesScann) << std::endl;
+    std::cout << quantisationScannLoss(0.4F, dim, centresKMeans, docs, docsNorms2, docsCodesKMeans) << std::endl;
+    std::cout << quantisationScannLoss(0.4F, dim, centresScann, docs, docsNorms2, docsCodesScann) << std::endl;
+
+    return true;
+}
+
 bool testBuildCodeBook() {
     std::minstd_rand rng;
     std::normal_distribution<> norm(0.0, 2.0);
@@ -283,7 +315,7 @@ bool testBuildCodeBook() {
 
     auto [codeBooks, docsCodes] = buildCodeBook(dim, 1.0, docs, 10);
 
-    float rmse{std::sqrtf(quantisationMse(dim, codeBooks, docs, docsCodes))};
+    float rmse{std::sqrtf(quantisationMseLoss(dim, codeBooks, docs, docsCodes))};
 
     if (rmse > 0.1) {
         std::cout << "FAILED: dist " << rmse << " > 0.03" << std::endl;
@@ -353,6 +385,7 @@ void runUnitTests() {
     RUN_TEST(testSearchBruteForce);
     RUN_TEST(testInitForgy);
     RUN_TEST(testStepLloyd);
+    RUN_TEST(testStepScann);
     RUN_TEST(testBuildCodeBook);
     RUN_TEST(testBuildDistTable);
 }

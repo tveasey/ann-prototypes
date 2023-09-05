@@ -11,6 +11,7 @@
 #include <iterator>
 #include <limits>
 #include <map>
+#include <numeric>
 #include <queue>
 #include <random>
 #include <set>
@@ -88,15 +89,16 @@ std::vector<float> norms2(std::size_t dim, std::vector<float>& vectors) {
     return norms2;
 }
 
-double quantisationMse(std::size_t dim,
-                       const std::vector<float>& codeBooks,
-                       const std::vector<float>& docs,
-                       const std::vector<code_t>& docsCodes) {
+double quantisationMseLoss(std::size_t dim,
+                           const std::vector<float>& codeBooks,
+                           const std::vector<float>& docs,
+                           const std::vector<code_t>& docsCodes) {
+
+    std::size_t bookDim{dim / NUM_BOOKS};
 
     double totalMse{0.0};
     std::size_t count{0};
 
-    std::size_t bookDim{dim / NUM_BOOKS};
     auto code = docsCodes.begin();
     for (auto doc = docs.begin(); doc != docs.end(); ++count) {
         float mse{0.0F};
@@ -112,7 +114,42 @@ double quantisationMse(std::size_t dim,
     return totalMse / static_cast<double>(count);
 }
 
-// TODO need an anisotopic version.
+double quantisationScannLoss(float t,
+                             std::size_t dim,
+                             const std::vector<float>& codeBooks,
+                             const std::vector<float>& docs,
+                             const std::vector<float>& docsNorms2,
+                             const std::vector<code_t>& docsCodes) {
+
+    std::size_t bookDim{dim / NUM_BOOKS};
+
+    double totalLoss{0.0};
+    std::size_t count{0};
+
+    auto code = docsCodes.begin();
+    auto docNorm2 = docsNorms2.begin();
+    for (auto doc = docs.begin(); doc != docs.end(); ++count, ++docNorm2) {
+
+        float n2{*docNorm2};
+        float t2{t * t / n2};
+        float eta{static_cast<float>(dim - 1) * t2 / (1 - t2)};
+
+        float loss{0.0F};
+        for (std::size_t b = 0; b < NUM_BOOKS; ++b, ++code, doc += bookDim) {
+            #pragma clang loop vectorize(assume_safety)
+            for (std::size_t i = 0; i < bookDim; ++i) {
+                float ci{codeBooks[(BOOK_SIZE * b + *code) * bookDim + i]};
+                float xi{doc[i]};
+                float ri{xi - ci};
+                float riPar{xi * xi * ri / n2};
+                float riPerp{ri - riPar};
+                loss += eta * riPar * riPar + riPerp * riPerp;
+            }
+        }
+        totalLoss += loss;
+    }
+    return totalLoss / static_cast<double>(count);
+}
 
 std::set<std::size_t> initForgy(std::size_t numDocs,
                                 std::minstd_rand& rng) {
@@ -158,34 +195,35 @@ void stepLloyd(std::size_t dim,
     for (auto doc = docs.begin(); doc != docs.end(); /**/) {
         for (std::size_t b = 0; b < NUM_BOOKS; ++b, ++pos, doc += bookDim) {
             // Find the nearest centroid.
-            int iMinDist2{0};
-            float minDist2{std::numeric_limits<float>::max()};
+            int iMinLoss{0};
+            float minLoss{std::numeric_limits<float>::max()};
             for (int i = BOOK_SIZE * b; i < BOOK_SIZE * (b + 1); ++i) {
-                float dist2{0.0F};
+                float loss{0.0F};
                 for (std::size_t j = 0; j < bookDim; ++j) {
                     float dij{centres[i * bookDim + j] - doc[j]};
-                    dist2 += dij * dij;
+                    loss += dij * dij;
                 }
-                if (dist2 < minDist2) {
-                    iMinDist2 = i;
-                    minDist2 = dist2;
+                if (loss < minLoss) {
+                    iMinLoss = i;
+                    minLoss = loss;
                 }
             }
 
             // Update the centroid.
-            auto* newCentre = &newCentres[iMinDist2 * bookDim];
+            auto* newCentre = &newCentres[iMinLoss * bookDim];
             for (std::size_t j = 0; j < bookDim; ++j) {
                 newCentre[j] += doc[j];
             }
-            ++centreCounts[iMinDist2];
+            ++centreCounts[iMinLoss];
 
             // Encode the document.
-            docsCodes[pos] = static_cast<code_t>(iMinDist2 - BOOK_SIZE * b);
+            docsCodes[pos] = static_cast<code_t>(iMinLoss - BOOK_SIZE * b);
         }
     }
+
     for (std::size_t i = 0; i < centreCounts.size(); ++i) {
-        for (std::size_t j = 0; j < bookDim; ++j) {
-            if (centreCounts[i] > 0) {
+        if (centreCounts[i] > 0) {
+            for (std::size_t j = 0; j < bookDim; ++j) {
                 centres[i * bookDim + j] = static_cast<float>(
                     newCentres[i * bookDim + j] /
                     static_cast<double>(centreCounts[i]));
@@ -197,6 +235,7 @@ void stepLloyd(std::size_t dim,
 void stepScann(float t,
                std::size_t dim,
                const std::vector<float>& docs,
+               const std::vector<float>& docsNorms2,
                std::vector<float>& centres,
                std::vector<code_t>& docsCodes) {
 
@@ -205,70 +244,118 @@ void stepScann(float t,
 
     std::size_t bookDim{dim / NUM_BOOKS};
 
-    // See theorem 3.4 https://arxiv.org/pdf/1908.10396.pdf. This assumes
-    // vectors are normalised.
-    float eta{static_cast<float>(dim - 1) * t / (1 - t)};
-
-    std::vector<float> bookCounts(BOOK_SIZE * NUM_BOOKS, 0.0F);
-    std::vector<float> newCentres(centres.size(), 0.0F);
+    // Retain incorrect k-means centroid calculation for now.
+    std::vector<double> newCentres(BOOK_SIZE * dim, 0.0);
+    std::vector<std::size_t> centreCounts(BOOK_SIZE * NUM_BOOKS, 0);
+    std::vector<float> l0(NUM_BOOKS);
 
     std::size_t pos{0};
-    for (auto doc = docs.begin(); doc != docs.end(); doc += dim, pos += NUM_BOOKS) {
+    auto docNorm2 = docsNorms2.begin();
+    for (auto doc = docs.begin(); doc != docs.end(); ++docNorm2) {
+
+        // See theorem 3.4 https://arxiv.org/pdf/1908.10396.pdf.
+        float n2{*docNorm2};
+        float t2{t * t / n2};
+        float eta{static_cast<float>(dim - 1) * t2 / (1 - t2)};
+        float scale{(eta - 1.0F) / n2};
+
+        // Precompute the residual projected onto the document vector.
+        float l{0.0F};
         for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
-            // Find the centroid which minimizes the anisotropic loss.
-            int nearestCentre{0};
-            float minDist{std::numeric_limits<float>::max()};
-            for (int i = 0; i < BOOK_SIZE; ++i) {
-                float distParallel{0.0F};
-                float distPerpendicular{0.0F};
+            int i0 = BOOK_SIZE * b + docsCodes[pos + b];
+            l0[b] = 0.0F;
+            for (std::size_t j = 0; j < bookDim; ++j) {
+                float xj{doc[b * bookDim + j]};
+                float cij{centres[i0 * bookDim + j]};
+                l0[b] += xj * (xj - cij);
+            }
+            l += l0[b];
+        }
+        for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+            l0[b] = l - l0[b];
+        }
+
+        for (std::size_t b = 0; b < NUM_BOOKS; ++b, ++pos, doc += bookDim) {
+            // Find the centroid assignment that minimizes anisotropic loss.
+            int iMinLoss{0};
+            float minLoss{std::numeric_limits<float>::max()};
+            for (int i = BOOK_SIZE * b; i < BOOK_SIZE * (b + 1); ++i) {
+                float l1{l0[b]};
+                float l2{0.0F};
                 for (std::size_t j = 0; j < bookDim; ++j) {
-                    float cij{centres[(BOOK_SIZE * b + i) * bookDim + j]};
-                    float xj{doc[b * bookDim + j]};
-                    float dij{xj - cij};
-                    // TODO we need to have per book vector norms.
-                    float dpij{xj * xj * dij};
-                    distParallel += dpij;
-                    distPerpendicular += dij - dpij;
+                    float cij{centres[i  * bookDim + j]};
+                    float xj{doc[j]};
+                    float rij{xj - cij};
+                    l1 += xj * rij;
+                    l2 += rij * rij;
                 }
-                if (eta * distParallel + distPerpendicular < minDist) {
-                    nearestCentre = i;
-                    minDist = eta * distParallel + distPerpendicular;
+                float loss{l2 + scale * l1 * l1};
+                if (loss < minLoss) {
+                    iMinLoss = i;
+                    minLoss = loss;
                 }
             }
 
-            // TODO Centroid update needs to maintain partition statistics.
+            auto* newCentre = &newCentres[iMinLoss * bookDim];
+            for (std::size_t j = 0; j < bookDim; ++j) {
+                newCentre[j] += doc[j];
+            }
+            ++centreCounts[iMinLoss];
 
             // Encode the document.
-            docsCodes[pos + b] = static_cast<code_t>(nearestCentre);
+            docsCodes[pos] = static_cast<code_t>(iMinLoss - BOOK_SIZE * b);
         }
     }
 
-    centres = std::move(newCentres);
+    for (std::size_t i = 0; i < centreCounts.size(); ++i) {
+        if (centreCounts[i] > 0) {
+            for (std::size_t j = 0; j < bookDim; ++j) {
+                centres[i * bookDim + j] = static_cast<float>(
+                    newCentres[i * bookDim + j] /
+                    static_cast<double>(centreCounts[i]));
+            }
+        }
+    }
+}
+
+std::vector<std::size_t> uniformSamples(double sampleProbability,
+                                        std::size_t n,
+                                        std::minstd_rand& rng) {
+    std::vector<std::size_t> samples;
+    if (sampleProbability < 1.0) {
+        samples.reserve(static_cast<std::size_t>(1.1 * n * sampleProbability));
+        std::geometric_distribution<> geom{sampleProbability};
+        for (std::size_t i = geom(rng); i < n; i += 1 + geom(rng)) {
+            samples.push_back(i);
+        }
+    } else {
+        samples.resize(n);
+        std::iota(samples.begin(), samples.end(), 0);
+    }
+    return samples;
 }
 
 std::vector<float> sampleDocs(double sampleProbability,
                               std::size_t dim,
                               const std::vector<float>& docs,
                               std::minstd_rand& rng) {
-    std::vector<float> sampledDocs;
-    sampledDocs.reserve(static_cast<std::size_t>(
-        static_cast<double>(docs.size()) * sampleProbability));
-    std::uniform_real_distribution<> u01{0.0, 1.0};
-    for (auto doc = docs.begin(); doc != docs.end(); doc += dim) {
-        if (u01(rng) <= sampleProbability) {
-            std::copy(doc, doc + dim, std::back_inserter(sampledDocs));
-        }
+    auto samples = uniformSamples(sampleProbability, docs.size() / dim, rng);
+    std::vector<float> sampledDocs(dim * samples.size());
+    for (std::size_t i = 0; i < samples.size(); ++i) {
+        std::size_t sample{samples[i]};
+        std::copy_n(docs.begin() + dim * sample, dim, sampledDocs.begin() + dim * i);
     }
     return sampledDocs;
 }
 
 std::vector<float> initCodeBooks(std::size_t dim,
-                                 const std::vector<float>& docs) {
+                                 const std::vector<float>& docs,
+                                 const loss_t& loss) {
 
     // Random restarts with aggressive downsample.
 
-    std::vector<float> bestCodeBooks;
-    double minQuantisationMse{std::numeric_limits<double>::max()};
+    std::vector<float> minLossCodeBooks;
+    double minLoss{std::numeric_limits<double>::max()};
 
     std::minstd_rand rng;
 
@@ -285,25 +372,25 @@ std::vector<float> initCodeBooks(std::size_t dim,
         for (std::size_t i = 0; i < 4; ++i) {
             stepLloyd(dim, sampledDocs, codeBooks, docsCodes);
         }
-        double trialQuantisationMse{
-            quantisationMse(dim, codeBooks, sampledDocs, docsCodes)};
-        if (trialQuantisationMse < minQuantisationMse) {
-            bestCodeBooks = std::move(codeBooks);
-            minQuantisationMse = trialQuantisationMse;
+        double trialLoss{loss(dim, codeBooks, sampledDocs, docsCodes)};
+        if (trialLoss < minLoss) {
+            minLossCodeBooks = std::move(codeBooks);
+            minLoss = trialLoss;
         }
     }    
 
-    return bestCodeBooks;
+    return minLossCodeBooks;
 }
 
 std::pair<std::vector<float>, std::vector<code_t>>
 buildCodeBook(std::size_t dim,
               double sampleProbability,
               const std::vector<float>& docs,
-              std::size_t iterations) {
+              std::size_t iterations,
+              const loss_t& loss) {
 
     std::size_t bookDim{dim / NUM_BOOKS};
-    std::vector<float> codeBooks{initCodeBooks(dim, docs)};
+    std::vector<float> codeBooks{initCodeBooks(dim, docs, loss)};
     std::vector<code_t> docsCodes(docs.size() / bookDim);
 
     if (sampleProbability < 1.0) {
@@ -329,41 +416,44 @@ buildCodeBookScann(float t,
                    std::size_t dim,
                    double sampleProbability,
                    const std::vector<float>& docs,
+                   const std::vector<float>& docsNorms2,
                    std::size_t iterations) {
 
     // Initialize with k-means.
     auto [codeBooks, docsCodes] =
-        buildCodeBook(dim, sampleProbability, docs, iterations / 2);
+        buildCodeBook(dim, sampleProbability, docs, iterations / 2,
+                      [&](std::size_t dim,
+                          const std::vector<float>& codeBooks,
+                          const std::vector<float>& docs,
+                          const std::vector<code_t>& docsCodes) {
+                          return quantisationScannLoss(t, dim, codeBooks, docs, docsNorms2, docsCodes);
+                      });
 
     // Fine-tune with anisotropic loss.
+    iterations = iterations / 2 + iterations % 2;
     if (sampleProbability < 1.0) {
         std::minstd_rand rng;
-        auto sampledDocs = sampleDocs(sampleProbability, dim, docs, rng);
+        auto samples = uniformSamples(sampleProbability, docs.size() / dim, rng);
+        std::vector<float> sampledDocs(dim * samples.size());
+        std::vector<float> sampledDocsNorms(samples.size());
+        for (std::size_t i = 0; i < samples.size(); ++i) {
+            std::size_t sample{samples[i]};
+            std::copy_n(docs.begin() + dim * sample, dim, sampledDocs.begin() + dim * i);
+            sampledDocsNorms[i] = docsNorms2[sample];
+        }
         for (std::size_t i = 0; i < iterations - 1; ++i) {
-            stepScann(t, dim, sampledDocs, codeBooks, docsCodes);
+            stepScann(t, dim, sampledDocs, sampledDocsNorms, codeBooks, docsCodes);
         }
     } else {
-        for (std::size_t i = 0; i < iterations / 2 + iterations % 2; ++i) {
-            stepScann(t, dim, docs, codeBooks, docsCodes);
+        for (std::size_t i = 0; i < iterations - 1; ++i) {
+            stepScann(t, dim, docs, docsNorms2, codeBooks, docsCodes);
         }
     }
 
     // One full step to compute the correct document codes.
-    stepLloyd(dim, docs, codeBooks, docsCodes);
+    stepScann(t, dim, docs, docsNorms2, codeBooks, docsCodes);
 
     return std::make_pair(std::move(codeBooks), std::move(docsCodes));
-}
-
-std::vector<float> encoded(std::size_t dim,
-                           const std::vector<float>& codeBooks,
-                           const code_t* docCode) {
-    std::size_t bookDim{dim / NUM_BOOKS};
-    std::vector<float> result(dim);
-    for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
-        const auto* centroid = &codeBooks[(BOOK_SIZE * b + docCode[b]) * bookDim];
-        std::copy(centroid, centroid + bookDim, &result[b * bookDim]);
-    }
-    return result;
 }
 
 std::vector<float> buildDistTable(const std::vector<float>& codeBooks,
@@ -431,6 +521,18 @@ float computeNormedDist(const std::vector<float>& distTable,
     return 1.0F - sim / std::sqrtf(qnorm2);
 }
 
+std::vector<float> encoded(std::size_t dim,
+                           const std::vector<float>& codeBooks,
+                           const code_t* docCode) {
+    std::size_t bookDim{dim / NUM_BOOKS};
+    std::vector<float> result(dim);
+    for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+        const auto* centroid = &codeBooks[(BOOK_SIZE * b + docCode[b]) * bookDim];
+        std::copy(centroid, centroid + bookDim, &result[b * bookDim]);
+    }
+    return result;
+}
+
 void searchPQ(std::size_t k,
               const std::vector<float>& codeBooks,
               const std::vector<code_t>& docsCodes,
@@ -487,6 +589,7 @@ void searchBruteForce(std::size_t k,
 }
 
 void runPQBenchmark(const std::string& tag,
+                    bool scann,
                     Metric metric,
                     std::size_t k,
                     std::size_t dim,
@@ -523,6 +626,7 @@ void runPQBenchmark(const std::string& tag,
     std::cout << std::boolalpha
               << "metric = " << METRICS[metric]
               << ", top-k = " << k
+              << ", scann = " << scann
               << ", normalise = " << (metric == Cosine)
               << ", book count = " << NUM_BOOKS
               << ", book size = " << BOOK_SIZE << std::endl;
@@ -544,18 +648,21 @@ void runPQBenchmark(const std::string& tag,
     std::cout << "Brute force took " << diff.count() << "s" << std::endl;
 
     PQStats stats{tag, METRICS[metric], numQueries, numDocs, dim, k};
+    stats.scann = scann;
     stats.normalise = (metric == Cosine);
     stats.bfQPS = std::round(static_cast<double>(numQueries) / diff.count());
 
     start = std::chrono::high_resolution_clock::now();
     // Using 200 vectors per centroid is sufficient to build the code book.
     double sampleProbability{200 * NUM_BOOKS / static_cast<double>(numDocs)};
-    auto [codeBooks, docsCodes] = buildCodeBook(dim, sampleProbability, docs, K_MEANS_ITR);
+    auto [codeBooks, docsCodes] = scann ?
+        buildCodeBookScann(0.2, dim, sampleProbability, docs, docsNorms2, K_MEANS_ITR) :
+        buildCodeBook(dim, sampleProbability, docs, K_MEANS_ITR);
     end = std::chrono::high_resolution_clock::now();
     diff = std::chrono::duration<double>(end - start);
     std::cout << "Building codebooks took " << diff.count() << "s" << std::endl;
 
-    stats.pqMse = quantisationMse(dim, codeBooks, docs, docsCodes);
+    stats.pqMse = quantisationMseLoss(dim, codeBooks, docs, docsCodes);
     std::cout << "Quantisation MSE = " << stats.pqMse << std::endl;
 
     stats.pqCodeBookBuildTime = diff.count();

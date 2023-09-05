@@ -12,7 +12,10 @@
 struct PQStats;
 
 using code_t = std::uint8_t;
-
+using loss_t = std::function<double(std::size_t,
+                                    const std::vector<float>&,
+                                    const std::vector<float>&,
+                                    const std::vector<code_t>&)>;
 enum Metric {
     Dot,
     Cosine
@@ -51,10 +54,19 @@ void zeroPad(std::size_t dim, std::vector<float>& vectors);
 
 void normalise(std::size_t dim, std::vector<float>& vectors);
 
-double quantisationMse(std::size_t dim,
-                       const std::vector<float>& codeBooks,
-                       const std::vector<float>& docs,
-                       const std::vector<code_t>& docsCodes);
+std::vector<float> norms2(std::size_t dim, std::vector<float>& vectors);
+
+double quantisationMseLoss(std::size_t dim,
+                           const std::vector<float>& codeBooks,
+                           const std::vector<float>& docs,
+                           const std::vector<code_t>& docsCodes);
+
+double quantisationScannLoss(float t,
+                             std::size_t dim,
+                             const std::vector<float>& codeBooks,
+                             const std::vector<float>& docs,
+                             const std::vector<float>& docsNorms2,
+                             const std::vector<code_t>& docsCodes);
 
 std::set<std::size_t> initForgy(std::size_t numDocs,
                                 std::minstd_rand& rng);
@@ -71,6 +83,7 @@ void stepLloyd(std::size_t dim,
 void stepScann(float t,
                std::size_t dim,
                const std::vector<float>& docs,
+               const std::vector<float>& docsNorms2,
                std::vector<float>& centres,
                std::vector<code_t>& docsCodes);
 
@@ -80,19 +93,22 @@ std::vector<float> sampleDocs(double sampleProbability,
                               std::minstd_rand& rng);
 
 std::vector<float> initCodeBooks(std::size_t dim,
-                                 const std::vector<float>& docs);
+                                 const std::vector<float>& docs,
+                                 const loss_t& loss);
 
 std::pair<std::vector<float>, std::vector<code_t>>
 buildCodeBook(std::size_t dim,
               double sampleProbability,
               const std::vector<float>& docs,
-              std::size_t iterations);
+              std::size_t iterations,
+              const loss_t& loss = quantisationMseLoss);
 
 std::pair<std::vector<float>, std::vector<code_t>>
 buildCodeBookScann(float t,
                    std::size_t dim,
                    double sampleProbability,
                    const std::vector<float>& docs,
+                   const std::vector<float>& docsNorms2,
                    std::size_t iterations);
 
 std::vector<float> buildDistTable(const std::vector<float>& codeBooks,
@@ -106,6 +122,10 @@ float computeDist(const std::vector<float>& distTable,
 
 float computeNormedDist(const std::vector<float>& distTable,
                         const code_t* docCode);
+
+std::vector<float> encoded(std::size_t dim,
+                           const std::vector<float>& codeBooks,
+                           const code_t* docCode);
 
 void searchPQ(std::size_t k,
               const std::vector<float>& codeBooks,
@@ -121,6 +141,7 @@ void searchBruteForce(std::size_t k,
                       std::priority_queue<std::pair<float, std::size_t>>& topk);
 
 void runPQBenchmark(const std::string& tag,
+                    bool scann,
                     Metric metric,
                     std::size_t k,
                     std::size_t dim,
