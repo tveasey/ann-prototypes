@@ -1,5 +1,6 @@
 #include "pq.h"
 #include "metrics.h"
+#include "utils.h"
 
 #include <algorithm>
 #include <chrono>
@@ -58,35 +59,6 @@ void zeroPad(std::size_t dim, std::vector<float>& vectors) {
         }
         std::fill(&vectors[dim], &vectors[paddedDim], 0.0F);
     }
-}
-
-void normalise(std::size_t dim, std::vector<float>& vectors) {
-    // Ensure vectors are unit (Euclidean) norm.
-    for (std::size_t i = 0; i < vectors.size(); i += dim) {
-        float norm{0.0F};
-        #pragma clang loop unroll_count(8) vectorize(assume_safety)
-        for (std::size_t j = 0; j < dim; ++j) {
-            norm += vectors[i + j] * vectors[i + j];
-        }
-        norm = std::sqrtf(norm);
-        #pragma clang loop unroll_count(8) vectorize(assume_safety)
-        for (std::size_t j = 0; j < dim; ++j) {
-            vectors[i + j] /= norm;
-        }
-    }
-}
-
-std::vector<float> norms2(std::size_t dim, std::vector<float>& vectors) {
-    std::vector<float> norms2(vectors.size() / dim);
-    for (std::size_t i = 0, j = 0; i < vectors.size(); i += dim, ++j) {
-        float norm2{0.0F};
-        #pragma clang loop unroll_count(8) vectorize(assume_safety)
-        for (std::size_t j = 0; j < dim; ++j) {
-            norm2 += vectors[i + j] * vectors[i + j];
-        }
-        norms2[j] = norm2;
-    }
-    return norms2;
 }
 
 double quantisationMseLoss(std::size_t dim,
@@ -151,6 +123,45 @@ double quantisationScannLoss(float t,
     return totalLoss / static_cast<double>(count);
 }
 
+std::vector<std::vector<float>>
+booksCovariance(std::size_t dim, const std::vector<float>& docs) {
+
+    // Return covariances row major.
+    //
+    // Computing the cluster assignment using the Mahalanobis distance
+    // from the cluster centre w.r.t. the non-central document vector
+    // covariance was proposed in https://arxiv.org/pdf/1509.01469.pdf.
+
+    std::size_t bookDim{dim / NUM_BOOKS};
+    std::size_t numDocs{docs.size() / dim};
+
+    std::minstd_rand rng;
+    auto samples = uniformSamples(
+        std::min(1000.0 / static_cast<double>(numDocs), 1.0), numDocs, rng);
+
+    std::vector<std::vector<float>> covs(
+        NUM_BOOKS, std::vector<float>(bookDim * (bookDim + 1) / 2, 0.0F));
+
+    for (auto s : samples) {
+        for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+            const auto* doc = &docs[s * dim + b * bookDim];
+            for (std::size_t i = 0, k = 0; i < bookDim; ++i) {
+                #pragma vectorize(assume_safety)
+                for (std::size_t j = i; j < bookDim; ++j, ++k) {
+                    covs[b][k] += doc[i] * doc[j];
+                }
+            }
+        }
+    }
+    for (auto& cov : covs) {
+        for (auto& cij : cov) {
+            cij /= static_cast<float>(samples.size());
+        }
+    }
+
+    return covs;
+}
+
 std::set<std::size_t> initForgy(std::size_t numDocs,
                                 std::minstd_rand& rng) {
     std::set<std::size_t> selection;
@@ -202,6 +213,67 @@ void stepLloyd(std::size_t dim,
                 for (std::size_t j = 0; j < bookDim; ++j) {
                     float dij{centres[i * bookDim + j] - doc[j]};
                     loss += dij * dij;
+                }
+                if (loss < minLoss) {
+                    iMinLoss = i;
+                    minLoss = loss;
+                }
+            }
+
+            // Update the centroid.
+            auto* newCentre = &newCentres[iMinLoss * bookDim];
+            for (std::size_t j = 0; j < bookDim; ++j) {
+                newCentre[j] += doc[j];
+            }
+            ++centreCounts[iMinLoss];
+
+            // Encode the document.
+            docsCodes[pos] = static_cast<code_t>(iMinLoss - BOOK_SIZE * b);
+        }
+    }
+
+    for (std::size_t i = 0; i < centreCounts.size(); ++i) {
+        if (centreCounts[i] > 0) {
+            for (std::size_t j = 0; j < bookDim; ++j) {
+                centres[i * bookDim + j] = static_cast<float>(
+                    newCentres[i * bookDim + j] /
+                    static_cast<double>(centreCounts[i]));
+            }
+        }
+    }
+}
+
+void stepLloyd(std::size_t dim,
+               const std::vector<float>& docs,
+               const std::vector<std::vector<float>>& booksCovs,
+               std::vector<float>& centres,
+               std::vector<code_t>& docsCodes) {
+
+    // Since we sum up non-negative losses from each book we can compute
+    // the optimal codebooks independently.
+
+    std::size_t bookDim{dim / NUM_BOOKS};
+    std::vector<double> newCentres(BOOK_SIZE * dim, 0.0);
+    std::vector<std::size_t> centreCounts(BOOK_SIZE * NUM_BOOKS, 0);
+
+    std::size_t pos{0};
+    for (auto doc = docs.begin(); doc != docs.end(); /**/) {
+        for (std::size_t b = 0; b < NUM_BOOKS; ++b, ++pos, doc += bookDim) {
+            // Find the nearest centroid using the Mahalanobis distance
+            // derived from booksCovs.
+            int iMinLoss{0};
+            float minLoss{std::numeric_limits<float>::max()};
+            const auto& cov = booksCovs[b];
+            for (int i = BOOK_SIZE * b; i < BOOK_SIZE * (b + 1); ++i) {
+                float loss{0.0F};
+                for (std::size_t j = 0, l = 0; j < bookDim; ++j) {
+                    float rij{centres[i * bookDim + j] - doc[j]};
+                    loss += 0.5 * cov[l++] * rij * rij;
+                    #pragma vectorize(assume_safety)
+                    for (std::size_t k = j + 1; k < bookDim; ++k) {
+                        float rik{centres[i * bookDim + k] - doc[k]};
+                        loss += cov[l++] * rij * rik;
+                    }
                 }
                 if (loss < minLoss) {
                     iMinLoss = i;
@@ -318,36 +390,6 @@ void stepScann(float t,
     }
 }
 
-std::vector<std::size_t> uniformSamples(double sampleProbability,
-                                        std::size_t n,
-                                        std::minstd_rand& rng) {
-    std::vector<std::size_t> samples;
-    if (sampleProbability < 1.0) {
-        samples.reserve(static_cast<std::size_t>(1.1 * n * sampleProbability));
-        std::geometric_distribution<> geom{sampleProbability};
-        for (std::size_t i = geom(rng); i < n; i += 1 + geom(rng)) {
-            samples.push_back(i);
-        }
-    } else {
-        samples.resize(n);
-        std::iota(samples.begin(), samples.end(), 0);
-    }
-    return samples;
-}
-
-std::vector<float> sampleDocs(double sampleProbability,
-                              std::size_t dim,
-                              const std::vector<float>& docs,
-                              std::minstd_rand& rng) {
-    auto samples = uniformSamples(sampleProbability, docs.size() / dim, rng);
-    std::vector<float> sampledDocs(dim * samples.size());
-    for (std::size_t i = 0; i < samples.size(); ++i) {
-        std::size_t sample{samples[i]};
-        std::copy_n(docs.begin() + dim * sample, dim, sampledDocs.begin() + dim * i);
-    }
-    return sampledDocs;
-}
-
 std::vector<float> initCodeBooks(std::size_t dim,
                                  const std::vector<float>& docs,
                                  const loss_t& loss) {
@@ -359,10 +401,10 @@ std::vector<float> initCodeBooks(std::size_t dim,
 
     std::minstd_rand rng;
 
-    // Using 20 vectors per centroid is enough to get reasonable estimates.
+    // Using 32 vectors per centroid is enough to get reasonable estimates.
     std::size_t numDocs{docs.size() / dim};
     double sampleProbability{
-        std::min(20 * BOOK_SIZE / static_cast<double>(numDocs), 1.0)};
+        std::min(32 * BOOK_SIZE / static_cast<double>(numDocs), 1.0)};
     auto sampledDocs = sampleDocs(sampleProbability, dim, docs, rng);
 
     std::vector<code_t> docsCodes(NUM_BOOKS * numDocs);
@@ -653,8 +695,8 @@ void runPQBenchmark(const std::string& tag,
     stats.bfQPS = std::round(static_cast<double>(numQueries) / diff.count());
 
     start = std::chrono::high_resolution_clock::now();
-    // Using 200 vectors per centroid is sufficient to build the code book.
-    double sampleProbability{200 * NUM_BOOKS / static_cast<double>(numDocs)};
+    // Using 160 vectors per centroid is sufficient to build the code book.
+    double sampleProbability{160 * NUM_BOOKS / static_cast<double>(numDocs)};
     auto [codeBooks, docsCodes] = scann ?
         buildCodeBookScann(0.2, dim, sampleProbability, docs, docsNorms2, K_MEANS_ITR) :
         buildCodeBook(dim, sampleProbability, docs, K_MEANS_ITR);

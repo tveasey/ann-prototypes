@@ -1,5 +1,7 @@
 #pragma once
 
+#include "utils.h"
+
 #include <cstdint>
 #include <functional>
 #include <ostream>
@@ -21,29 +23,6 @@ enum Metric {
     Cosine
 };
 
-template<typename U, typename V>
-std::ostream& operator<<(std::ostream& o, const std::pair<U, V>& pair) {
-    o << "(" << pair.first << "," << pair.second << ")";
-    return o;
-}
-
-template<typename T>
-std::ostream& operator<<(std::ostream& o, const std::vector<T>& vector) {
-    if (vector.empty()) {
-        o << "[]";
-        return o;
-    }
-
-    std::size_t n{vector.size() - 1};
-
-    o << "[";
-    for (std::size_t i = 0; i < n; ++i) {
-        o << vector[i] << ",";
-    }
-    o << vector[n] << "]";
-    return o;
-}
-
 int numBooks();
 
 int bookSize();
@@ -51,10 +30,6 @@ int bookSize();
 std::size_t kMeansItr();
 
 void zeroPad(std::size_t dim, std::vector<float>& vectors);
-
-void normalise(std::size_t dim, std::vector<float>& vectors);
-
-std::vector<float> norms2(std::size_t dim, std::vector<float>& vectors);
 
 double quantisationMseLoss(std::size_t dim,
                            const std::vector<float>& codeBooks,
@@ -80,17 +55,18 @@ void stepLloyd(std::size_t dim,
                std::vector<float>& centres,
                std::vector<code_t>& docsCodes);
 
+void stepLloyd(std::size_t dim,
+               const std::vector<float>& docs,
+               const std::vector<std::vector<float>>& booksCovs,
+               std::vector<float>& centres,
+               std::vector<code_t>& docsCodes);
+
 void stepScann(float t,
                std::size_t dim,
                const std::vector<float>& docs,
                const std::vector<float>& docsNorms2,
                std::vector<float>& centres,
                std::vector<code_t>& docsCodes);
-
-std::vector<float> sampleDocs(double sampleProbability,
-                              std::size_t dim,
-                              const std::vector<float>& docs,
-                              std::minstd_rand& rng);
 
 std::vector<float> initCodeBooks(std::size_t dim,
                                  const std::vector<float>& docs,
