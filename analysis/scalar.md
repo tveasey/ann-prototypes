@@ -45,6 +45,61 @@ The Cohere embeddings have exactly this property as per the figure below.
 
 <img src="./Cohere-components.png" width=70% height=50%>
 
+## Distance Calculation
+
+We would like to take advantage of the performance benefit of performing the distance
+calculation on quantised vectors. In this section we discuss how to achieve this and
+simultaneously improve accuracy w.r.t. first dequantising vectors.
+
+First we discuss the dot product, which also covers cosine as well since it is equivalent
+if we  normalise vectors. The similarity of a query and document embedding is defined as
+follows
+$$
+  \text{sim}(\vec{q}, \vec{d}\:)
+    = \vec{q}^{\:t} \vec{d}
+    = (\vec{l} + \vec{q} - \vec{l}\:)^t (\vec{l} + \vec{d} - \vec{l}\:)
+$$
+where we denote $l\vec{1}$ as $\vec{l}$. Expanding out we have
+$$
+  \text{sim}(\vec{q}, \vec{d}\:)
+    = l^2 \text{dim} + \vec{l}^{\:t} (\vec{q} - \vec{l} + \vec{d} - \vec{l}\:) +
+      (\vec{q} - \vec{l}\:)^t (\vec{d} - \vec{l}\:)
+$$
+So far we have retained all quantities in full precision. As before, for scalar quantisation
+we replace the vector $\vec{d} - \vec{l}$ by a compressed representation where we scale
+and round to the nearest integer. In particular, define
+$\vec{x}_q = \frac{u-l}{256}\left[\frac{256}{u-l}(\vec{x} - \vec{l})\right]$.
+
+Now the first two terms only depend on the document and query so we can precompute them.
+So focusing on the last term we have
+$$
+  (\vec{q} - \vec{l}\:)^t (\vec{d} - \vec{l}\:)
+    = (\vec{q}_q + (\vec{q} - \vec{l} - \vec{q}_q))^t (\vec{d}_q + (\vec{d} - \vec{l} - \vec{d}_q))
+$$
+We expect $\vec{\epsilon}_q = (\vec{q} - \vec{l} - \vec{q}_q)$ and $\vec{\epsilon}_d = (\vec{d} - \vec{l} - \vec{d}_q)$
+to be small compared to the leading term. So expanding gives
+$$
+  (\vec{q} - \vec{l}\:)^t (\vec{d} - \vec{l}\:)
+    = \vec{q}_q^{\:t} \vec{d}_q + \vec{\epsilon}_q^{\:t} \vec{d}_q + \vec{\epsilon}_d^{\:t} \vec{q}_q + O(\|\vec{\epsilon}\|^{\:2})
+$$
+We only want to retain one scalar per vector (or we lose the space benefit).
+However, we don't know a priori the $\vec{q}_q$ and $\vec{d}_q$ for which we will
+compute similarity. We consider two options:
+1. Use the expectation of the vectors over the query and document distribution,
+2. Use vectors parallel to the query and document vectors. This is similar to the
+rationale for anisotropic loss for product quantisation: parallel vectors are expected
+to be nearest neighbours and we want the best accuracy for them.
+
+For case 1 we have that $\vec{\epsilon}_q^{\:t} \vec{d}_q = \vec{\epsilon}_q^{\:t} \mathbb{E}_{\vec{d}}[\vec{d}\:]$
+and $\vec{\epsilon}_d^{\:t} \vec{q}_q =\vec{\epsilon}_d^{\:t} \mathbb{E}_{\vec{q}}[\vec{q}\:]$.
+These can be approximated by $\vec{\epsilon}_q^{\:t} \frac{1}{|D|}\sum_{\vec{d} \in D}{\vec{d}}$
+and $\vec{\epsilon}_d^{\:t} \frac{1}{|Q|}\sum_{\vec{q} \in Q}{\vec{q}}$, respectively,
+where $D$ and $Q$ are samples of the documents and queries. In practice, one likely
+doesn't know $Q$ in which case it is typical to use $D$ for both.
+
+For case 2 we would simply use $\vec{\epsilon}_q^{\:t} \vec{d}_q = \vec{\epsilon}_q^{\:t} \vec{q}$
+and $\vec{\epsilon}_d^{\:t} \vec{q}_q = \vec{\epsilon}_d^{\:t} \vec{d}$.
+
 ## Merging Segment Quantisation
 
 ### Randomly Distributed Vectors
