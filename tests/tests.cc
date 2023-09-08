@@ -1,5 +1,7 @@
-#include "../src/pq.h"
+#include "../src/bruteforce.h"
 #include "../src/io.h"
+#include "../src/pq.h"
+#include "../src/scalar.h"
 
 #include <algorithm>
 #include <chrono>
@@ -7,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <numeric>
 #include <queue>
 #include <random>
 #include <sstream>
@@ -36,6 +39,104 @@ bool testReadFvecs() {
     result << vectors;
     if (result.str() != "[-1.1,2.1,0.3,1.7,1.2,3.1,-0.9,1.8]") {
         std::cout << "FAILED: output " << vectors << std::endl;
+        return false;
+    }
+    return true;
+}
+
+bool testQuantiles() {
+    std::vector<float> docs(1000);
+    std::iota(docs.begin(), docs.end(), 0.0F);
+    auto q = quantiles(100, docs, 0.9);
+    if (q.first != 50.0F || q.second != 950.0F) {
+        std::cout << "FAILED: unexpected quantiles " << q << std::endl;
+        return false;
+    }
+    std::reverse(docs.begin(), docs.end());
+    q = quantiles(100, docs, 0.9);
+    if (q.first != 50.0F || q.second != 950.0F) {
+        std::cout << "FAILED: unexpected quantiles " << q << std::endl;
+        return false;
+    }
+    return true;
+}
+
+bool testScalar8BitQuantise() {
+    std::size_t dim{128};
+
+    std::minstd_rand rng;
+    std::uniform_real_distribution<> u{-5.0, 5.0};
+
+    for (std::size_t i = 0; i < 1000; ++i) {
+
+        float lower{-4.9};
+        float upper{4.9};
+
+        std::vector<float> doc(dim);
+        std::generate_n(doc.begin(), dim, [&] { return u(rng); });
+
+        auto [quantised, p1] = scalarQuantise8B({lower, upper}, dim, doc);
+
+        auto dequantised = scalarDequantise8B({lower, upper}, dim, quantised);
+
+        float norm{0.0F};
+        float avg{0.0F};
+        float rmse{0.0F};
+        for (std::size_t i = 0; i < dim; ++i) {
+            float r{doc[i] - dequantised[i]};
+            norm += doc[i] * doc[i];
+            avg += r;
+            rmse += r * r;
+        }
+        avg /= static_cast<float>(dim);
+        rmse = std::sqrtf(rmse / static_cast<float>(dim));
+        float tol{4.0F * rmse / std::sqrt(static_cast<float>(dim))};
+        if (avg > tol) {
+            std::cout << "FAILED: maybe biased " << avg << " > " << tol << std::endl;
+            return false;
+        }
+        if (rmse > 0.001F * norm) {
+            std::cout << "FAILED: large error " << rmse << " > " << 0.001F * norm << std::endl;
+            return false;
+        }
+    }
+
+
+    std::vector<float> docs(300 * dim);
+    for (std::size_t i = 0; i < 10; ++i) {
+        std::generate_n(docs.begin() + i * docs.size() / 20, docs.size() / 20,
+                        [&] { return 5.0F + 2.0F * static_cast<float>(i) + u(rng); });
+    }
+    normalise(dim, docs);
+    float lower{*std::min_element(docs.begin(), docs.end())};
+    float upper{*std::max_element(docs.begin(), docs.end())};
+    float invScale{(upper - lower) / 255.0F};
+    float p2{invScale * invScale};
+
+    auto [quantised, p1] = scalarQuantise8B({lower, upper}, dim, docs);
+    auto dequantised = scalarDequantise8B({lower, upper}, dim, quantised);
+
+    float ei{0.0F};
+    float ef{0.0F};
+    for (std::size_t i = 0, id = 0; i < docs.size(); i += dim) {
+        for (std::size_t j = i; j < docs.size(); j += dim) {
+            float sim{0.0F};
+            std::uint32_t simqi{0};
+            float simqf{0.0F};
+            for (std::size_t k = 0; k < dim; ++k) {
+                sim   += docs[i + k] * docs[j + k];
+                simqi += static_cast<std::uint16_t>(quantised[i + k]) *
+                         static_cast<std::uint16_t>(quantised[j + k]);
+                simqf += dequantised[i + k] * dequantised[j + k];
+            }
+            float simq{p1[i / dim] + p1[j / dim] + p2 * static_cast<float>(simqi)};
+            ei += std::fabs(sim - simq);
+            ef += std::fabs(sim - simqf);
+        }
+    }
+
+    if (ei > 0.5F * ef) {
+        std::cout << "FAILED: dot error " << ei << " > " << 0.5F * ef << std::endl;
         return false;
     }
     return true;
@@ -294,11 +395,6 @@ bool testStepScann() {
         stepScann(0.4F, dim, docs, docsNorms2, centresScann, docsCodesScann);
     }
 
-    std::cout << quantisationMseLoss(dim, centresKMeans, docs, docsCodesKMeans) << std::endl;
-    std::cout << quantisationMseLoss(dim, centresScann, docs, docsCodesScann) << std::endl;
-    std::cout << quantisationScannLoss(0.4F, dim, centresKMeans, docs, docsNorms2, docsCodesKMeans) << std::endl;
-    std::cout << quantisationScannLoss(0.4F, dim, centresScann, docs, docsNorms2, docsCodesScann) << std::endl;
-
     return true;
 }
 
@@ -380,6 +476,8 @@ bool testBuildDistTable() {
 
 void runUnitTests() {
     RUN_TEST(testReadFvecs);
+    RUN_TEST(testQuantiles);
+    RUN_TEST(testScalar8BitQuantise);
     RUN_TEST(testZeroPad);
     RUN_TEST(testNormalise);
     RUN_TEST(testSearchBruteForce);

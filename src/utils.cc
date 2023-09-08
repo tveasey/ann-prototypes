@@ -1,5 +1,18 @@
 #include "utils.h"
 
+namespace {
+const std::array<std::string, 2> METRICS{"dot", "cosine"}; 
+const std::array<std::string, 2> BITS{"4 bit", "8 bit"}; 
+}
+
+const std::string& toString(Metric m) {
+    return METRICS[m];
+}
+
+const std::string& toString(ScalarBits b) {
+    return BITS[b];
+}
+
 std::vector<std::size_t> uniformSamples(double sampleProbability,
                                         std::size_t n,
                                         std::minstd_rand& rng) {

@@ -1,4 +1,6 @@
 #include "pq.h"
+
+#include "bruteforce.h"
 #include "metrics.h"
 #include "utils.h"
 
@@ -32,7 +34,6 @@ namespace {
 constexpr int NUM_BOOKS{24};
 constexpr int BOOK_SIZE{256};
 constexpr std::size_t K_MEANS_ITR{8};
-std::array<std::string, 2> METRICS{"dot", "cosine"}; 
 }
 
 int numBooks() {
@@ -609,27 +610,6 @@ void searchPQ(std::size_t k,
     }
 }
 
-void searchBruteForce(std::size_t k,
-                      const std::vector<float>& docs,
-                      const std::vector<float>& query,
-                      std::priority_queue<std::pair<float, std::size_t>>& topk) {
-    std::size_t dim{query.size()};
-    for (std::size_t i = 0, id = 0; i < docs.size(); i += dim, ++id) {
-        float sim{0.0F};
-        #pragma clang loop unroll_count(8) vectorize(assume_safety)
-        for (std::size_t j = 0; j < dim; ++j) {
-            sim += query[j] * docs[i + j];
-        }
-        float dist{1.0F - sim};
-        if (topk.size() < k) {
-            topk.push(std::make_pair(dist, id));
-        } else if (topk.top().first > dist) {
-            topk.pop();
-            topk.push(std::make_pair(dist, id));
-        }
-    }
-}
-
 void runPQBenchmark(const std::string& tag,
                     bool scann,
                     Metric metric,
@@ -666,7 +646,7 @@ void runPQBenchmark(const std::string& tag,
               << ", doc count = " << numDocs
               << ", dimension = " << dim << std::endl;
     std::cout << std::boolalpha
-              << "metric = " << METRICS[metric]
+              << "metric = " << toString(metric)
               << ", top-k = " << k
               << ", scann = " << scann
               << ", normalise = " << (metric == Cosine)
@@ -689,7 +669,7 @@ void runPQBenchmark(const std::string& tag,
     }
     std::cout << "Brute force took " << diff.count() << "s" << std::endl;
 
-    PQStats stats{tag, METRICS[metric], numQueries, numDocs, dim, k};
+    PQStats stats{tag, toString(metric), numQueries, numDocs, dim, k};
     stats.scann = scann;
     stats.normalise = (metric == Cosine);
     stats.bfQPS = std::round(static_cast<double>(numQueries) / diff.count());
@@ -712,7 +692,8 @@ void runPQBenchmark(const std::string& tag,
 
     for (std::size_t m : PQStats::EXPANSIONS) {
 
-        std::vector<std::vector<std::size_t>> nnPQ(numQueries, std::vector<std::size_t>(m * k));
+        std::vector<std::vector<std::size_t>> nnPQ(
+            numQueries, std::vector<std::size_t>(m * k, numDocs + 1));
 
         diff = std::chrono::duration<double>{0};
         for (std::size_t i = 0; i < queries.size(); i += dim) {

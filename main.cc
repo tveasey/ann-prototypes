@@ -1,28 +1,15 @@
 #include "src/io.h"
 #include "src/pq.h"
-#include "tests/pq_tests.h"
+#include "src/scalar.h"
+#include "src/utils.h"
+#include "tests/tests.h"
 
 #include <fstream>
 #include <iostream>
+#include <optional>
 
 namespace {
-void runSmokeTest() {
-
-    std::minstd_rand rng;
-    std::normal_distribution<> norm(2.0, 1.0);
-
-    // 100k 256d corpus vectors.
-    std::vector<float> docs(25600000);
-    std::generate_n(docs.begin(), docs.size(), [&] { return norm(rng); });
-
-    // 100 256d query vectors.
-    std::vector<float> queries(25600);
-    std::generate_n(queries.begin(), queries.size(), [&] { return norm(rng); });
-
-    runPQBenchmark("smoke", false, Cosine, 10, 256, docs, queries);
-}
-
-void runExample(const std::string& dataset, Metric metric, bool scann) {
+void loadAndRunPQBenchmark(const std::string& dataset, Metric metric, bool scann) {
     auto root = std::filesystem::path(__FILE__).parent_path();
     auto [docs, ddim] = readFvecs(root / "data" / ("corpus-" + dataset + ".fvec"));
     auto [queries, qdim] = readFvecs(root / "data" / ("queries-" + dataset + ".fvec"));
@@ -33,14 +20,25 @@ void runExample(const std::string& dataset, Metric metric, bool scann) {
     runPQBenchmark(dataset, scann, metric, 10, qdim, docs, queries, writePQStats);
 }
 
+void loadAndRunScalarBenchmark(const std::string& dataset, Metric metric, ScalarBits bits) {
+    auto root = std::filesystem::path(__FILE__).parent_path();
+    auto [docs, ddim] = readFvecs(root / "data" / ("corpus-" + dataset + ".fvec"));
+    auto [queries, qdim] = readFvecs(root / "data" / ("queries-" + dataset + ".fvec"));
+    if (ddim != qdim) {
+        std::cout << "Dimension mismatch " << ddim << " != " << qdim << std::endl;
+        return;
+    }
+    runScalarBenchmark(dataset, metric, bits, 10, qdim, docs, queries);
+}
+
 std::string usage() {
-    return "run_pq [-h,--help] [-u,--unit] [-s,--smoke] [-r,--run DATASET] [--scann]\n"
+    return "run_quantisation [-h,--help] [-u,--unit] [-s,--scalar] [--scann] [-r,--run DATASET] [-m, --metric METRIC]\n"
            "\t--help\t\tShow this help\n"
-           "\t--unit\t\tRun the unit tests\n"
-           "\t--smoke\t\tRun the smoke test\n"
+           "\t--unit\t\tRun the unit tests (default false)\n"
+           "\t--scalar N\tUse 4 or 8 bit scalar quantisation (default None)\n"
+           "\t--scann\t\tUse anisotrpoic loss when building code books (default false)\n"
            "\t--run DATASET\tRun a test dataset\n"
-           "\t--metric METRIC\tThe metric, must be cosine or dot, with which to compare vectors\n"
-           "\t--scann\t\tUse anisotrpoic loss when building code books";
+           "\t--metric METRIC\tThe metric, must be cosine or dot, with which to compare vectors (default cosine)";
 }
 }
 
@@ -48,6 +46,7 @@ int main(int argc, char* argv[]) {
 
     bool unit{false};
     bool smoke{false};
+    std::optional<ScalarBits> scalar;
     bool scann{false};
     Metric metric{Cosine};
     std::string dataset;
@@ -59,8 +58,19 @@ int main(int argc, char* argv[]) {
             return 0;
         } else if (arg == "-u" || arg == "--unit") {
             unit = true;
-        } else if (arg == "-s" || arg == "--smoke") {
-            smoke = true;
+        } else if (arg == "-s" || arg == "--scalar") {
+            if (i + 1 == argc) {
+                std::cerr << "Missing dataset. Usage:\n\n" << usage() << std::endl;
+                return 1;
+            }
+            if (std::strcmp(argv[i + 1], "4") == 0) {
+                scalar = Scalar4Bit;
+            } else if (std::strcmp(argv[i + 1], "8") == 0) {
+                scalar = Scalar8Bit;
+            } else {
+                std::cerr << "Unsupported bits " << argv[i + 1] << ". Usage:\n\n" << usage() << std::endl;
+                return 1;
+            }
         } else if (arg == "-r" || arg == "--run") {
             if (i + 1 == argc) {
                 std::cerr << "Missing dataset. Usage:\n\n" << usage() << std::endl;
@@ -88,11 +98,12 @@ int main(int argc, char* argv[]) {
     if (unit) {
         runUnitTests();
     }
-    if (smoke) {
-        runSmokeTest();
-    }
     if (!dataset.empty()) {
-        runExample(dataset, metric, scann);
+        if (scalar != std::nullopt) {
+            loadAndRunScalarBenchmark(dataset, metric, *scalar);
+        } else {
+            loadAndRunPQBenchmark(dataset, metric, scann);
+        }
     }
 
     return 0;

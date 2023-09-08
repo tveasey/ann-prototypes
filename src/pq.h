@@ -18,10 +18,6 @@ using loss_t = std::function<double(std::size_t,
                                     const std::vector<float>&,
                                     const std::vector<float>&,
                                     const std::vector<code_t>&)>;
-enum Metric {
-    Dot,
-    Cosine
-};
 
 int numBooks();
 
@@ -110,11 +106,6 @@ void searchPQ(std::size_t k,
               const std::vector<float>& query,
               bool normalise,
               std::priority_queue<std::pair<float, std::size_t>>& topk);
-
-void searchBruteForce(std::size_t k,
-                      const std::vector<float>& docs,
-                      const std::vector<float>& query,
-                      std::priority_queue<std::pair<float, std::size_t>>& topk);
 
 void runPQBenchmark(const std::string& tag,
                     bool scann,

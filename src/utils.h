@@ -4,6 +4,20 @@
 #include <ostream>
 #include <random>
 
+enum Metric {
+    Dot,
+    Cosine
+};
+
+enum ScalarBits {
+    Scalar4Bit,
+    Scalar8Bit
+};
+
+const std::string& toString(Metric m);
+
+const std::string& toString(ScalarBits b);
+
 template<typename U, typename V>
 std::ostream& operator<<(std::ostream& o, const std::pair<U, V>& pair) {
     o << "(" << pair.first << "," << pair.second << ")";
