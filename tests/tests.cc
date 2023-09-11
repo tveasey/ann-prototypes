@@ -44,6 +44,33 @@ bool testReadFvecs() {
     return true;
 }
 
+bool testDot4B() {
+
+    std::minstd_rand rng;
+    std::uniform_int_distribution<> u{0, 15};
+
+    for (std::size_t i = 0; i < 100; ++i) {
+        std::vector<std::uint8_t> x(32);
+        std::vector<std::uint8_t> y(x.size(), 32);
+        std::generate_n(x.begin(), x.size(), [&] { return u(rng); });
+        std::generate_n(y.begin(), y.size(), [&] { return u(rng); });
+
+        std::uint32_t expectedDot{0};
+        for (std::size_t i = 0; i < x.size(); ++i) {
+            expectedDot += x[i] * y[i];
+        }
+
+        auto dot = dot4B(x.size(), x.data(),y.data());
+
+        if (dot != expectedDot) {
+            std::cout << "FAILED: mismatch " << dot << " != " << expectedDot << std::endl;
+            return false;
+        }
+    }
+
+    return true;
+}
+
 bool testQuantiles() {
     std::vector<float> docs(1000);
     std::iota(docs.begin(), docs.end(), 0.0F);
@@ -476,6 +503,7 @@ bool testBuildDistTable() {
 
 void runUnitTests() {
     RUN_TEST(testReadFvecs);
+    RUN_TEST(testDot4B);
     RUN_TEST(testQuantiles);
     RUN_TEST(testScalar8BitQuantise);
     RUN_TEST(testZeroPad);

@@ -7,6 +7,8 @@
 #include <utility>
 #include <vector>
 
+std::uint32_t dot4B(std::size_t dim, const std::uint8_t* x, const std::uint8_t* y);
+
 std::pair<float, float>
 quantiles(std::size_t dim, const std::vector<float>& vectors, float ci);
 

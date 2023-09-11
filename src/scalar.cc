@@ -10,6 +10,87 @@
 #include <queue>
 #include <tuple>
 
+namespace {
+#if defined(__ARM_NEON__)
+
+#include <arm_neon.h>
+
+std::uint32_t dot4BM(std::size_t dim,
+                     const std::uint8_t*__restrict x,
+                     const std::uint8_t*__restrict y) {
+    // This special case assumes that the vector dimension is:
+    //   1. A multiple of 16
+    //   2. Less than 256 * 16 = 4096 (or sums have the risk of overflowing).
+    //
+    // Both these cases will commonly hold. We call this as a subroutine for
+    // the general implementation.
+
+    uint16x8_t xysuml{vdupq_n_u16(0)};
+    uint16x8_t xysumh{vdupq_n_u16(0)};
+
+    for (std::size_t i = 0; i < dim; i += 16) {
+        // Read into 16 x 8 bit vectors.
+        uint8x16_t xb{vld1q_u8(x + i)};
+        uint8x16_t yb{vld1q_u8(y + i)};
+        // Multiply.
+        uint8x16_t xyb{vmulq_u8(xb, yb)};
+        // Split into 2 x 8 x 16 bit vectors in which type we accumulate.
+        uint16x8_t xybl{vmovl_u8(vget_low_u8(xyb))};
+        uint16x8_t xybh{vmovl_u8(vget_high_u8(xyb))};
+        // Accumulate.
+        xysuml = vaddq_u16(xysuml, xybl);
+        xysumh = vaddq_u16(xysumh, xybh);
+    }
+
+    return vaddlvq_u16(xysuml) + vaddlvq_u16(xysumh);
+}
+
+#else
+
+std::uint32_t dot4BM(std::size_t dim,
+                     const std::uint8_t*__restrict x,
+                     const std::uint8_t*__restrict y) {
+
+    // Tell the compiler dim contraints.
+    dim = std::min(dim, static_cast<std::size_t>(4096)) & ~0xF;
+
+    std::uint32_t xy{0};
+    #pragma clang loop unroll_count(16) vectorize(assume_safety)
+    for (std::size_t i = 0; i < dim; ++i) {
+        xy += x[i] * y[i];
+    }
+    return xy;
+}
+
+#endif
+
+std::uint32_t dot4BR(std::size_t dim,
+                     const std::uint8_t*__restrict x,
+                     const std::uint8_t*__restrict y) {
+    std::uint32_t xy{0};
+    #pragma clang loop unroll_count(16) vectorize(assume_safety)
+    for (std::size_t i = 0; i < dim; ++i) {
+        xy += x[i] * y[i];
+    }
+    return xy;
+}
+}
+
+std::uint32_t dot4B(std::size_t dim,
+                    const std::uint8_t*__restrict x,
+                    const std::uint8_t*__restrict y) {
+    std::size_t remainder{dim & 0xF};
+    dim -= remainder;
+    std::uint32_t xy{0};
+    for (std::size_t i = 0; i < dim; i += 4096) {
+        xy += dot4BM(std::min(dim, i + 4096), x + i, y + i);
+    }
+    if (remainder > 0) {
+        xy += dot4BR(remainder, x + dim, y + dim);
+    }
+    return xy;
+}
+
 std::pair<float, float>
 quantiles(std::size_t dim, const std::vector<float>& docs, float ci) {
 
@@ -184,12 +265,7 @@ void searchScalarQuantise4B(std::size_t k,
     }
 
     for (std::size_t i = 0, id = 0; i < docs.size(); i += dim, ++id) {
-        std::uint32_t simi{0};
-        // TODO handcraft a vectorised version of this loop.
-        #pragma clang loop unroll_count(16) vectorize(assume_safety)
-        for (std::size_t j = 0; j < dim; ++j) {
-            simi += qq[j] * docs[i + j];
-        }
+        std::uint32_t simi{dot4B(dim, &qq[0], &docs[i])};
         float sim{p1[id] + q1 + p2 * static_cast<float>(simi)};
         float dist{1.0F - sim};
         if (topk.size() < k) {
