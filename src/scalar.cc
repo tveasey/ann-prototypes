@@ -125,7 +125,7 @@ scalarQuantise8B(const std::pair<float, float>& range,
     std::vector<std::uint8_t> quantised(dequantised.size());
 
     for (std::size_t i = 0, k = 0; i < dequantised.size(); i += dim, ++k) {
-        #pragma clang unroll_count(2) vectorise(assume_safety)
+        #pragma clang unroll_count(2) vectorize(assume_safety)
         for (std::size_t j = i; j < i + dim; ++j) {
             float x{dequantised[j]};
             float dx{std::clamp(x, lower, upper) - lower};
@@ -145,7 +145,7 @@ std::vector<float> scalarDequantise8B(const std::pair<float, float>& range,
     auto [lower, upper] = range;
     std::vector<float> dequantised(quantised.size());
     float scale{(upper - lower) / 255.0F};
-    #pragma clang unroll_count(8) vectorise(assume_safety)
+    #pragma clang unroll_count(8) vectorize(assume_safety)
     for (std::size_t i = 0; i < quantised.size(); ++i) {
         dequantised[i] = lower + scale * static_cast<float>(quantised[i]);
     }
@@ -179,7 +179,6 @@ void searchScalarQuantise8B(std::size_t k,
 
     for (std::size_t i = 0, id = 0; i < docs.size(); i += dim, ++id) {
         std::uint32_t simi{0};
-        // TODO handcraft a vectorised version of this loop.
         #pragma clang loop unroll_count(8) vectorize(assume_safety)
         for (std::size_t j = 0; j < dim; ++j) {
             simi += qq[j] * static_cast<std::uint16_t>(docs[i + j]);
@@ -211,7 +210,7 @@ scalarQuantise4B(const std::pair<float, float>& range,
     std::vector<std::uint8_t> quantised(dequantised.size());
 
     for (std::size_t i = 0, k = 0; i < dequantised.size(); i += dim, ++k) {        
-        #pragma clang unroll_count(2) vectorise(assume_safety)
+        #pragma clang unroll_count(2) vectorize(assume_safety)
         for (std::size_t j = i; j < i + dim; ++j) {
             float x{dequantised[j]};
             float dx{std::clamp(x, lower, upper) - lower};
@@ -232,7 +231,7 @@ std::vector<float> scalarDequantise4B(const std::pair<float, float>& range,
     auto [lower, upper] = range;
     std::vector<float> dequantised(quantised.size());
     float scale{(upper - lower) / 15.0F};
-    #pragma clang unroll_count(4) vectorise(assume_safety)
+    #pragma clang unroll_count(4) vectorize(assume_safety)
     for (std::size_t i = 0; i < quantised.size(); ++i) {
         dequantised[i] = lower + scale * static_cast<float>(quantised[i]);
     }
@@ -407,7 +406,7 @@ scalarDequantise4BMc(std::size_t dim,
                      const std::vector<std::uint8_t>& quantised,
                      const std::vector<std::tuple<std::size_t, float, float>>& channels) {
     std::vector<float> dequantised(2 * quantised.size());
-    #pragma clang unroll_count(8) vectorise(assume_safety)
+    #pragma clang unroll_count(8) vectorize(assume_safety)
     for (std::size_t i = 0; i < quantised.size(); ++i) {
         for (const auto& channel : channels) {
             auto [width, lower, upper] = channel;
