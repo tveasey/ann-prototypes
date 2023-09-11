@@ -90,16 +90,10 @@ compute similarity. We consider two options:
 rationale for anisotropic loss for product quantisation: parallel vectors are expected
 to be nearest neighbours and we want the best accuracy for them.
 
-For case 1 we have that 
-```math
-  \vec{\epsilon}_q^{\:t} \vec{d}_q = \vec{\epsilon}_q^{\:t} \mathbb{E}_{\vec{d}}[\vec{d}-\vec{l}\:]
-```
-and 
-```math
-  \vec{\epsilon}_d^{\:t} \vec{q}_q =\vec{\epsilon}_d^{\:t} \mathbb{E}_{\vec{q}}[\vec{q}-\vec{l}\:]
-```
+For case 1 we have that $`\vec{\epsilon}_q^{\:t} \vec{d}_q = \vec{\epsilon}_q^{\:t} \mathbb{E}_{\vec{d}}[\vec{d}-\vec{l}\:]`$
+and $`\vec{\epsilon}_d^{\:t} \vec{q}_q =\vec{\epsilon}_d^{\:t} \mathbb{E}_{\vec{q}}[\vec{q}-\vec{l}\:]`$
 These can be approximated by $`\vec{\epsilon}_q^{\:t} \frac{1}{|D|}\sum_{\vec{d} \in D}{\vec{d}-\vec{l}}`$
-and $\vec{\epsilon}_d^{\:t} \frac{1}{|Q|}\sum_{\vec{q} \in Q}{\vec{q}-\vec{l}}$, respectively,
+and $`\vec{\epsilon}_d^{\:t} \frac{1}{|Q|}\sum_{\vec{q} \in Q}{\vec{q}-\vec{l}}`$, respectively,
 where $D$ and $Q$ are samples of the documents and queries. In practice, one likely
 doesn't know $Q$ in which case it is typical to use $D$ for both.
 
