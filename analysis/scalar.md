@@ -97,8 +97,8 @@ and $`\vec{\epsilon}_d^{\:t} \frac{1}{|Q|}\sum_{\vec{q} \in Q}{\vec{q}-\vec{l}}`
 where $D$ and $Q$ are samples of the documents and queries. In practice, one likely
 doesn't know $Q$ in which case it is typical to use $D$ for both.
 
-For case 2 we would simply use $\vec{\epsilon}_q^{\:t} \vec{d}_q = \vec{\epsilon}_q^{\:t}(\vec{q}-\vec{l})$
-and $\vec{\epsilon}_d^{\:t}\vec{q}_q = \vec{\epsilon}_d^{\:t}(\vec{d}-\vec{l})$.
+For case 2 we would simply use $`\vec{\epsilon}_q^{\:t} \vec{d}_q = \vec{\epsilon}_q^{\:t}(\vec{q}-\vec{l})`$
+and $`\vec{\epsilon}_d^{\:t}\vec{q}_q = \vec{\epsilon}_d^{\:t}(\vec{d}-\vec{l})`$.
 
 ## Merging Segment Scalar Quantisation
 
