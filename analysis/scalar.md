@@ -78,10 +78,10 @@ So focusing on the last term we have
 ```
 We expect $\vec{\epsilon}_q = (\vec{q} - \vec{l} - \vec{q}_q)$ and $\vec{\epsilon}_d = (\vec{d} - \vec{l} - \vec{d}_q)$
 to be small compared to the leading term. So expanding gives
-$$
+```math
   (\vec{q} - \vec{l}\:)^t (\vec{d} - \vec{l}\:)
     = \vec{q}_q^{\:t} \vec{d}_q + \vec{\epsilon}_q^{\:t} \vec{d}_q + \vec{\epsilon}_d^{\:t} \vec{q}_q + O(\|\vec{\epsilon}\|^{\:2})
-$$
+```
 We only want to retain one scalar per vector (or we lose the space benefit).
 However, we don't know a priori the $\vec{q}_q$ and $\vec{d}_q$ for which we will
 compute similarity. We consider two options:
