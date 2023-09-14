@@ -165,7 +165,8 @@ std::uint32_t dot4B(std::size_t dim,
     dim -= rem;
     std::uint32_t xy{0};
     for (std::size_t i = 0; i < dim; i += 4096) {
-        xy += dot4BM(std::min(dim, i + 4096), x + i, y + i);
+        std::size_t block{std::min(dim - i, static_cast<std::size_t>(4096))};
+        xy += dot4BM(block, x + i, y + i);
     }
     if (rem > 0) {
         xy += dot4BR(rem, x + dim, y + dim);
@@ -180,7 +181,8 @@ std::uint32_t dot4BPacked(std::size_t dim,
     dim -= rem;
     std::uint32_t xy{0};
     for (std::size_t i = 0; i < dim; i += 4096) {
-        xy += dot4BMPacked(std::min(dim, i + 4096), x + i, y + (i >> 1));
+        std::size_t block{std::min(dim - i, static_cast<std::size_t>(4096))};
+        xy += dot4BMPacked(block, x + i, y + (i >> 1));
     }
     if (rem > 0) {
         xy += dot4BRPacked(rem, x + dim, y + (dim >> 1));
