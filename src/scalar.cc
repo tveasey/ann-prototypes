@@ -67,11 +67,15 @@ std::uint32_t dot4BMPacked(std::size_t dim,
     uint8x8_t m{vdup_n_u8(0xF)};
 
     for (std::size_t i = 0; i < dim; i += 16) {
-        // Read into 16 x 8 bit vectors.
+        // Read into 16 x 8 bit vector.
         uint8x16_t xb{vld1q_u8(x + i)};
+        // Read into 8 x 8 bit vector.
         uint8x8_t yp{vld1_u8(y + (i >> 1))};
+        // Mask to extract lower 4 bits in 8 x 8 bit vector.
         uint8x8_t ybl{vand_u8(yp, m)};
+        // Right shift to extract upper 4 bits in 8 x 8 bit vector.
         uint8x8_t ybh{vshr_n_u8(yp, 4)};
+        // Concatenate into 16 x 8 bit vector.
         uint8x16_t yb{vcombine_u8(ybl, ybh)};
         // Multiply.
         uint8x16_t xyb{vmulq_u8(xb, yb)};
@@ -130,7 +134,7 @@ std::uint32_t dot4BR(std::size_t dim,
                      const std::uint8_t*__restrict x,
                      const std::uint8_t*__restrict y) {
     // Tell the compiler dim contraints.
-    dim = dim & 0XF;
+    dim = dim & 0xF;
     std::uint32_t xy{0};
     #pragma clang loop vectorize(assume_safety)
     for (std::size_t i = 0; i < dim; ++i) {
@@ -143,7 +147,7 @@ std::uint32_t dot4BRPacked(std::size_t dim,
                            const std::uint8_t*__restrict x,
                            const std::uint8_t*__restrict y) {
     // Tell the compiler dim contraints.
-    dim = dim & 0XF;
+    dim = dim & 0xF;
     std::size_t rem{dim & 0x1};
     dim -= rem;
     std::uint32_t xy{0};
