@@ -13,8 +13,12 @@
 namespace {
 #if defined(__ARM_NEON__)
 
+// Vectorised dot product implementation.
+
 #include <arm_neon.h>
 
+// Implements dot product for the first 16 * floor(dim / 16) components of
+// a vector. If dim > 4096 the vector must be blocked.
 std::uint32_t dot4BM(std::size_t dim,
                      const std::uint8_t*__restrict x,
                      const std::uint8_t*__restrict y) {
@@ -45,7 +49,46 @@ std::uint32_t dot4BM(std::size_t dim,
     return vaddlvq_u16(xysuml) + vaddlvq_u16(xysumh);
 }
 
+// Implements dot product for the first 16 * floor(dim / 16) components of
+// a vector. If dim > 4096 the vector must be blocked. Requires that the
+// y vector has been packed.
+std::uint32_t dot4BMPacked(std::size_t dim,
+                           const std::uint8_t*__restrict x,
+                           const std::uint8_t*__restrict y) {
+
+    // We assume that the values for y are packed into the upper and lower
+    // 4 bits of each element of the vector and that they are reordered so
+    // we can unpack them efficiently. In particular, we assume for each
+    // block of 8 integers we store the 0-7 elements in the lower bits and
+    // the 8-15 elements in the upper bits.
+
+    uint16x8_t xysuml{vdupq_n_u16(0)};
+    uint16x8_t xysumh{vdupq_n_u16(0)};
+    uint8x8_t m{vdup_n_u8(0xF)};
+
+    for (std::size_t i = 0; i < dim; i += 16) {
+        // Read into 16 x 8 bit vectors.
+        uint8x16_t xb{vld1q_u8(x + i)};
+        uint8x8_t yp{vld1_u8(y + (i >> 1))};
+        uint8x8_t ybl{vand_u8(yp, m)};
+        uint8x8_t ybh{vshr_n_u8(yp, 4)};
+        uint8x16_t yb{vcombine_u8(ybl, ybh)};
+        // Multiply.
+        uint8x16_t xyb{vmulq_u8(xb, yb)};
+        // Split into 2 x 8 x 16 bit vectors in which type we accumulate.
+        uint16x8_t xybl{vmovl_u8(vget_low_u8(xyb))};
+        uint16x8_t xybh{vmovl_u8(vget_high_u8(xyb))};
+        // Accumulate.
+        xysuml = vaddq_u16(xysuml, xybl);
+        xysumh = vaddq_u16(xysumh, xybh);
+    }
+
+    return vaddlvq_u16(xysuml) + vaddlvq_u16(xysumh);
+}
+
 #else
+
+// Fallback dot product implementation.
 
 std::uint32_t dot4BM(std::size_t dim,
                      const std::uint8_t*__restrict x,
@@ -62,15 +105,58 @@ std::uint32_t dot4BM(std::size_t dim,
     return xy;
 }
 
+std::uint32_t dot4BMPacked(std::size_t dim,
+                           const std::uint8_t*__restrict x,
+                           const std::uint8_t*__restrict y) {
+
+    // Tell the compiler dim contraints.
+    dim = std::min(dim, static_cast<std::size_t>(4096)) & ~0xF;
+
+    std::uint32_t xy{0};
+    for (std::size_t i = 0; i < dim; i += 16) {
+        #pragma clang loop unroll_count(8) vectorize(assume_safety)
+        for (std::size_t j = 0; j < 8; ++j) {
+            xy += x[i + j] * (y[(i >> 1) + j] & 0xF);
+        }
+        #pragma clang loop unroll_count(8) vectorize(assume_safety)
+        for (std::size_t j = 0; j < 8; ++j) {
+            xy += x[i + j + 8] * (y[(i >> 1) + j] >> 4);
+        }
+    }
+    return xy;
+}
+
 #endif
+
+// Remainder handling for dot product.
 
 std::uint32_t dot4BR(std::size_t dim,
                      const std::uint8_t*__restrict x,
                      const std::uint8_t*__restrict y) {
+
+    // Tell the compiler dim contraints.
+    dim = dim & 0XF;
+
     std::uint32_t xy{0};
-    #pragma clang loop unroll_count(16) vectorize(assume_safety)
+    #pragma clang loop vectorize(assume_safety)
     for (std::size_t i = 0; i < dim; ++i) {
         xy += x[i] * y[i];
+    }
+    return xy;
+}
+
+std::uint32_t dot4BRPacked(std::size_t dim,
+                           const std::uint8_t*__restrict x,
+                           const std::uint8_t*__restrict y) {
+
+    // Tell the compiler dim contraints.
+    dim = dim & 0XF;
+
+    std::uint32_t xy{0};
+    #pragma clang loop vectorize(assume_safety)
+    for (std::size_t i = 0; i < dim; i += 2) {
+        xy += x[i]     * (y[i >> 1] >> 4);
+        xy += x[i + 1] * (y[i >> 1] & 0xF);
     }
     return xy;
 }
@@ -89,6 +175,28 @@ std::uint32_t dot4B(std::size_t dim,
         xy += dot4BR(remainder, x + dim, y + dim);
     }
     return xy;
+}
+
+std::uint32_t dot4BPacked(std::size_t dim,
+                          const std::uint8_t*__restrict x,
+                          const std::uint8_t*__restrict y) {
+    std::size_t remainder{dim & 0xF};
+    dim -= remainder;
+    std::uint32_t xy{0};
+    for (std::size_t i = 0; i < dim; i += 4096) {
+        xy += dot4BMPacked(std::min(dim, i + 4096), x + i, y + (i >> 1));
+    }
+    if (remainder > 0) {
+        xy += dot4BRPacked(remainder, x + dim, y + (dim >> 1));
+    }
+    return xy;
+}
+
+void packBlock4B(const std::uint8_t*__restrict block,
+                 std::uint8_t*__restrict packedBlock) {
+    for (std::size_t i = 0; i < 8; ++i) {
+        packedBlock[i] = (block[8 + i] << 4) + block[i];
+    }
 }
 
 std::pair<float, float>
@@ -194,8 +302,6 @@ void searchScalarQuantise8B(std::size_t k,
     }
 }
 
-// THESE 4 BIT IMPLEMENTATIONS DO NOT PACK THE DOC VECTORS.
-
 std::pair<std::vector<std::uint8_t>, std::vector<float>>
 scalarQuantise4B(const std::pair<float, float>& range,
                  std::size_t dim,
@@ -209,7 +315,7 @@ scalarQuantise4B(const std::pair<float, float>& range,
     std::vector<float> p1(numDocs, 0.0F);
     std::vector<std::uint8_t> quantised(dequantised.size());
 
-    for (std::size_t i = 0, k = 0; i < dequantised.size(); i += dim, ++k) {        
+    for (std::size_t i = 0, k = 0; i < dequantised.size(); i += dim, ++k) {
         #pragma clang unroll_count(2) vectorize(assume_safety)
         for (std::size_t j = i; j < i + dim; ++j) {
             float x{dequantised[j]};
@@ -227,7 +333,6 @@ scalarQuantise4B(const std::pair<float, float>& range,
 std::vector<float> scalarDequantise4B(const std::pair<float, float>& range,
                                       std::size_t dim,
                                       const std::vector<std::uint8_t>& quantised) {
-    constexpr std::uint8_t MASK{0xF};
     auto [lower, upper] = range;
     std::vector<float> dequantised(quantised.size());
     float scale{(upper - lower) / 15.0F};
@@ -372,51 +477,4 @@ void runScalarBenchmark(const std::string& tag,
                   << "average recall@" << k << "|" << k + a << " = "
                   << recalls[PQStats::AVG_RECALL] << std::endl;
     }
-}
-
-// WIP
-
-std::pair<std::vector<std::uint8_t>, std::vector<float>>
-scalarQuantise4BMc(std::size_t dim,
-                   const std::vector<float>& dequantised,
-                   const std::vector<std::tuple<std::size_t, float, float>>& channels) {
- 
-    std::vector<std::uint8_t> quantised((dequantised.size() + 1) / 2);
- 
-    for (std::size_t i = 0; i < quantised.size(); ++i) {
-        for (const auto& channel : channels) {
-            auto [width, lower, upper] = channel;
-            float scale{15.0F / (upper - lower)};
-            for (std::size_t j = 0; j < width; ++i, ++j) {
-                float r1{std::clamp(dequantised[2 * i], lower, upper) - lower};
-                float r2{std::clamp(dequantised[2 * i + 1], lower, upper) - lower};
-                quantised[i] = 
-                    (static_cast<std::uint8_t>(std::round(scale * r1)) << 4) +
-                    (static_cast<std::uint8_t>(std::round(scale * r2)));
-            }
-        }
-    }
-
-    // TODO
-    return {std::move(quantised), std::vector<float>()};
-}
-
-std::vector<float>
-scalarDequantise4BMc(std::size_t dim,
-                     const std::vector<std::uint8_t>& quantised,
-                     const std::vector<std::tuple<std::size_t, float, float>>& channels) {
-    std::vector<float> dequantised(2 * quantised.size());
-    #pragma clang unroll_count(8) vectorize(assume_safety)
-    for (std::size_t i = 0; i < quantised.size(); ++i) {
-        for (const auto& channel : channels) {
-            auto [width, lower, upper] = channel;
-            for (std::size_t j = 0; j < width; ++i, ++j) {
-                dequantised[2 * i] =
-                    lower + (upper - lower) * static_cast<float>(quantised[i] >> 4) / 15.0F;
-                dequantised[2 * i + 1] =
-                    lower + (upper - lower) * static_cast<float>(quantised[i] & 0xF) / 15.0F;
-            }
-        }
-    }
-    return dequantised;
 }

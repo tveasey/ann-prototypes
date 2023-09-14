@@ -9,6 +9,11 @@
 
 std::uint32_t dot4B(std::size_t dim, const std::uint8_t* x, const std::uint8_t* y);
 
+std::uint32_t dot4BPacked(std::size_t dim, const std::uint8_t* x, const std::uint8_t* y);
+
+void packBlock4B(const std::uint8_t*__restrict block,
+                 std::uint8_t*__restrict packedBlock);
+
 std::pair<float, float>
 quantiles(std::size_t dim, const std::vector<float>& vectors, float ci);
 
