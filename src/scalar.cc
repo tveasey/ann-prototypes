@@ -93,10 +93,8 @@ std::uint32_t dot4BMPacked(std::size_t dim,
 std::uint32_t dot4BM(std::size_t dim,
                      const std::uint8_t*__restrict x,
                      const std::uint8_t*__restrict y) {
-
     // Tell the compiler dim contraints.
     dim = std::min(dim, static_cast<std::size_t>(4096)) & ~0xF;
-
     std::uint32_t xy{0};
     #pragma clang loop unroll_count(16) vectorize(assume_safety)
     for (std::size_t i = 0; i < dim; ++i) {
@@ -108,10 +106,8 @@ std::uint32_t dot4BM(std::size_t dim,
 std::uint32_t dot4BMPacked(std::size_t dim,
                            const std::uint8_t*__restrict x,
                            const std::uint8_t*__restrict y) {
-
     // Tell the compiler dim contraints.
     dim = std::min(dim, static_cast<std::size_t>(4096)) & ~0xF;
-
     std::uint32_t xy{0};
     for (std::size_t i = 0; i < dim; i += 16) {
         #pragma clang loop unroll_count(8) vectorize(assume_safety)
@@ -133,10 +129,8 @@ std::uint32_t dot4BMPacked(std::size_t dim,
 std::uint32_t dot4BR(std::size_t dim,
                      const std::uint8_t*__restrict x,
                      const std::uint8_t*__restrict y) {
-
     // Tell the compiler dim contraints.
     dim = dim & 0XF;
-
     std::uint32_t xy{0};
     #pragma clang loop vectorize(assume_safety)
     for (std::size_t i = 0; i < dim; ++i) {
@@ -148,16 +142,18 @@ std::uint32_t dot4BR(std::size_t dim,
 std::uint32_t dot4BRPacked(std::size_t dim,
                            const std::uint8_t*__restrict x,
                            const std::uint8_t*__restrict y) {
-
     // Tell the compiler dim contraints.
     dim = dim & 0XF;
-
+    std::size_t rem{dim & 0x1};
+    dim -= rem;
     std::uint32_t xy{0};
     #pragma clang loop vectorize(assume_safety)
     for (std::size_t i = 0; i < dim; i += 2) {
-        xy += x[i]     * (y[i >> 1] >> 4);
-        xy += x[i + 1] * (y[i >> 1] & 0xF);
+        xy += x[i]     * (y[i >> 1] & 0xF);
+        xy += x[i + 1] * (y[i >> 1] >> 4);
     }
+    // Avoid branch.
+    xy += rem * x[dim] * y[dim >> 1];
     return xy;
 }
 }
@@ -165,14 +161,14 @@ std::uint32_t dot4BRPacked(std::size_t dim,
 std::uint32_t dot4B(std::size_t dim,
                     const std::uint8_t*__restrict x,
                     const std::uint8_t*__restrict y) {
-    std::size_t remainder{dim & 0xF};
-    dim -= remainder;
+    std::size_t rem{dim & 0xF};
+    dim -= rem;
     std::uint32_t xy{0};
     for (std::size_t i = 0; i < dim; i += 4096) {
         xy += dot4BM(std::min(dim, i + 4096), x + i, y + i);
     }
-    if (remainder > 0) {
-        xy += dot4BR(remainder, x + dim, y + dim);
+    if (rem > 0) {
+        xy += dot4BR(rem, x + dim, y + dim);
     }
     return xy;
 }
@@ -180,14 +176,14 @@ std::uint32_t dot4B(std::size_t dim,
 std::uint32_t dot4BPacked(std::size_t dim,
                           const std::uint8_t*__restrict x,
                           const std::uint8_t*__restrict y) {
-    std::size_t remainder{dim & 0xF};
-    dim -= remainder;
+    std::size_t rem{dim & 0xF};
+    dim -= rem;
     std::uint32_t xy{0};
     for (std::size_t i = 0; i < dim; i += 4096) {
         xy += dot4BMPacked(std::min(dim, i + 4096), x + i, y + (i >> 1));
     }
-    if (remainder > 0) {
-        xy += dot4BRPacked(remainder, x + dim, y + (dim >> 1));
+    if (rem > 0) {
+        xy += dot4BRPacked(rem, x + dim, y + (dim >> 1));
     }
     return xy;
 }
@@ -197,6 +193,20 @@ void packBlock4B(const std::uint8_t*__restrict block,
     for (std::size_t i = 0; i < 8; ++i) {
         packedBlock[i] = (block[8 + i] << 4) + block[i];
     }
+}
+
+void packRemainder4B(std::size_t dim,
+                     const std::uint8_t*__restrict remainder,
+                     std::uint8_t*__restrict packedRemainder) {
+    dim = dim & 0xF;
+    std::size_t rem{dim & 0x1};
+    dim -= rem;
+    std::size_t i = 0;
+    for (/**/; i < dim; ++i) {
+        packedRemainder[i] = (remainder[(i << 1) + 1] << 4) + remainder[i << 1];
+    }
+    // Avoid branch.
+    packedRemainder[i] = rem * remainder[dim];
 }
 
 std::pair<float, float>

@@ -51,8 +51,8 @@ bool testDot4B() {
 
     for (std::size_t t = 0; t < 100; ++t) {
         std::vector<std::uint8_t> x(32);
-        std::vector<std::uint8_t> y(x.size(), 32);
-        std::vector<std::uint8_t> yp(x.size(), 16);
+        std::vector<std::uint8_t> y(x.size());
+        std::vector<std::uint8_t> yp(x.size() / 2);
         std::generate_n(x.begin(), x.size(), [&] { return u(rng); });
         std::generate_n(y.begin(), y.size(), [&] { return u(rng); });
 
@@ -66,6 +66,38 @@ bool testDot4B() {
         for (std::size_t i = 0; i < y.size(); i += 16) {
             packBlock4B(&y[i], &yp[i >> 1]);
         }
+
+        auto dotp = dot4BPacked(x.size(), x.data(), yp.data());
+
+        if (dot != expectedDot) {
+            std::cout << "FAILED: mismatch " << dot << " != " << expectedDot << std::endl;
+            return false;
+        }
+        if (dotp != expectedDot) {
+            std::cout << "FAILED: mismatch " << dotp << " != " << expectedDot << std::endl;
+            return false;
+        }
+    }
+
+    // Remainder.
+    for (std::size_t t = 0; t < 100; ++t) {
+        std::vector<std::uint8_t> x(47);
+        std::vector<std::uint8_t> y(x.size());
+        std::vector<std::uint8_t> yp((x.size() + 1) / 2);
+        std::generate_n(x.begin(), x.size(), [&] { return u(rng); });
+        std::generate_n(y.begin(), y.size(), [&] { return u(rng); });
+
+        std::uint32_t expectedDot{0};
+        for (std::size_t i = 0; i < x.size(); ++i) {
+            expectedDot += x[i] * y[i];
+        }
+
+        auto dot = dot4B(x.size(), x.data(), y.data());
+
+        for (std::size_t i = 0; i < (y.size() & ~0xF); i += 16) {
+            packBlock4B(&y[i], &yp[i >> 1]);
+        }
+        packRemainder4B(y.size() & 0xF, &y[y.size() & ~0xF], &yp[(y.size() & ~0xF) >> 1]);
 
         auto dotp = dot4BPacked(x.size(), x.data(), yp.data());
 
