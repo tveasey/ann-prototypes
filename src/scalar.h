@@ -7,16 +7,25 @@
 #include <utility>
 #include <vector>
 
-std::uint32_t dot4B(std::size_t dim, const std::uint8_t* x, const std::uint8_t* y);
+std::uint32_t dot8B(std::size_t dim,
+                    const std::uint16_t*__restrict x,
+                    const std::uint8_t*__restrict y);
 
-std::uint32_t dot4BPacked(std::size_t dim, const std::uint8_t* x, const std::uint8_t* y);
+std::uint32_t dot4B(std::size_t dim,
+                    const std::uint8_t*__restrict x,
+                    const std::uint8_t*__restrict y);
 
-void packBlock4B(const std::uint8_t*__restrict block,
-                 std::uint8_t*__restrict packedBlock);
+std::uint32_t dot4BP(std::size_t dim,
+                     const std::uint8_t*__restrict x,
+                     const std::uint8_t*__restrict y);
 
-void packRemainder4B(std::size_t dim,
-                     const std::uint8_t*__restrict remainder,
-                     std::uint8_t*__restrict packedRemainder);
+void pack4B(std::size_t dim,
+             const std::uint8_t*__restrict raw,
+             std::uint8_t*__restrict packed);
+
+void unpack4B(std::size_t dim,
+              const std::uint8_t*__restrict packed,
+              std::uint8_t*__restrict raw);
 
 std::pair<float, float>
 quantiles(std::size_t dim, const std::vector<float>& vectors, float ci);
@@ -32,10 +41,12 @@ std::vector<float> scalarDequantise8B(const std::pair<float, float>& range,
 
 std::pair<std::vector<std::uint8_t>, std::vector<float>>
 scalarQuantise4B(const std::pair<float, float>& range,
+                 bool pack,
                  std::size_t dim,
                  const std::vector<float>& dequantised);
 
 std::vector<float> scalarDequantise4B(const std::pair<float, float>& range,
+                                      bool packed,
                                       std::size_t dim,
                                       const std::vector<std::uint8_t>& quantised);
 

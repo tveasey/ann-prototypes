@@ -60,20 +60,22 @@ int main(int argc, char* argv[]) {
             unit = true;
         } else if (arg == "-s" || arg == "--scalar") {
             if (i + 1 == argc) {
-                std::cerr << "Missing dataset. Usage:\n\n" << usage() << std::endl;
+                std::cerr << "Missing dataset. Usage:\n" << usage() << std::endl;
                 return 1;
             }
             if (std::strcmp(argv[i + 1], "4") == 0) {
-                scalar = Scalar4Bit;
+                scalar = B4;
+            } else if (std::strcmp(argv[i + 1], "4P") == 0) {
+                scalar = B4P;
             } else if (std::strcmp(argv[i + 1], "8") == 0) {
-                scalar = Scalar8Bit;
+                scalar = B8;
             } else {
-                std::cerr << "Unsupported bits " << argv[i + 1] << ". Usage:\n\n" << usage() << std::endl;
+                std::cerr << "Unsupported bits " << argv[i + 1] << ". Usage:\n" << usage() << std::endl;
                 return 1;
             }
         } else if (arg == "-r" || arg == "--run") {
             if (i + 1 == argc) {
-                std::cerr << "Missing dataset. Usage:\n\n" << usage() << std::endl;
+                std::cerr << "Missing dataset. Usage:\n" << usage() << std::endl;
                 return 1;
             }
             dataset = argv[i + 1];

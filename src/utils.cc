@@ -2,7 +2,7 @@
 
 namespace {
 const std::array<std::string, 2> METRICS{"dot", "cosine"}; 
-const std::array<std::string, 2> BITS{"4 bit", "8 bit"}; 
+const std::array<std::string, 3> BITS{"4 bit", "4 bit packed", "8 bit"}; 
 }
 
 const std::string& toString(Metric m) {

@@ -44,10 +44,43 @@ bool testReadFvecs() {
     return true;
 }
 
+bool testPacking() {
+
+    std::minstd_rand rng;
+    std::uniform_int_distribution<> u{0, 15};
+
+    for (std::size_t t = 0; t < 100; ++t) {
+        std::vector<std::uint8_t> x(45);
+        std::vector<std::uint8_t> xp((x.size() + 1) / 2);
+        std::generate_n(x.begin(), x.size(), [&] { return u(rng); });
+
+        std::size_t rem{x.size() & 0x1F};
+        std::size_t dim{x.size() - rem};
+        for (std::size_t i = 0; i < x.size(); i += 32) {
+            pack4B(32, &x[i], &xp[i >> 1]);
+        }
+        pack4B(rem, &x[dim], &xp[dim >> 1]);
+
+        std::vector<std::uint8_t> xu(x.size());
+        for (std::size_t i = 0; i < x.size(); i += 32) {
+            unpack4B(32, &xp[i >> 1], &xu[i]);
+        }
+        unpack4B(rem, &xp[dim >> 1], &xu[dim]);
+
+        if (x != xu) {
+            std::cout << "FAILED: mismatch " << std::vector<int>(x.begin(), x.end())
+                      << " != " << std::vector<int>(xu.begin(), xu.end()) << std::endl;
+            return false;
+        }
+    }
+    return true;
+}
+
 bool testDot4B() {
 
     std::minstd_rand rng;
     std::uniform_int_distribution<> u{0, 15};
+
     for (std::size_t t = 0; t < 100; ++t) {
         std::vector<std::uint8_t> x(32);
         std::vector<std::uint8_t> y(x.size());
@@ -62,11 +95,11 @@ bool testDot4B() {
 
         auto dot = dot4B(x.size(), x.data(), y.data());
 
-        for (std::size_t i = 0; i < y.size(); i += 16) {
-            packBlock4B(&y[i], &yp[i >> 1]);
+        for (std::size_t i = 0; i < y.size(); i += 32) {
+            pack4B(32, &y[i], &yp[i >> 1]);
         }
 
-        auto dotp = dot4BPacked(x.size(), x.data(), yp.data());
+        auto dotp = dot4BP(x.size(), x.data(), yp.data());
 
         if (dot != expectedDot) {
             std::cout << "FAILED: mismatch " << dot << " != " << expectedDot << std::endl;
@@ -93,12 +126,12 @@ bool testDot4B() {
 
         auto dot = dot4B(x.size(), x.data(), y.data());
 
-        for (std::size_t i = 0; i < (y.size() & ~0xF); i += 16) {
-            packBlock4B(&y[i], &yp[i >> 1]);
+        for (std::size_t i = 0; i < (y.size() & ~0x1F); i += 32) {
+            pack4B(32, &y[i], &yp[i >> 1]);
         }
-        packRemainder4B(y.size() & 0xF, &y[y.size() & ~0xF], &yp[(y.size() & ~0xF) >> 1]);
+        pack4B(y.size() & 0x1F, &y[y.size() & ~0x1F], &yp[(y.size() & ~0x1F) >> 1]);
 
-        auto dotp = dot4BPacked(x.size(), x.data(), yp.data());
+        auto dotp = dot4BP(x.size(), x.data(), yp.data());
 
         if (dot != expectedDot) {
             std::cout << "FAILED: mismatch " << dot << " != " << expectedDot << std::endl;
@@ -109,7 +142,6 @@ bool testDot4B() {
             return false;
         }
     }
-
 
     // Long.
     for (std::size_t t = 0; t < 100; ++t) {
@@ -126,12 +158,12 @@ bool testDot4B() {
 
         auto dot = dot4B(x.size(), x.data(), y.data());
 
-        for (std::size_t i = 0; i < (y.size() & ~0xF); i += 16) {
-            packBlock4B(&y[i], &yp[i >> 1]);
+        for (std::size_t i = 0; i < (y.size() & ~0x1F); i += 32) {
+            pack4B(32, &y[i], &yp[i >> 1]);
         }
-        packRemainder4B(y.size() & 0xF, &y[y.size() & ~0xF], &yp[(y.size() & ~0xF) >> 1]);
+        pack4B(y.size() & 0xF, &y[y.size() & ~0x1F], &yp[(y.size() & ~0x1F) >> 1]);
 
-        auto dotp = dot4BPacked(x.size(), x.data(), yp.data());
+        auto dotp = dot4BP(x.size(), x.data(), yp.data());
 
         if (dot != expectedDot) {
             std::cout << "FAILED: mismatch " << dot << " != " << expectedDot << std::endl;
@@ -145,6 +177,38 @@ bool testDot4B() {
 
     return true;
 }
+
+bool testDot8B() {
+
+    std::minstd_rand rng;
+    std::uniform_int_distribution<> u{0, 15};
+
+    for (std::size_t t = 0; t < 100; ++t) {
+        std::vector<std::uint16_t> x(128);
+        std::vector<std::uint8_t> y(x.size());
+        std::generate_n(x.begin(), x.size(), [&] { return u(rng); });
+        std::generate_n(y.begin(), y.size(), [&] { return u(rng); });
+
+        std::uint32_t expectedDot{0};
+        for (std::size_t i = 0; i < x.size(); ++i) {
+            expectedDot += x[i] * y[i];
+        }
+
+        auto dot = dot8B(x.size(), x.data(), y.data());
+
+        if (dot != expectedDot) {
+            std::cout << "FAILED: mismatch " << dot << " != " << expectedDot << std::endl;
+            return false;
+        }
+    }
+
+    return true;
+}
+
+std::uint32_t dot8B(std::size_t dim,
+                    const std::uint16_t*__restrict x,
+                    const std::uint8_t*__restrict y);
+
 
 bool testQuantiles() {
     std::vector<float> docs(1000);
@@ -578,7 +642,9 @@ bool testBuildDistTable() {
 
 void runUnitTests() {
     RUN_TEST(testReadFvecs);
+    RUN_TEST(testPacking);
     RUN_TEST(testDot4B);
+    RUN_TEST(testDot8B);
     RUN_TEST(testQuantiles);
     RUN_TEST(testScalar8BitQuantise);
     RUN_TEST(testZeroPad);

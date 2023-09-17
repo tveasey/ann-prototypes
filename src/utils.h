@@ -10,8 +10,9 @@ enum Metric {
 };
 
 enum ScalarBits {
-    Scalar4Bit,
-    Scalar8Bit
+    B4,  // Four bits
+    B4P, // Four bits backed
+    B8   // Eight bits
 };
 
 const std::string& toString(Metric m);
