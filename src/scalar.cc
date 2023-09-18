@@ -381,10 +381,11 @@ std::vector<float> scalarDequantise8B(const std::pair<float, float>& range,
     return dequantised;
 }
 
+namespace {
 void searchScalarQuantise8B(std::size_t k,
                             const std::pair<float, float>& range,
                             const std::vector<std::uint8_t>& docs,
-                            std::vector<float> p1,
+                            const std::vector<float>& p1,
                             const std::vector<float>& query,
                             std::priority_queue<std::pair<float, std::size_t>>& topk) {
 
@@ -417,6 +418,7 @@ void searchScalarQuantise8B(std::size_t k,
             topk.push(std::make_pair(dist, id));
         }
     }
+}
 }
 
 std::pair<std::vector<std::uint8_t>, std::vector<float>>
@@ -491,11 +493,12 @@ std::vector<float> scalarDequantise4B(const std::pair<float, float>& range,
     return dequantised;
 }
 
+namespace {
 void searchScalarQuantise4B(std::size_t k,
                             const std::pair<float, float>& range,
                             bool packed,
                             const std::vector<std::uint8_t>& docs,
-                            std::vector<float> p1,
+                            const std::vector<float>& p1,
                             const std::vector<float>& query,
                             std::priority_queue<std::pair<float, std::size_t>>& topk) {
 
@@ -531,6 +534,7 @@ void searchScalarQuantise4B(std::size_t k,
             topk.push(std::make_pair(dist, id));
         }
     }
+}
 }
 
 void runScalarBenchmark(const std::string& tag,
