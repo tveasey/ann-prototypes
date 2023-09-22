@@ -232,7 +232,7 @@ every time. The RMSE is at most 7% larger and on average 5% larger after merge.
 
 The lower figure suggests quantisation errors can accumulate if one is forced
 to repeatedly requantise. It seems reasonable that quantisation errors from
-each merge would be independent. In which circumstances the we expect components
+each merge would be independent. In which circumstances we expect components
 to perform a random walk with step size equal to half the quantisation interval,
 i.e. $\frac{u-l}{256}$. So the error distribution would eventually settle to mean
 zero normal with variance proportional equal to
