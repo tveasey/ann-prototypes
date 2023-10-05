@@ -353,7 +353,7 @@ scalarQuantise8B(const std::pair<float, float>& range,
     std::vector<float> p1(numDocs, 0.0F);
     std::vector<std::uint8_t> quantised(dequantised.size());
 
-    for (std::size_t i = 0, k = 0; i < dequantised.size(); i += dim, ++k) {
+    for (std::size_t i = 0, id = 0; i < dequantised.size(); i += dim, ++id) {
         #pragma clang unroll_count(2) vectorize(assume_safety)
         for (std::size_t j = i; j < i + dim; ++j) {
             float x{dequantised[j]};
@@ -361,10 +361,11 @@ scalarQuantise8B(const std::pair<float, float>& range,
             float dxs{scale * dx};
             float dxq{invScale * std::round(dxs)};
             //p1[k] += lower * (lower / 2.0F + dxq);
-            p1[k] += lower * (x - lower / 2.0F) + (dx - dxq) * dxq;
+            p1[id] += lower * (x - lower / 2.0F) + (dx - dxq) * dxq;
             quantised[j] = static_cast<std::uint8_t>(std::round(dxs));
         }
     }
+
     return {std::move(quantised), std::move(p1)};
 }
 

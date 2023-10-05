@@ -17,6 +17,9 @@ void loadAndRunPQBenchmark(const std::string& dataset, Metric metric, bool scann
         std::cout << "Dimension mismatch " << ddim << " != " << qdim << std::endl;
         return;
     }
+    if (docs.empty() || queries.empty()) {
+        return;
+    }
     runPQBenchmark(dataset, scann, metric, 10, qdim, docs, queries, writePQStats);
 }
 
@@ -26,6 +29,9 @@ void loadAndRunScalarBenchmark(const std::string& dataset, Metric metric, Scalar
     auto [queries, qdim] = readFvecs(root / "data" / ("queries-" + dataset + ".fvec"));
     if (ddim != qdim) {
         std::cout << "Dimension mismatch " << ddim << " != " << qdim << std::endl;
+        return;
+    }
+    if (docs.empty() || queries.empty()) {
         return;
     }
     runScalarBenchmark(dataset, metric, bits, 10, qdim, docs, queries);
