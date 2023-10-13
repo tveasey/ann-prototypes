@@ -184,7 +184,7 @@ bool testDot8B() {
     std::uniform_int_distribution<> u{0, 15};
 
     for (std::size_t t = 0; t < 100; ++t) {
-        std::vector<std::uint16_t> x(128);
+        std::vector<std::uint8_t> x(128);
         std::vector<std::uint8_t> y(x.size());
         std::generate_n(x.begin(), x.size(), [&] { return u(rng); });
         std::generate_n(y.begin(), y.size(), [&] { return u(rng); });

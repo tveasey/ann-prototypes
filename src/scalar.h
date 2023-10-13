@@ -8,7 +8,7 @@
 #include <vector>
 
 std::uint32_t dot8B(std::size_t dim,
-                    const std::uint16_t*__restrict x,
+                    const std::uint8_t*__restrict x,
                     const std::uint8_t*__restrict y);
 
 std::uint32_t dot4B(std::size_t dim,

@@ -17,28 +17,26 @@ namespace {
 
 #include <arm_neon.h>
 
-std::uint32_t dot8B8(std::size_t dim,
-                     const std::uint16_t*__restrict x,
-                     const std::uint8_t*__restrict y) {
+std::uint32_t dot8B16(std::size_t dim,
+                      const std::uint8_t*__restrict x,
+                      const std::uint8_t*__restrict y) {
 
     uint32x4_t xysuml{vdupq_n_u32(0)};
     uint32x4_t xysumh{vdupq_n_u32(0)};
 
-    for (std::size_t i = 0; i < dim; i += 8) {
+    for (std::size_t i = 0; i < dim; i += 16) {
         // Read into 16 x 8 bit vectors.
-        uint16x8_t xb{vld1q_u16(x + i)};
-        uint16x8_t yb{vmovl_u8(vld1_u8(y + i))};
+        uint8x16_t xb{vld1q_u8(x + i)};
+        uint8x16_t yb{vld1q_u8(y + i)};
         // Multiply.
-        uint16x8_t xyb{vmulq_u16(xb, yb)};
-        // Split into 2 x 4 x 32 bit vectors in which type we accumulate.
-        uint32x4_t xybl{vmovl_u16(vget_low_u16(xyb))};
-        uint32x4_t xybh{vmovl_u16(vget_high_u16(xyb))};
-        // Accumulate.
-        xysuml = vaddq_u32(xysuml, xybl);
-        xysumh = vaddq_u32(xysumh, xybh);
+        uint16x8_t xybl{vmull_u8(vget_low_u8(xb), vget_low_u8(yb))};
+        uint16x8_t xybh{vmull_u8(vget_high_u8(xb), vget_high_u8(yb))};
+        // Accumulate 4 x 32 bit vectors (adding adjacent 16 bit lanes).
+        xysuml = vpadalq_u16(xysuml, xybl);
+        xysumh = vpadalq_u16(xysumh, xybh);
     }
 
-    return vaddlvq_u32(xysuml) + vaddlvq_u32(xysumh);
+    return vaddvq_u32(vaddq_u32(xysuml, xysumh));
 }
 
 // Implements dot product for the first 16 * floor(dim / 16) components
@@ -62,12 +60,10 @@ std::uint32_t dot4B16(std::size_t dim,
         uint8x16_t yb{vld1q_u8(y + i)};
         // Multiply.
         uint8x16_t xyb{vmulq_u8(xb, yb)};
-        // Split into 2 x 8 x 16 bit vectors in which type we accumulate.
-        uint16x8_t xybl{vmovl_u8(vget_low_u8(xyb))};
-        uint16x8_t xybh{vmovl_u8(vget_high_u8(xyb))};
-        // Accumulate.
-        xysuml = vaddq_u16(xysuml, xybl);
-        xysumh = vaddq_u16(xysumh, xybh);
+        // Split into 2 x 8 x 16 bit vectors and accumulate. Note that
+        // using vpadalq_u8 ends up being 25% slower.
+        xysuml = vaddq_u16(xysuml, vmovl_u8(vget_low_u8(xyb)));
+        xysumh = vaddq_u16(xysumh, vmovl_u8(vget_high_u8(xyb)));
     }
 
     return vaddlvq_u16(xysuml) + vaddlvq_u16(xysumh);
@@ -104,16 +100,9 @@ std::uint32_t dot4BP32(std::size_t dim,
         // Multiply.
         uint8x16_t xybl{vmulq_u8(xbl, ybl)};
         uint8x16_t xybh{vmulq_u8(xbh, ybh)};
-        // Split into 2 x 8 x 16 bit vectors in which type we accumulate.
-        uint16x8_t xybll{vmovl_u8(vget_low_u8(xybl))};
-        uint16x8_t xyblh{vmovl_u8(vget_high_u8(xybl))};
-        uint16x8_t xybhl{vmovl_u8(vget_low_u8(xybh))};
-        uint16x8_t xybhh{vmovl_u8(vget_high_u8(xybh))};
-        // Accumulate.
-        xysuml = vaddq_u16(xysuml, xybll);
-        xysuml = vaddq_u16(xysuml, xyblh);
-        xysumh = vaddq_u16(xysumh, xybhl);
-        xysumh = vaddq_u16(xysumh, xybhh);
+        // Accumulate 8 x 16 bit vectors (adding adjacent 8 bit lanes).
+        xysuml = vpadalq_u8(xysuml, xybl);
+        xysumh = vpadalq_u8(xysumh, xybh);
     }
 
     return vaddlvq_u16(xysuml) + vaddlvq_u16(xysumh);
@@ -123,15 +112,15 @@ std::uint32_t dot4BP32(std::size_t dim,
 
 // Fallback dot product implementation.
 
-std::uint32_t dot8B8(std::size_t dim,
-                     const std::uint16_t*__restrict x,
-                     const std::uint8_t*__restrict y) {
+std::uint32_t dot8B16(std::size_t dim,
+                      const std::uint8_t*__restrict x,
+                      const std::uint8_t*__restrict y) {
     // Tell the compiler dim contraints.
     dim = dim & ~0xF;
     std::uint32_t xy{0};
     #pragma clang loop unroll_count(8) vectorize(assume_safety)
     for (std::size_t i = 0; i < dim; ++i) {
-        xy += x[i] * y[i];
+        xy += static_cast<std::uint16_t>(x[i]) * static_cast<std::uint16_t>(y[i]);
     }
     return xy;
 }
@@ -173,14 +162,14 @@ std::uint32_t dot4BP32(std::size_t dim,
 // Remainder handling for dot product.
 
 std::uint32_t dot8BR(std::size_t dim,
-                     const std::uint16_t*__restrict x,
+                     const std::uint8_t*__restrict x,
                      const std::uint8_t*__restrict y) {
     // Tell the compiler dim contraints.
     dim = dim & 0xF;
     std::uint32_t xy{0};
     #pragma clang loop vectorize(assume_safety)
     for (std::size_t i = 0; i < dim; ++i) {
-        xy += x[i] * static_cast<std::uint16_t>(y[i]);
+        xy += static_cast<std::uint16_t>(x[i]) * static_cast<std::uint16_t>(y[i]);
     }
     return xy;
 }
@@ -263,11 +252,11 @@ void unpack4BR(std::size_t dim,
 }
 
 std::uint32_t dot8B(std::size_t dim,
-                    const std::uint16_t*__restrict x,
+                    const std::uint8_t*__restrict x,
                     const std::uint8_t*__restrict y) {
-    std::size_t rem{dim & 0x7};
+    std::size_t rem{dim & 0xF};
     dim -= rem;
-    return dot8B8(dim, x, y) + (rem > 0 ? dot8BR(rem, x + dim, y + dim) : 0);
+    return dot8B16(dim, x, y) + (rem > 0 ? dot8BR(rem, x + dim, y + dim) : 0);
 }
 
 std::uint32_t dot4B(std::size_t dim,
@@ -395,7 +384,7 @@ void searchScalarQuantise8B(std::size_t k,
     float scale{255.0F / (upper - lower)};
     float invScale{(upper - lower) / 255.0F};
 
-    std::vector<std::uint16_t> qq(dim);
+    std::vector<std::uint8_t> qq(dim);
     float q1{0.0F};
     float p2{invScale * invScale};
     for (std::size_t i = 0; i < dim; ++i) {
@@ -405,7 +394,7 @@ void searchScalarQuantise8B(std::size_t k,
         float dxq{invScale * std::round(dxs)};
         //q1 += lower * (lower / 2.0F + dxq);
         q1 += lower * (x - lower / 2.0F) + (dx - dxq) * dxq;
-        qq[i] = static_cast<std::uint16_t>(std::round(dxs));
+        qq[i] = static_cast<std::uint8_t>(std::round(dxs));
     }
 
     for (std::size_t i = 0, id = 0; i < docs.size(); i += dim, ++id) {
