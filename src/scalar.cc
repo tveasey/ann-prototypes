@@ -41,11 +41,11 @@ std::uint32_t dot8B16(std::size_t dim,
 
 // Implements dot product for the first 16 * floor(dim / 16) components
 // of a vector. If dim > 4096 the vector must be blocked.
-std::uint32_t dot4B16(std::size_t dim,
+std::uint32_t dot4B32(std::size_t dim,
                       const std::uint8_t*__restrict x,
                       const std::uint8_t*__restrict y) {
     // This special case assumes that the vector dimension is:
-    //   1. A multiple of 16
+    //   1. A multiple of 32
     //   2. Less than 256 * 16 = 4096 (or sums have the risk of overflowing).
     //
     // Both these cases will commonly hold. We call this as a subroutine for
@@ -54,16 +54,18 @@ std::uint32_t dot4B16(std::size_t dim,
     uint16x8_t xysuml{vdupq_n_u16(0)};
     uint16x8_t xysumh{vdupq_n_u16(0)};
 
-    for (std::size_t i = 0; i < dim; i += 16) {
+    for (std::size_t i = 0; i < dim; i += 32) {
         // Read into 16 x 8 bit vectors.
-        uint8x16_t xb{vld1q_u8(x + i)};
-        uint8x16_t yb{vld1q_u8(y + i)};
+        uint8x16_t xbl{vld1q_u8(x + i)};
+        uint8x16_t xbh{vld1q_u8(x + i + 16)};
+        uint8x16_t ybl{vld1q_u8(y + i)};
+        uint8x16_t ybh{vld1q_u8(y + i + 16)};
         // Multiply.
-        uint8x16_t xyb{vmulq_u8(xb, yb)};
-        // Split into 2 x 8 x 16 bit vectors and accumulate. Note that
-        // using vpadalq_u8 ends up being 25% slower.
-        xysuml = vaddq_u16(xysuml, vmovl_u8(vget_low_u8(xyb)));
-        xysumh = vaddq_u16(xysumh, vmovl_u8(vget_high_u8(xyb)));
+        uint8x16_t xybl{vmulq_u8(xbl, ybl)};
+        uint8x16_t xybh{vmulq_u8(xbh, ybh)};
+        // Accumulate 8 x 32 bit vectors (adding adjacent 16 bit lanes).
+        xysuml = vpadalq_u8(xysuml, xybl);
+        xysumh = vpadalq_u8(xysumh, xybh);
     }
 
     return vaddlvq_u16(xysuml) + vaddlvq_u16(xysumh);
@@ -262,11 +264,11 @@ std::uint32_t dot8B(std::size_t dim,
 std::uint32_t dot4B(std::size_t dim,
                     const std::uint8_t*__restrict x,
                     const std::uint8_t*__restrict y) {
-    std::size_t rem{dim & 0xF};
+    std::size_t rem{dim & 0x1F};
     dim -= rem;
     std::uint32_t xy{0};
     for (std::size_t i = 0; i < dim; i += 4096) {
-        xy += dot4B16(std::min(dim - i, 4096UL), x + i, y + i);
+        xy += dot4B32(std::min(dim - i, 4096UL), x + i, y + i);
     }
     if (rem > 0) {
         xy += dot4BR(rem, x + dim, y + dim);
