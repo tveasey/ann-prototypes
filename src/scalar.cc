@@ -17,31 +17,42 @@ namespace {
 
 #include <arm_neon.h>
 
-std::uint32_t dot8B16(std::size_t dim,
+std::uint32_t dot8B32(std::size_t dim,
                       const std::uint8_t*__restrict x,
                       const std::uint8_t*__restrict y) {
 
-    uint32x4_t xysuml{vdupq_n_u32(0)};
-    uint32x4_t xysumh{vdupq_n_u32(0)};
+    // We have contension in the instruction pipeline on the accumulation
+    // registers if we use too few.
+    uint32x4_t xysum00{vdupq_n_u32(0)};
+    uint32x4_t xysum16{vdupq_n_u32(0)};
+    uint32x4_t xysum32{vdupq_n_u32(0)};
+    uint32x4_t xysum48{vdupq_n_u32(0)};
 
-    for (std::size_t i = 0; i < dim; i += 16) {
+    for (std::size_t i = 0; i < dim; i += 32) {
         // Read into 16 x 8 bit vectors.
-        uint8x16_t xb{vld1q_u8(x + i)};
-        uint8x16_t yb{vld1q_u8(y + i)};
+        uint8x16_t xbl{vld1q_u8(x + i)};
+        uint8x16_t xbh{vld1q_u8(x + i + 16)};
+        uint8x16_t ybl{vld1q_u8(y + i)};
+        uint8x16_t ybh{vld1q_u8(y + i + 16)};
         // Multiply.
-        uint16x8_t xybl{vmull_u8(vget_low_u8(xb), vget_low_u8(yb))};
-        uint16x8_t xybh{vmull_u8(vget_high_u8(xb), vget_high_u8(yb))};
+        uint16x8_t xyb00{vmull_u8(vget_low_u8(xbl),  vget_low_u8(ybl))};
+        uint16x8_t xyb16{vmull_u8(vget_high_u8(xbl), vget_high_u8(ybl))};
+        uint16x8_t xyb32{vmull_u8(vget_low_u8(xbh),  vget_low_u8(ybh))};
+        uint16x8_t xyb48{vmull_u8(vget_high_u8(xbh), vget_high_u8(ybh))};
         // Accumulate 4 x 32 bit vectors (adding adjacent 16 bit lanes).
-        xysuml = vpadalq_u16(xysuml, xybl);
-        xysumh = vpadalq_u16(xysumh, xybh);
+        xysum00 = vpadalq_u16(xysum00, xyb00);
+        xysum16 = vpadalq_u16(xysum16, xyb16);
+        xysum32 = vpadalq_u16(xysum32, xyb32);
+        xysum48 = vpadalq_u16(xysum48, xyb48);
     }
 
-    return vaddvq_u32(vaddq_u32(xysuml, xysumh));
+    return vaddvq_u32(vaddq_u32(vaddq_u32(xysum00, xysum16),
+                                vaddq_u32(xysum32, xysum48)));
 }
 
 // Implements dot product for the first 16 * floor(dim / 16) components
 // of a vector. If dim > 4096 the vector must be blocked.
-std::uint32_t dot4B32(std::size_t dim,
+std::uint32_t dot4B64(std::size_t dim,
                       const std::uint8_t*__restrict x,
                       const std::uint8_t*__restrict y) {
     // This special case assumes that the vector dimension is:
@@ -51,30 +62,41 @@ std::uint32_t dot4B32(std::size_t dim,
     // Both these cases will commonly hold. We call this as a subroutine for
     // the general implementation.
 
-    uint16x8_t xysuml{vdupq_n_u16(0)};
-    uint16x8_t xysumh{vdupq_n_u16(0)};
+    uint16x8_t xysum00{vdupq_n_u16(0)};
+    uint16x8_t xysum16{vdupq_n_u16(0)};
+    uint16x8_t xysum32{vdupq_n_u16(0)};
+    uint16x8_t xysum48{vdupq_n_u16(0)};
 
-    for (std::size_t i = 0; i < dim; i += 32) {
+    for (std::size_t i = 0; i < dim; i += 64) {
         // Read into 16 x 8 bit vectors.
-        uint8x16_t xbl{vld1q_u8(x + i)};
-        uint8x16_t xbh{vld1q_u8(x + i + 16)};
-        uint8x16_t ybl{vld1q_u8(y + i)};
-        uint8x16_t ybh{vld1q_u8(y + i + 16)};
+        uint8x16_t xb00{vld1q_u8(x + i)};
+        uint8x16_t xb16{vld1q_u8(x + i + 16)};
+        uint8x16_t xb32{vld1q_u8(x + i + 32)};
+        uint8x16_t xb48{vld1q_u8(x + i + 48)};
+        uint8x16_t yb00{vld1q_u8(y + i)};
+        uint8x16_t yb16{vld1q_u8(y + i + 16)};
+        uint8x16_t yb32{vld1q_u8(y + i + 32)};
+        uint8x16_t yb48{vld1q_u8(y + i + 48)};
         // Multiply.
-        uint8x16_t xybl{vmulq_u8(xbl, ybl)};
-        uint8x16_t xybh{vmulq_u8(xbh, ybh)};
+        uint8x16_t xyb00{vmulq_u8(xb00, yb00)};
+        uint8x16_t xyb16{vmulq_u8(xb16, yb16)};
+        uint8x16_t xyb32{vmulq_u8(xb32, yb32)};
+        uint8x16_t xyb48{vmulq_u8(xb48, yb48)};
         // Accumulate 8 x 32 bit vectors (adding adjacent 16 bit lanes).
-        xysuml = vpadalq_u8(xysuml, xybl);
-        xysumh = vpadalq_u8(xysumh, xybh);
+        xysum00 = vpadalq_u8(xysum00, xyb00);
+        xysum16 = vpadalq_u8(xysum16, xyb16);
+        xysum32 = vpadalq_u8(xysum32, xyb32);
+        xysum48 = vpadalq_u8(xysum48, xyb48);
     }
 
-    return vaddlvq_u16(xysuml) + vaddlvq_u16(xysumh);
+    return vaddlvq_u16(vaddq_u16(xysum00, xysum16)) +
+           vaddlvq_u16(vaddq_u16(xysum32, xysum48));
 }
 
 // Implements dot product for the first 16 * floor(dim / 32) components
 // of a vector. If dim > 4096 the vector must be blocked. Requires that
 // the y vector has been packed.
-std::uint32_t dot4BP32(std::size_t dim,
+std::uint32_t dot4BP64(std::size_t dim,
                        const std::uint8_t*__restrict x,
                        const std::uint8_t*__restrict y) {
 
@@ -84,41 +106,50 @@ std::uint32_t dot4BP32(std::size_t dim,
     // block of 16 integers we store the 0-15 elements in the lower bits and
     // the 16-31 elements in the upper bits.
 
-    uint16x8_t xysuml{vdupq_n_u16(0)};
-    uint16x8_t xysumh{vdupq_n_u16(0)};
+    uint16x8_t xysum00{vdupq_n_u16(0)};
+    uint16x8_t xysum16{vdupq_n_u16(0)};
+    uint16x8_t xysum32{vdupq_n_u16(0)};
+    uint16x8_t xysum48{vdupq_n_u16(0)};
     uint8x16_t m{vdupq_n_u8(0xF)};
 
-    for (std::size_t i = 0; i < dim; i += 32) {
+    for (std::size_t i = 0; i < dim; i += 64) {
         // Read into 16 x 8 bit vector.
-        uint8x16_t xbl{vld1q_u8(x + i)};
-        // Read into 16 x 8 bit vector.
-        uint8x16_t xbh{vld1q_u8(x + i + 16)};
-        // Read into 16 x 8 bit vector.
-        uint8x16_t ybp{vld1q_u8(y + (i >> 1))};
-        // Mask to extract lower 4 bits in 8 x 16 bit vector.
-        uint8x16_t ybl{vandq_u8(ybp, m)};
-        // Right shift to extract upper 4 bits in 8 x 16 bit vector.
-        uint8x16_t ybh{vshrq_n_u8(ybp, 4)};
+        uint8x16_t xb00{vld1q_u8(x + i)};
+        uint8x16_t xb16{vld1q_u8(x + i + 16)};
+        uint8x16_t xb32{vld1q_u8(x + i + 32)};
+        uint8x16_t xb48{vld1q_u8(x + i + 48)};
+        uint8x16_t ybpl{vld1q_u8(y + (i >> 1))};
+        uint8x16_t ybph{vld1q_u8(y + (i >> 1) + 16)};
+        // Unpack (lanewise mask and shift) into 16 x 8 bit vectors.
+        uint8x16_t yb00{vandq_u8(ybpl, m)};
+        uint8x16_t yb16{vshrq_n_u8(ybpl, 4)};
+        uint8x16_t yb32{vandq_u8(ybph, m)};
+        uint8x16_t yb48{vshrq_n_u8(ybph, 4)};
         // Multiply.
-        uint8x16_t xybl{vmulq_u8(xbl, ybl)};
-        uint8x16_t xybh{vmulq_u8(xbh, ybh)};
+        uint8x16_t xyb00{vmulq_u8(xb00, yb00)};
+        uint8x16_t xyb16{vmulq_u8(xb16, yb16)};
+        uint8x16_t xyb32{vmulq_u8(xb32, yb32)};
+        uint8x16_t xyb48{vmulq_u8(xb48, yb48)};
         // Accumulate 8 x 16 bit vectors (adding adjacent 8 bit lanes).
-        xysuml = vpadalq_u8(xysuml, xybl);
-        xysumh = vpadalq_u8(xysumh, xybh);
+        xysum00 = vpadalq_u8(xysum00, xyb00);
+        xysum16 = vpadalq_u8(xysum16, xyb16);
+        xysum32 = vpadalq_u8(xysum32, xyb32);
+        xysum48 = vpadalq_u8(xysum48, xyb48);
     }
 
-    return vaddlvq_u16(xysuml) + vaddlvq_u16(xysumh);
+    return vaddlvq_u16(vaddq_u16(xysum00, xysum16)) +
+           vaddlvq_u16(vaddq_u16(xysum32, xysum48));
 }
 
 #else
 
 // Fallback dot product implementation.
 
-std::uint32_t dot8B16(std::size_t dim,
+std::uint32_t dot8B32(std::size_t dim,
                       const std::uint8_t*__restrict x,
                       const std::uint8_t*__restrict y) {
     // Tell the compiler dim contraints.
-    dim = dim & ~0xF;
+    dim = dim & ~0x1F;
     std::uint32_t xy{0};
     #pragma clang loop unroll_count(8) vectorize(assume_safety)
     for (std::size_t i = 0; i < dim; ++i) {
@@ -127,11 +158,11 @@ std::uint32_t dot8B16(std::size_t dim,
     return xy;
 }
 
-std::uint32_t dot4B16(std::size_t dim,
+std::uint32_t dot4B64(std::size_t dim,
                       const std::uint8_t*__restrict x,
                       const std::uint8_t*__restrict y) {
     // Tell the compiler dim contraints.
-    dim = std::min(dim, 4096U) & ~0xF;
+    dim = std::min(dim, 4096U) & ~0x3F;
     std::uint32_t xy{0};
     #pragma clang loop unroll_count(16) vectorize(assume_safety)
     for (std::size_t i = 0; i < dim; ++i) {
@@ -140,11 +171,11 @@ std::uint32_t dot4B16(std::size_t dim,
     return xy;
 }
 
-std::uint32_t dot4BP32(std::size_t dim,
+std::uint32_t dot4BP64(std::size_t dim,
                        const std::uint8_t*__restrict x,
                        const std::uint8_t*__restrict y) {
     // Tell the compiler dim contraints.
-    dim = std::min(dim, 4096U) & ~0x1F;
+    dim = std::min(dim, 4096U) & ~0x3F;
     std::uint32_t xy{0};
     for (std::size_t i = 0; i < dim; i += 32) {
         #pragma clang loop unroll_count(8) vectorize(assume_safety)
@@ -167,7 +198,7 @@ std::uint32_t dot8BR(std::size_t dim,
                      const std::uint8_t*__restrict x,
                      const std::uint8_t*__restrict y) {
     // Tell the compiler dim contraints.
-    dim = dim & 0xF;
+    dim = dim & 0x1F;
     std::uint32_t xy{0};
     #pragma clang loop vectorize(assume_safety)
     for (std::size_t i = 0; i < dim; ++i) {
@@ -180,7 +211,7 @@ std::uint32_t dot4BR(std::size_t dim,
                      const std::uint8_t*__restrict x,
                      const std::uint8_t*__restrict y) {
     // Tell the compiler dim contraints.
-    dim = dim & 0xF;
+    dim = dim & 0x3F;
     std::uint32_t xy{0};
     #pragma clang loop vectorize(assume_safety)
     for (std::size_t i = 0; i < dim; ++i) {
@@ -193,7 +224,7 @@ std::uint32_t dot4BPR(std::size_t dim,
                       const std::uint8_t*__restrict x,
                       const std::uint8_t*__restrict y) {
     // Tell the compiler dim contraints.
-    dim = dim & 0x1F;
+    dim = dim & 0x3F;
     std::size_t rem{dim & 0x1};
     dim -= rem;
     std::uint32_t xy{0};
@@ -256,19 +287,19 @@ void unpack4BR(std::size_t dim,
 std::uint32_t dot8B(std::size_t dim,
                     const std::uint8_t*__restrict x,
                     const std::uint8_t*__restrict y) {
-    std::size_t rem{dim & 0xF};
+    std::size_t rem{dim & 0x1F};
     dim -= rem;
-    return dot8B16(dim, x, y) + (rem > 0 ? dot8BR(rem, x + dim, y + dim) : 0);
+    return dot8B32(dim, x, y) + (rem > 0 ? dot8BR(rem, x + dim, y + dim) : 0);
 }
 
 std::uint32_t dot4B(std::size_t dim,
                     const std::uint8_t*__restrict x,
                     const std::uint8_t*__restrict y) {
-    std::size_t rem{dim & 0x1F};
+    std::size_t rem{dim & 0x3F};
     dim -= rem;
     std::uint32_t xy{0};
     for (std::size_t i = 0; i < dim; i += 4096) {
-        xy += dot4B32(std::min(dim - i, 4096UL), x + i, y + i);
+        xy += dot4B64(std::min(dim - i, 4096UL), x + i, y + i);
     }
     if (rem > 0) {
         xy += dot4BR(rem, x + dim, y + dim);
@@ -279,11 +310,11 @@ std::uint32_t dot4B(std::size_t dim,
 std::uint32_t dot4BP(std::size_t dim,
                      const std::uint8_t*__restrict x,
                      const std::uint8_t*__restrict y) {
-    std::size_t rem{dim & 0x1F};
+    std::size_t rem{dim & 0x3F};
     dim -= rem;
     std::uint32_t xy{0};
     for (std::size_t i = 0; i < dim; i += 4096) {
-        xy += dot4BP32(std::min(dim - i, 4096UL), x + i, y + (i >> 1));
+        xy += dot4BP64(std::min(dim - i, 4096UL), x + i, y + (i >> 1));
     }
     if (rem > 0) {
         xy += dot4BPR(rem, x + dim, y + (dim >> 1));
