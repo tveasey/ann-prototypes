@@ -28,7 +28,10 @@ std::uint32_t dot8B32(std::size_t dim,
     uint32x4_t xysum32{vdupq_n_u32(0)};
     uint32x4_t xysum48{vdupq_n_u32(0)};
 
-    for (std::size_t i = 0; i < dim; i += 32) {
+    // Avoid overflow handling instructions which come with unsigned int.
+    // Some unrolling gives around 4% performance improvement.
+    #pragma clang loop unroll_count(2)
+    for (int i = 0; i < static_cast<int>(dim); i += 32) {
         // Read into 16 x 8 bit vectors.
         uint8x16_t xbl{vld1q_u8(x + i)};
         uint8x16_t xbh{vld1q_u8(x + i + 16)};
@@ -67,7 +70,9 @@ std::uint32_t dot4B64(std::size_t dim,
     uint16x8_t xysum32{vdupq_n_u16(0)};
     uint16x8_t xysum48{vdupq_n_u16(0)};
 
-    for (std::size_t i = 0; i < dim; i += 64) {
+    // Some unrolling gives around 4% performance improvement.
+    #pragma clang loop unroll_count(2)
+    for (int i = 0; i < static_cast<int>(dim); i += 64) {
         // Read into 16 x 8 bit vectors.
         uint8x16_t xb00{vld1q_u8(x + i)};
         uint8x16_t xb16{vld1q_u8(x + i + 16)};
@@ -112,7 +117,9 @@ std::uint32_t dot4BP64(std::size_t dim,
     uint16x8_t xysum48{vdupq_n_u16(0)};
     uint8x16_t m{vdupq_n_u8(0xF)};
 
-    for (std::size_t i = 0; i < dim; i += 64) {
+    // Some unrolling gives around 4% performance improvement.
+    #pragma clang loop unroll_count(2)
+    for (int i = 0; i < static_cast<int>(dim); i += 64) {
         // Read into 16 x 8 bit vector.
         uint8x16_t xb00{vld1q_u8(x + i)};
         uint8x16_t xb16{vld1q_u8(x + i + 16)};
