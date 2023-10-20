@@ -117,8 +117,6 @@ std::uint32_t dot4BP64(std::size_t dim,
     uint16x8_t xysum48{vdupq_n_u16(0)};
     uint8x16_t m{vdupq_n_u8(0xF)};
 
-    // Some unrolling gives around 4% performance improvement.
-    #pragma clang loop unroll_count(2)
     for (int i = 0; i < static_cast<int>(dim); i += 64) {
         // Read into 16 x 8 bit vector.
         uint8x16_t xb00{vld1q_u8(x + i)};
