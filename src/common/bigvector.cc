@@ -37,7 +37,7 @@ BigVector::BigVector(std::size_t dim,
 
 BigVector::BigVector(const std::filesystem::path& fvecs,
                      const std::filesystem::path& storage,
-                     TPad zeroPad) {
+                     TPrepare prepare) {
 
     // Create from an numpy fvecs without ever copying the full data
     // into process memory.
@@ -95,7 +95,7 @@ BigVector::BigVector(const std::filesystem::path& fvecs,
                          dim_ * sizeof(float));
         }
         chunk.resize(currentChunkSize * dim_);
-        zeroPad(dim_, chunk);
+        prepare(dim_, chunk);
 
         // Write the chunk to the memory mapped file.
         std::memcpy(data_ + i * chunkSize * dim_,

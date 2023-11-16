@@ -1,26 +1,40 @@
-#include "src/io.h"
-#include "src/pq.h"
-#include "src/scalar.h"
-#include "src/utils.h"
-#include "tests/tests.h"
+#include "src/common/bigvector.h"
+#include "src/common/io.h"
+#include "src/common/types.h"
+#include "src/pq/benchmark.h"
+#include "src/pq/utils.h"
+#include "src/scalar/scalar.h"
+#include "src/common/utils.h"
+
+#include <boost/program_options.hpp>
 
 #include <fstream>
 #include <iostream>
 #include <optional>
+#include <random>
 
 namespace {
-void loadAndRunPQBenchmark(const std::string& dataset, Metric metric, bool scann) {
+
+void loadAndRunPQBenchmark(const std::string& dataset, Metric metric) {
+
     auto root = std::filesystem::path(__FILE__).parent_path();
-    auto [docs, ddim] = readFvecs(root / "data" / ("corpus-" + dataset + ".fvec"));
+
+    std::cout << "Loading queries" << std::endl;
     auto [queries, qdim] = readFvecs(root / "data" / ("queries-" + dataset + ".fvec"));
-    if (ddim != qdim) {
-        std::cout << "Dimension mismatch " << ddim << " != " << qdim << std::endl;
+
+    std::cout << "Loading corpus" << std::endl;
+    BigVector docs{loadAndPrepareData(
+        root / "data" / ("corpus-" + dataset + ".fvec"), metric == Cosine)};
+
+
+    if (qdim != docs.dim()) {
+        throw std::runtime_error("Dimension mismatch");
+    }
+    if (docs.numVectors() || queries.empty()) {
         return;
     }
-    if (docs.empty() || queries.empty()) {
-        return;
-    }
-    runPQBenchmark(dataset, scann, metric, 10, qdim, docs, queries, writePQStats);
+
+    runPQBenchmark(dataset, metric, 10, docs, queries, writePQStats);
 }
 
 void loadAndRunScalarBenchmark(const std::string& dataset, Metric metric, ScalarBits bits) {
@@ -28,8 +42,7 @@ void loadAndRunScalarBenchmark(const std::string& dataset, Metric metric, Scalar
     auto [docs, ddim] = readFvecs(root / "data" / ("corpus-" + dataset + ".fvec"));
     auto [queries, qdim] = readFvecs(root / "data" / ("queries-" + dataset + ".fvec"));
     if (ddim != qdim) {
-        std::cout << "Dimension mismatch " << ddim << " != " << qdim << std::endl;
-        return;
+        throw std::runtime_error("Dimension mismatch");
     }
     if (docs.empty() || queries.empty()) {
         return;
@@ -37,80 +50,75 @@ void loadAndRunScalarBenchmark(const std::string& dataset, Metric metric, Scalar
     runScalarBenchmark(dataset, metric, bits, 10, qdim, docs, queries);
 }
 
-std::string usage() {
-    return "run_quantisation [-h,--help] [-u,--unit] [-s,--scalar] [--scann] [-r,--run DATASET] [-m, --metric METRIC]\n"
-           "\t--help\t\tShow this help\n"
-           "\t--unit\t\tRun the unit tests (default false)\n"
-           "\t--scalar N\tUse 4 or 8 bit scalar quantisation (default None)\n"
-           "\t--scann\t\tUse anisotrpoic loss when building code books (default false)\n"
-           "\t--run DATASET\tRun a test dataset\n"
-           "\t--metric METRIC\tThe metric, must be cosine or dot, with which to compare vectors (default cosine)";
-}
 }
 
 int main(int argc, char* argv[]) {
 
-    bool unit{false};
-    bool smoke{false};
     std::optional<ScalarBits> scalar;
-    bool scann{false};
     Metric metric{Cosine};
     std::string dataset;
 
-    for (int i = 1; i < argc; ++i) {
-        std::string arg{argv[i]};
-        if (arg == "-h" || arg == "--help") {
-            std::cout << usage() << std::endl;
+    boost::program_options::options_description desc("Usage: run_benchmark\nOptions");
+    desc.add_options()
+        ("help,h", "Show this help")
+        ("scalar,s", boost::program_options::value<std::string>(),
+            "Use 4, 4P or 8 bit scalar quantisation")
+        ("run,r", boost::program_options::value<std::string>(),
+            "Run a test dataset")
+        ("metric,m", boost::program_options::value<std::string>()->default_value("cosine"),
+            "The metric, must be cosine or dot, with which to compare vectors (default cosine)");
+
+    try {
+        boost::program_options::variables_map vm;
+        boost::program_options::store(
+            boost::program_options::parse_command_line(argc, argv, desc), vm);
+        boost::program_options::notify(vm);
+        if (vm.count("help")) {
+            std::cerr << desc << std::endl;
             return 0;
-        } else if (arg == "-u" || arg == "--unit") {
-            unit = true;
-        } else if (arg == "-s" || arg == "--scalar") {
-            if (i + 1 == argc) {
-                std::cerr << "Missing dataset. Usage:\n" << usage() << std::endl;
-                return 1;
-            }
-            if (std::strcmp(argv[i + 1], "4") == 0) {
+        }
+        if (vm.count("scalar")) {
+            auto s = vm["scalar"].as<std::string>();
+            if (s == "4") {
                 scalar = B4;
-            } else if (std::strcmp(argv[i + 1], "4P") == 0) {
+            } else if (s == "4P") {
                 scalar = B4P;
-            } else if (std::strcmp(argv[i + 1], "8") == 0) {
+            } else if (s == "8") {
                 scalar = B8;
-            } else {
-                std::cerr << "Unsupported bits " << argv[i + 1] << ". Usage:\n" << usage() << std::endl;
-                return 1;
+            } else if (s != "None") {
+                throw boost::program_options::error("Invalid scalar quantisation");
             }
-        } else if (arg == "-r" || arg == "--run") {
-            if (i + 1 == argc) {
-                std::cerr << "Missing dataset. Usage:\n" << usage() << std::endl;
-                return 1;
-            }
-            dataset = argv[i + 1];
-        } else if (arg == "-m" || arg == "--metric") {
-            if (i + 1 == argc) {
-                std::cerr << "Missing metric. Usage:\n\n" << usage() << std::endl;
-                return 1;
-            }
-            if (std::strcmp(argv[i + 1], "cosine") == 0) {
+        }
+        if (vm.count("run")) {
+            dataset = vm["run"].as<std::string>();
+        }
+        if (vm.count("metric")) {
+            auto m = vm["metric"].as<std::string>();
+            if (m == "cosine") {
                 metric = Cosine;
-            } else if (std::strcmp(argv[i + 1], "dot") == 0) {
+            } else if (m == "dot") {
                 metric = Dot;
             } else {
-                std::cerr << "Bad metric " << argv[i + 1] << ". Usage:\n\n" << usage() << std::endl;
-                return 1;
+                throw boost::program_options::error("Invalid metric");
             }
-        } else if (arg == "--scann") {
-            scann = true;
         }
+    
+    } catch (const boost::program_options::error& e) {
+        std::cerr << "Error parsing command line: " << e.what() << std::endl;
+        std::cerr << desc << std::endl;
+        return 1;
     }
 
-    if (unit) {
-        runUnitTests();
-    }
     if (!dataset.empty()) {
-        if (scalar != std::nullopt) {
-            loadAndRunScalarBenchmark(dataset, metric, *scalar);
-        } else {
-            loadAndRunPQBenchmark(dataset, metric, scann);
+        try {
+            if (scalar != std::nullopt) {
+                loadAndRunScalarBenchmark(dataset, metric, *scalar);
+            } else {
+                loadAndRunPQBenchmark(dataset, metric);
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "Caught exception: " << e.what() << std::endl;
+            return 1;
         }
     }
 

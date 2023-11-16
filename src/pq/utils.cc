@@ -2,8 +2,13 @@
 
 #include "constants.h"
 #include "../common/bigvector.h"
+#include "../common/utils.h"
 
 #include <algorithm>
+#include <cstddef>
+#include <filesystem>
+#include <functional>
+#include <iostream>
 #include <random>
 
 void zeroPad(std::size_t dim, std::vector<float>& vectors) {
@@ -17,6 +22,25 @@ void zeroPad(std::size_t dim, std::vector<float>& vectors) {
         }
         std::fill(&vectors[dim], &vectors[paddedDim], 0.0F);
     }
+}
+
+BigVector loadAndPrepareData(const std::filesystem::path& source, bool norm) {
+
+    // A temporary file for storing the data.
+    char filename[] = "/tmp/prefXXXXXX";
+    int ret{::mkstemp(filename)};
+    if (ret == -1) {
+        throw std::runtime_error("Couldn't create temporary file.");
+    }
+    std::cout << "Created temporary file " << filename << std::endl;
+
+    return {source, filename,
+            [norm](std::size_t dim_, std::vector<float>& docs) {
+                if (norm) {
+                    normalize(dim_, docs);
+                }
+                zeroPad(dim_, docs);
+           }};
 }
 
 std::vector<float> sampleDocs(const BigVector& docs,

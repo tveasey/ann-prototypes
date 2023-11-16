@@ -11,6 +11,7 @@ add_library(common SHARED
 )
 
 add_library(pq SHARED
+    src/pq/benchmark.cc
     src/pq/clustering.cc
     src/pq/codebooks.cc
     src/pq/index.cc
@@ -36,7 +37,7 @@ target_link_libraries(run_tests common pq scalar)
 add_executable(run_benchmark main.cc)
 target_link_libraries(run_benchmark common pq scalar)
 
-find_package(Boost 1.83.0 REQUIRED COMPONENTS iostreams unit_test_framework)
+find_package(Boost 1.83.0 REQUIRED COMPONENTS iostreams program_options unit_test_framework)
 include_directories(${Boost_INCLUDE_DIRS})
 target_link_libraries(run_tests ${Boost_LIBRARIES})
 target_link_libraries(common ${Boost_LIBRARIES})

@@ -135,7 +135,7 @@ public:
     };
 
     using TGenerator = std::function<float ()>;
-    using TPad = std::function<void(std::size_t, std::vector<float>&)>;
+    using TPrepare = std::function<void(std::size_t, std::vector<float>&)>;
 
 public:
     // Create a BigVector with the given dimensions and number of vectors.
@@ -150,7 +150,7 @@ public:
     // Create a BigVector reading the vectors from from an numpy fvecs file.
     BigVector(const std::filesystem::path& fvecs,
               const std::filesystem::path& storage,
-              TPad zeroPad = [](std::size_t, std::vector<float>&) {});
+              TPrepare prepare = [](std::size_t, std::vector<float>&) {});
 
     // Note that the file is automatically closed when the memory_mapped_file
     // object is destroyed.
