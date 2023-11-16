@@ -308,33 +308,6 @@ bool testScalar8BitQuantise() {
     return true;
 }
 
-bool testZeroPad() {
-    std::vector<float> vectors{1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F, 1.0F,
-                               2.0F, 2.0F, 2.0F, 2.0F, 2.0F, 2.0F, 2.0F, 2.0F, 2.0F};
-    zeroPad(9, vectors);
-
-    if (vectors.size() != 2 * numBooks()) {
-        std::cout << "FAILED: output " << vectors << std::endl;
-        return false;
-    }
-
-    for (std::size_t i = 0; i < 2; ++i) {
-        for (std::size_t j = 0; j < 9; ++j) {
-            if (vectors[i * numBooks() + j] != static_cast<float>(i + 1)) {
-                std::cout << "FAILED: output " << vectors << std::endl;
-                return false;
-            }
-        }
-        for (std::size_t j = 9; j < numBooks(); ++j) {
-            if (vectors[i * numBooks() + j] != 0.0F) {
-                std::cout << "FAILED: output " << vectors << std::endl;
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
 bool testNormalise() {
     std::minstd_rand rng;
     std::normal_distribution<> norm(2.0, 1.0);
@@ -535,33 +508,6 @@ bool testStepLloyd() {
     }
 
     return passed;
-}
-
-bool testStepScann() {
-    std::minstd_rand rng;
-
-    std::size_t bookDim{3};
-    std::size_t dim{bookDim * numBooks()};
-
-    std::vector<float> docs(20 * bookSize() * dim);
-    std::normal_distribution<> norm{10.0, 2.0};
-    std::generate_n(docs.begin(), docs.size(), [&] { return norm(rng); });
-    auto docsNorms2 = norms2(dim, docs);
-
-    auto centresKMeans = initForgy(dim, docs, rng);
-    auto centresScann = centresKMeans;
-
-    std::vector<code_t> docsCodesKMeans(20 * bookSize() * numBooks());
-    for (std::size_t i = 0; i < 20; ++i) {
-        stepLloyd(dim, docs, centresKMeans, docsCodesKMeans);
-    }
-
-    std::vector<code_t> docsCodesScann(20 * bookSize() * numBooks());
-    for (std::size_t i = 0; i < 20; ++i) {
-        stepScann(0.4F, dim, docs, docsNorms2, centresScann, docsCodesScann);
-    }
-
-    return true;
 }
 
 bool testBuildCodeBook() {
