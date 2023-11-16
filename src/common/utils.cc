@@ -50,7 +50,7 @@ std::vector<float> sampleDocs(std::size_t dim,
     return sampledDocs;
 }
 
-void normalise(std::size_t dim, std::vector<float>& vectors) {
+void normalize(std::size_t dim, std::vector<float>& vectors) {
     for (std::size_t i = 0; i < vectors.size(); i += dim) {
         float norm{0.0F};
         #pragma clang loop unroll_count(8) vectorize(assume_safety)

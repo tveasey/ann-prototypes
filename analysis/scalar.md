@@ -52,7 +52,7 @@ calculation on quantised vectors. In this section we discuss how to achieve this
 simultaneously improve accuracy w.r.t. first dequantising vectors.
 
 First we discuss the dot product, which also covers cosine as well since it is equivalent
-if we  normalise vectors. The similarity of a query and document embedding is defined as
+if we  normalize vectors. The similarity of a query and document embedding is defined as
 follows
 ```math
   \text{sim}(\vec{q}, \vec{d}\:)

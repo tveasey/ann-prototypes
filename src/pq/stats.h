@@ -23,13 +23,9 @@ struct PQStats {
     double pqCompressionRatio;
     double pqMse;
     // PQ query stats
-    bool scann;
-    bool normalise;
+    bool normalize;
     std::vector<double> pqQPS;
     std::vector<recalls_t> pqRecalls;
 };
 
 void writePQStats(const PQStats& stats);
-
-// Compute the compression ratio of the PQ code.
-double computeCompressionRatio(std::size_t dim);

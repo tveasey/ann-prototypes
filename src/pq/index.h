@@ -70,6 +70,9 @@ public:
     // Extract the PQ index encoding of the id document's vector.
     std::vector<float> decode(std::size_t id) const;
 
+    // Compression ratio of the PQ index.
+    double compressionRatio() const;
+
 private:
     // Build the table of norms of the codebooks centres.
     //
@@ -102,8 +105,8 @@ private:
 };
 
 std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>>
-computeCodebooksForPqIndex(const BigVector& docs,
+buildCodebooksForPqIndex(const BigVector& docs,
                            const std::vector<float>& centres,
                            const std::vector<cluster_t>& docsCentres);
 
-PqIndex computePqIndex(bool normalized, const BigVector& docs);
+PqIndex buildPqIndex(bool normalized, const BigVector& docs);

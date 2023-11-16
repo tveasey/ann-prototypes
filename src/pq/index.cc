@@ -158,6 +158,40 @@ std::vector<float> PqIndex::decode(std::size_t id) const {
     return result;
 }
 
+double PqIndex::compressionRatio() const {
+
+    // This is the size of the raw data in bytes divided by the size of the
+    // index in bytes.
+
+    std::size_t sizeOfClusters{clustersCentres_.size() * sizeof(float)};
+    std::size_t sizeOfTransformations{std::accumulate(
+        transformations_.begin(), transformations_.end(), 0UL,
+        [](std::size_t sum, const auto& t) {
+            return sum + t.size() * sizeof(float);
+        })};
+    std::size_t sizeOfCodebookCentres{std::accumulate(
+        codebooksCentres_.begin(), codebooksCentres_.end(), 0UL,
+        [](std::size_t sum, const auto& c) {
+            return sum + c.size() * sizeof(float);
+        })};
+    std::size_t sizeOfClusterIds{docsClusters_.size() * sizeof(cluster_t)};
+    std::size_t sizeOfCodes{docsCodes_.size() * sizeof(code_t)};
+    std::size_t sizeOfNormsTable{std::accumulate(
+        normsTable_.begin(), normsTable_.end(), 0UL,
+        [](std::size_t sum, const auto& t) {
+            return sum + t.size() * sizeof(float);
+        })};
+
+    // The raw data is the number of vectors times the dimension times the
+    // size of a float.
+    std::size_t sizeOfRawData{docsClusters_.size() * dim_ * sizeof(float)};
+
+    return static_cast<double>(sizeOfRawData) /
+           static_cast<double>(
+               sizeOfClusters + sizeOfTransformations + sizeOfCodebookCentres +
+               sizeOfClusterIds + sizeOfCodes + sizeOfNormsTable);
+}
+
 void PqIndex::buildNormsTables() {
 
     // Build a table of the norms of each codebook centre and the dot product
@@ -278,9 +312,9 @@ float PqIndex::computeDist(float centreSim,
 }
 
 std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>>
-computeCodebooksForPqIndex(const BigVector& docs,
-                           const std::vector<float>& clustersCentres,
-                           const std::vector<cluster_t>& docsClusters) {
+buildCodebooksForPqIndex(const BigVector& docs,
+                         const std::vector<float>& clustersCentres,
+                         const std::vector<cluster_t>& docsClusters) {
 
     std::size_t dim{docs.dim()};
     std::size_t numDocs{docs.numVectors()};
@@ -347,7 +381,7 @@ computeCodebooksForPqIndex(const BigVector& docs,
     return {std::move(transformations), std::move(codebooksCentres)};
 }
 
-PqIndex computePqIndex(bool normalized, const BigVector& docs) {
+PqIndex buildPqIndex(bool normalized, const BigVector& docs) {
 
     std::size_t dim{docs.dim()};
     std::size_t numDocs{docs.numVectors()};
@@ -369,7 +403,7 @@ PqIndex computePqIndex(bool normalized, const BigVector& docs) {
     }
 
     auto [transformations, codebooksCentres] = 
-        computeCodebooksForPqIndex(docs, clustersCentres, docsClusters);
+        buildCodebooksForPqIndex(docs, clustersCentres, docsClusters);
 
     // Compute the codes for each doc.
     std::vector<code_t> docsCodes(numDocs * NUM_BOOKS);

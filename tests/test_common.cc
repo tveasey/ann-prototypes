@@ -66,7 +66,7 @@ BOOST_AUTO_TEST_CASE(testNormalize) {
     for (std::size_t i = 0; i < vectors.size(); ++i) {
         vectors[i] = u01(rng);
     }
-    normalise(10, vectors);
+    normalize(10, vectors);
     for (std::size_t i = 0; i < vectors.size(); i += 10) {
         float norm{0.0F};
         for (std::size_t j = 0; j < 10; ++j) {

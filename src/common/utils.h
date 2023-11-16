@@ -38,6 +38,6 @@ std::vector<float> sampleDocs(std::size_t dim,
                               double sampleProbability,
                               std::minstd_rand& rng);
 
-void normalise(std::size_t dim, std::vector<float>& vectors);
+void normalize(std::size_t dim, std::vector<float>& vectors);
 
 std::vector<float> norms2(std::size_t dim, std::vector<float>& vectors);

@@ -459,7 +459,7 @@ BOOST_AUTO_TEST_CASE(testPca) {
         }
     }
 
-    // Check that the eigenvectors are normalised.
+    // Check that the eigenvectors are normalized.
     for (std::size_t i = 0; i < dim; ++i) {
         float norm{0.0F};
         for (std::size_t j = 0; j < dim; ++j) {
@@ -511,7 +511,7 @@ BOOST_AUTO_TEST_CASE(testComputeOptimalPQSubspaces) {
         }
     }
 
-    // Check that the optimal PQ transformations are normalised.
+    // Check that the optimal PQ transformations are normalized.
     for (std::size_t i = 0; i < NUM_BOOKS; ++i) {
         float norm{0.0F};
         for (std::size_t j = 0; j < dim; ++j) {

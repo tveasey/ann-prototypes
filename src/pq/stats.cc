@@ -23,7 +23,7 @@ void writePQStats(const PQStats& stats) {
         std::ofstream writer(statsFile, std::ios_base::out);
         writer << "tag,metric,num_queries,num_docs,dim,num_books,book_size,"
                << "top_k,bf_qps,pq_build_time,pq_k_means_itr,pq_compression,"
-               << "pq_mse,pq_scann,pq_normalise";
+               << "pq_mse,pq_normalize";
         for (const auto& m : EXPANSIONS) {
             writer << ",pq_qps_" << m;
         }
@@ -41,7 +41,7 @@ void writePQStats(const PQStats& stats) {
            << BOOK_SIZE << "," << stats.k << "," << stats.bfQPS << ","
            << stats.pqCodeBookBuildTime << "," << BOOK_CONSTRUCTION_K_MEANS_ITR << ","
            << stats.pqCompressionRatio << "," << stats.pqMse << ","
-           << stats.scann << "," << stats.normalise;
+           << stats.normalize;
     for (const auto& qps : stats.pqQPS) {
         writer << "," << qps;
     }
@@ -51,9 +51,4 @@ void writePQStats(const PQStats& stats) {
                << "," << recalls[AVG_RECALL];
     }
     writer << std::endl;
-}
-
-double computeCompressionRatio(std::size_t dim) {
-    return static_cast<double>(dim * sizeof(float)) /
-           static_cast<double>(NUM_BOOKS * sizeof(code_t));
 }

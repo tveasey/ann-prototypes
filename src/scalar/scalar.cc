@@ -574,8 +574,8 @@ void runScalarBenchmark(const std::string& tag,
                         std::vector<float>& queries) {
 
     if (metric == Cosine) {
-        normalise(dim, docs);
-        normalise(dim, queries);
+        normalize(dim, docs);
+        normalize(dim, queries);
     }
 
     auto docsNorms2 = norms2(dim, docs);
@@ -597,7 +597,7 @@ void runScalarBenchmark(const std::string& tag,
               << "metric = " << toString(metric)
               << ", quantisation = " << toString(bits)
               << ", top-k = " << k
-              << ", normalise = " << (metric == Cosine) << std::endl;
+              << ", normalize = " << (metric == Cosine) << std::endl;
 
     std::vector<std::vector<std::size_t>> nnExact(numQueries);
     for (std::size_t i = 0; i < queries.size(); i += dim) {
