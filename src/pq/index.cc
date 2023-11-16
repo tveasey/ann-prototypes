@@ -304,7 +304,7 @@ computeCodebooksForPqIndex(const BigVector& docs,
             auto& sample = sampler.sample();
             auto [eigVecs, eigVals] = pca(dim, std::move(sample));
             transformations.emplace_back(
-                computeOptimalPQSubspaces(dim, NUM_BOOKS, eigVecs, eigVals));
+                computeOptimalPQSubspaces(dim, eigVecs, eigVals));
         }
     }
 

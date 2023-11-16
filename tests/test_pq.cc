@@ -363,8 +363,8 @@ BOOST_AUTO_TEST_CASE(testBuildCodebook) {
     avgMse /= static_cast<double>(numDocs);
     avgRandomMse /= static_cast<double>(numDocs);
 
-    std::cout << "avgMsd: " << avgMse << std::endl;
-    std::cout << "avgRandomMsd: " << avgRandomMse << std::endl;
+    std::cout << "Clustered MSE: " << avgMse << std::endl;
+    std::cout << "Random MSE:    " << avgRandomMse << std::endl;
 
     BOOST_REQUIRE_LT(avgMse, avgRandomMse / 40.0);
 }
@@ -498,7 +498,7 @@ BOOST_AUTO_TEST_CASE(testComputeOptimalPQSubspaces) {
 
     auto [eigVecs, eigValues] = pca(dim, docs);
 
-    auto transformation = computeOptimalPQSubspaces(dim, NUM_BOOKS, eigVecs, eigValues);
+    auto transformation = computeOptimalPQSubspaces(dim, eigVecs, eigValues);
     
     // Check that the optimal PQ transformations are orthogonal.
     for (std::size_t i = 0; i < NUM_BOOKS; ++i) {
@@ -550,6 +550,68 @@ BOOST_AUTO_TEST_CASE(testComputeOptimalPQSubspaces) {
     float originalVarianceRange{*originalMax - *originalMin};
     float transformedVarianceRange{*transformedMax - *transformedMin};
     BOOST_REQUIRE_LT(transformedVarianceRange, 0.1 * originalVarianceRange);
+}
+
+BOOST_AUTO_TEST_CASE(testOptimalCodebooks) {
+
+    std::size_t dim{3 * NUM_BOOKS};
+    std::size_t numDocs{128 * BOOK_SIZE};
+    std::minstd_rand rng{0};
+    std::vector<float> docs(dim * numDocs);
+    for (std::size_t i = 0; i < numDocs; ++i) {
+        for (std::size_t j = 0; j < dim; ++j) {
+            std::uniform_real_distribution<float> u0n{0.0F, 0.1F * static_cast<float>(j + 1)};
+            docs[i * dim + j] = u0n(rng);
+        }
+    }
+
+    // Compute the resconstruction error using the original data.
+    auto [centres, docsCodes] = buildCodebook(dim, docs);
+
+    double avgMse{0.0};
+    std::size_t bookDim{dim / NUM_BOOKS};
+    for (std::size_t i = 0; i < numDocs; ++i) {
+        float docMse{0.0F};
+        for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+            std::size_t code{docsCodes[i * NUM_BOOKS + b]};
+            auto doc = &docs[i * dim + b * bookDim];
+            auto centre = &centres[(b * BOOK_SIZE + code) * bookDim];
+            for (std::size_t j = 0; j < bookDim; ++j) {
+                float dj{doc[j] - centre[j]};
+                avgMse += dj * dj;
+                docMse += dj * dj;
+            }
+        }
+    }
+    avgMse /= static_cast<double>(numDocs);
+
+    // Compute the rectruction error using the transformed data.
+
+    auto [eigVecs, eigVals] = pca(dim, docs);
+    auto transformation = computeOptimalPQSubspaces(dim, eigVecs, eigVals);
+    docs = transform(transformation, dim, std::move(docs));
+    std::tie(centres, docsCodes) = buildCodebook(dim, docs);
+
+    double avgTransformedMse{0.0};
+    for (std::size_t i = 0; i < numDocs; ++i) {
+        for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+            std::size_t code{docsCodes[i * NUM_BOOKS + b]};
+            auto doc = &docs[i * dim + b * bookDim];
+            auto centre = &centres[(b * BOOK_SIZE + code) * bookDim];
+            double mse{0.0};
+            for (std::size_t j = 0; j < bookDim; ++j) {
+                float dj{doc[j] - centre[j]};
+                avgTransformedMse += dj * dj;
+                mse += dj * dj;
+            }
+        }
+    }
+    avgTransformedMse /= static_cast<double>(numDocs);
+
+    std::cout << "Original MSE:    " << avgMse << std::endl;
+    std::cout << "Transformed MSE: " << avgTransformedMse << std::endl;
+
+    BOOST_REQUIRE_LT(avgTransformedMse, 0.7 * avgMse);
 }
 
 BOOST_AUTO_TEST_CASE(testTransform) {

@@ -20,6 +20,7 @@ std::vector<float> centreData(std::size_t dim,
     std::vector<float> centroid(dim, 0.0F);
     std::size_t numDocs{data.size() / dim};
     for (std::size_t i = 0; i < data.size(); i += dim) {
+        #pragma clang loop unroll_count(4) vectorize(assume_safety)
         for (std::size_t j = 0; j < dim; ++j) {
             centroid[j] += data[i + j];
         }
@@ -28,6 +29,7 @@ std::vector<float> centreData(std::size_t dim,
         centroid[j] /= static_cast<float>(numDocs);
     }
     for (std::size_t i = 0; i < data.size(); i += dim) {
+        #pragma clang loop unroll_count(4) vectorize(assume_safety)
         for (std::size_t j = 0; j < dim; ++j) {
             data[i + j] -= centroid[j];
         }
@@ -111,6 +113,7 @@ pca(std::size_t dim, std::vector<float> docs) {
     for (std::size_t i = 0; i < dim; ++i) {
         std::size_t k{sortedEigValIdx[i]};
         sortedEigVals[i] = eigVals[k];
+        #pragma clang loop unroll_count(4) vectorize(assume_safety)
         for (std::size_t j = 0; j < dim; ++j) {
             sortedEigVecs[i * dim + j] = eigVecs[k * dim + j];
         }
@@ -121,9 +124,8 @@ pca(std::size_t dim, std::vector<float> docs) {
 
 std::vector<float>
 computeOptimalPQSubspaces(std::size_t dim,
-                            std::size_t numSubspaces,
-                            const std::vector<double>& eigVecs,
-                            const std::vector<double>& eigVals) {
+                          const std::vector<double>& eigVecs,
+                          const std::vector<double>& eigVals) {
 
     // Compute the optimal PQ transformations using the method described in
     // "Optimized Product Quantization for Approximate Nearest Neighbor Search"
@@ -156,11 +158,11 @@ computeOptimalPQSubspaces(std::size_t dim,
     // We assume without loss of generality that numSubspaces divides dim
     // because we can always zero-pad the document vectors to make this the
     // case.
-    if (dim % numSubspaces != 0) {
+    if (dim % NUM_BOOKS != 0) {
         throw std::invalid_argument("dim % numSubspaces != 0");
     }
 
-    std::size_t subspaceDim{dim / numSubspaces};
+    std::size_t subspaceDim{dim / NUM_BOOKS};
 
     // We rescale eigenvalues so that the smalled is 1.0. This means that
     // each time we add an eigenvector to a subspace we increase its product
@@ -168,11 +170,11 @@ computeOptimalPQSubspaces(std::size_t dim,
     double logMinEigVal{std::log(std::max(eigVals.back(), 1e-8 * maxEigVal))};
 
     // Assign the first numSubspaces eigenvectors (one to each book).
-    std::vector<std::vector<std::size_t>> assignments(numSubspaces);
+    std::vector<std::vector<std::size_t>> assignments(NUM_BOOKS);
     std::priority_queue<std::pair<double, std::size_t>,
                         std::vector<std::pair<double, std::size_t>>,
                         std::greater<std::pair<double, std::size_t>>> logProdEigVals;
-    for (std::size_t i = 0; i < numSubspaces; ++i) {
+    for (std::size_t i = 0; i < NUM_BOOKS; ++i) {
         assignments[i].push_back(i * dim);
         double eigValAdj{std::max(eigVals[i], logMinEigVal)};
         logProdEigVals.push(std::make_pair(std::log(eigValAdj) - logMinEigVal, i));
@@ -181,7 +183,7 @@ computeOptimalPQSubspaces(std::size_t dim,
     // Use a greedy bin packing algorithm heuristic where at each step the
     // eigenvector of the largest remaining eigenvalue is assigned to the
     // subspace with the minimum product of eigenvalues.
-    for (std::size_t i = numSubspaces; i < dim; ++i) {
+    for (std::size_t i = NUM_BOOKS; i < dim; ++i) {
         while (!logProdEigVals.empty()) {
             auto [minLogProdEigVals, j] = logProdEigVals.top();
             logProdEigVals.pop();
@@ -200,7 +202,6 @@ computeOptimalPQSubspaces(std::size_t dim,
     std::vector<float> transformation(dim * dim, 0.0F);
     for (std::size_t i = 0, pos = 0; i < assignments.size(); ++i) {
         for (auto j : assignments[i]) {
-            #pragma clang loop unroll_count(4) vectorize(assume_safety)
             for (std::size_t k = 0; k < dim; ++k) {
                 transformation[pos + k] = static_cast<float>(eigVecs[j + k]);
             }

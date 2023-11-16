@@ -34,9 +34,8 @@ pca(std::size_t dim, std::vector<float> docs);
 //
 // Returns the orthogonal transformation matrix stored flat.
 std::vector<float> computeOptimalPQSubspaces(std::size_t dim,
-                                               std::size_t numBooks,
-                                               const std::vector<double>& eigVecs,
-                                               const std::vector<double>& eigVals);
+                                             const std::vector<double>& eigVecs,
+                                             const std::vector<double>& eigVals);
 
 // Transform the given vectors using the given transformation.
 std::vector<float> transform(const std::vector<float>& transformation,
