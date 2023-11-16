@@ -314,8 +314,12 @@ computeCodebooksForPqIndex(const BigVector& docs,
     // We use a codeblock to ensure the samplers are destroyed before we
     // move the next step. This reduces the peak memory usage.
     {
-        // Use a random sample of 128 docs per dimension.
-        std::vector<ReservoirSampler> samplers(numClusters, {dim, 128 * dim, rng});
+        // Use a random sample of 128 docs per cluster centre.
+        //
+        // Depending on the expected cluster size this may be more the memory
+        // bottleneck. We can always trade runtime for memory by using an outer
+        // iteration over cluster ranges.
+        std::vector<ReservoirSampler> samplers(numClusters, {dim, 128 * BOOK_SIZE, rng});
         auto i = docsClusters.begin();
         for (auto doc : docs) {
             samplers[*(i++)].add(doc.data());

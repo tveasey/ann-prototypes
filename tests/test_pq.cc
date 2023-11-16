@@ -12,6 +12,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -301,6 +302,71 @@ BOOST_AUTO_TEST_CASE(testWriteEncoding) {
                 static_cast<std::size_t>(expectedDocsCodes[i * NUM_BOOKS + b]));
         }
     }
+}
+
+BOOST_AUTO_TEST_CASE(testBuildCodebook) {
+
+    std::size_t dim{2 * NUM_BOOKS};
+    std::size_t numDocs{1000};
+    std::minstd_rand rng{0};
+    std::uniform_real_distribution<float> u01{0.0F, 1.0F};
+    std::vector<float> docs(dim * numDocs);
+    for (std::size_t i = 0; i < docs.size(); ++i) {
+        docs[i] = u01(rng);
+    }
+
+    auto [centres, docsCodes] = buildCodebook(dim, docs);
+
+    // Check that the codebook has the expected size.
+    BOOST_REQUIRE_EQUAL(centres.size(), dim * BOOK_SIZE);
+    BOOST_REQUIRE_EQUAL(docsCodes.size(), numDocs * NUM_BOOKS);
+
+    // Check that the resconstruction error is much less than encoding with
+    // random centres.
+
+    std::vector<float> randomCentres(dim * BOOK_SIZE);
+    for (std::size_t i = 0; i < randomCentres.size(); ++i) {
+        randomCentres[i] = u01(rng);
+    }
+    std::vector<code_t> randomCentresDocsCodes(numDocs * NUM_BOOKS);
+    {
+        std::vector<float> doc(dim);
+        for (std::size_t i = 0; i < numDocs; ++i) {
+            std::copy(&docs[i * dim], &docs[(i + 1) * dim], doc.data());
+            writeEncoding(doc, randomCentres, &docsCodes[i * NUM_BOOKS]);
+        }
+    }
+
+    double avgMse{0.0};
+    double avgRandomMse{0.0};
+    std::size_t bookDim{dim / NUM_BOOKS};
+    for (std::size_t i = 0; i < numDocs; ++i) {
+        for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+            std::size_t code{docsCodes[i * NUM_BOOKS + b]};
+            auto doc = &docs[i * dim + b * bookDim];
+            auto centre = &centres[(b * BOOK_SIZE + code) * bookDim];
+            for (std::size_t j = 0; j < bookDim; ++j) {
+                float dj{doc[j] - centres[j]};
+                avgMse += dj * dj;
+            }
+        }
+        for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+            std::size_t code{randomCentresDocsCodes[i * NUM_BOOKS + b]};
+            auto doc = &docs[i * dim + b * bookDim];
+            auto centre = &randomCentres[(b * BOOK_SIZE + code) * bookDim];
+            for (std::size_t j = 0; j < dim; ++j) {
+                float dj{doc[j] - centre[j]};
+                avgRandomMse += dj * dj;
+            }
+        }
+    }
+    avgMse /= static_cast<double>(numDocs);
+    avgRandomMse /= static_cast<double>(numDocs);
+
+    std::cout << "avgMsd: " << avgMse << std::endl;
+    std::cout << "avgRandomMsd: " << avgRandomMse << std::endl;
+
+    BOOST_REQUIRE_LT(avgMse, avgRandomMse / 40.0);
 }
 
 BOOST_AUTO_TEST_CASE(testCentreData) {

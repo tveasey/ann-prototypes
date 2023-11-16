@@ -3,8 +3,7 @@
 #include "types.h"
 #include "../common/bigvector.h"
 
-#include <cstdint>
-#include <functional>
+#include <utility>
 #include <vector>
 
 // Build a codebook for the docs vectors.

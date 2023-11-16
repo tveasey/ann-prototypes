@@ -38,7 +38,7 @@ std::vector<float> computeOptimalPQSubspaces(std::size_t dim,
                                                const std::vector<double>& eigVecs,
                                                const std::vector<double>& eigVals);
 
-// Transform the given vectors onto the given transformation.
+// Transform the given vectors using the given transformation.
 std::vector<float> transform(const std::vector<float>& transformation,
                              std::size_t dim,
                              std::vector<float> docs);

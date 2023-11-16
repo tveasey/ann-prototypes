@@ -15,6 +15,8 @@
 #include <utility>
 #include <vector>
 
+namespace {
+
 std::vector<float> initCodebookCentres(std::size_t dim,
                                        const std::vector<float>& docs) {
 
@@ -52,13 +54,20 @@ std::vector<float> initCodebookCentres(std::size_t dim,
     return minMseCodebookCentres;
 }
 
+} // unnamed::
+
 std::pair<std::vector<float>, std::vector<code_t>>
 buildCodebook(std::size_t dim, const std::vector<float>& docs) {
     std::size_t bookDim{dim / NUM_BOOKS};
     std::vector<float> codebookCentres{initCodebookCentres(dim, docs)};
     std::vector<code_t> docsCodes(docs.size() / bookDim);
+    double lastMse{std::numeric_limits<double>::max()};
     for (std::size_t i = 0; i < BOOK_CONSTRUCTION_K_MEANS_ITR; ++i) {
-        stepLloydForBookConstruction(dim, docs, codebookCentres, docsCodes);
+        double mse{stepLloydForBookConstruction(dim, docs, codebookCentres, docsCodes)};
+        if (std::abs(lastMse - mse) < 1e-4 * mse) {
+            break;
+        }
+        lastMse = mse;
     }
     return std::make_pair(std::move(codebookCentres), std::move(docsCodes));
 }
