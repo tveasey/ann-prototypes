@@ -7,13 +7,6 @@
 #include <functional>
 #include <vector>
 
-// Compute the average mean squared error between the original vectors and
-// the quantised vectors.
-double quantisationMseLoss(std::size_t dim,
-                           const std::vector<float>& codebooks,
-                           const std::vector<float>& docs,
-                           const std::vector<code_t>& docsCodes);
-
 // Build a codebook for the docs vectors.
 //
 // Retruns a pair of vectors. The first vector contains the codebook centres

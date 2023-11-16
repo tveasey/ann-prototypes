@@ -60,6 +60,33 @@ sudo mkdir -p /usr/local/bin
 sudo ln -s /Applications/CMake.app/Contents/bin/cmake /usr/local/bin/cmake
 ```
 
+### Boost 1.83.0
+
+Download version 1.83.0 of Boost from <https://boostorg.jfrog.io/artifactory/main/release/1.83.0/source/boost_1_83_0.tar.bz2>. You must get this exact version, as the Machine Learning build system requires it.
+
+Assuming you chose the `.bz2` version, extract it to a temporary directory:
+
+```bash
+bzip2 -cd boost_1_83_0.tar.bz2 | tar xvf -
+```
+
+In the resulting `boost_1_83_0` directory, run:
+
+```bash
+./bootstrap.sh --with-toolset=clang --without-libraries=context --without-libraries=coroutine --without-libraries=graph_parallel --without-libraries=mpi --without-libraries=python --without-icu
+```
+
+This should build the `b2` program, which in turn is used to build Boost.
+
+To complete the build:
+
+```bash
+./b2 -j8 --layout=versioned --disable-icu cxxflags="-std=c++17 -stdlib=libc++ $SSEFLAGS" linkflags="-std=c++17 -stdlib=libc++ -Wl,-headerpad_max_install_names" optimization=speed inlining=full define=BOOST_MATH_NO_LONG_DOUBLE_MATH_FUNCTIONS define=BOOST_LOG_WITHOUT_DEBUG_OUTPUT define=BOOST_LOG_WITHOUT_EVENT_LOG define=BOOST_LOG_WITHOUT_SYSLOG define=BOOST_LOG_WITHOUT_IPC
+sudo ./b2 install --layout=versioned --disable-icu cxxflags="-std=c++17 -stdlib=libc++ $SSEFLAGS" linkflags="-std=c++17 -stdlib=libc++ -Wl,-headerpad_max_install_names" optimization=speed inlining=full define=BOOST_MATH_NO_LONG_DOUBLE_MATH_FUNCTIONS define=BOOST_LOG_WITHOUT_DEBUG_OUTPUT define=BOOST_LOG_WITHOUT_EVENT_LOG define=BOOST_LOG_WITHOUT_SYSLOG define=BOOST_LOG_WITHOUT_IPC
+```
+
+to install the Boost headers and libraries.
+
 ## Building
 
 To build native code navigate to the root directory and run:
@@ -69,7 +96,25 @@ To build native code navigate to the root directory and run:
 >>> cmake --build build
 ```
 
-This should create an executable in `build/run_quantisation`.
+There are two targets `build/run_tests` and `build/run_benchmark`.
+
+## Running Tests
+
+Testing uses the boost test framework. After building you can run all the tests using
+
+```bash
+>>> ./build/run_tests
+```
+
+Individual tests can be run using for example
+
+```bash
+>>> ./build/run_tests --run_test=pq
+```
+
+Run `./build/run_tests --help` for more information.
+
+## Running Benchmarks
 
 You can run help on this and you to see the options:
 ```

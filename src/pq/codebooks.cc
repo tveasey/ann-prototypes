@@ -8,38 +8,12 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdint>
-#include <functional>
+#include <cstddef>
 #include <limits>
 #include <numeric>
 #include <random>
 #include <utility>
 #include <vector>
-
-double quantisationMseLoss(std::size_t dim,
-                           const std::vector<float>& codebooksCentres,
-                           const std::vector<float>& docs,
-                           const std::vector<code_t>& docsCodes) {
-
-    std::size_t bookDim{dim / NUM_BOOKS};
-
-    double totalMse{0.0};
-    std::size_t count{0};
-
-    auto code = docsCodes.begin();
-    for (auto doc = docs.begin(); doc != docs.end(); ++count) {
-        float mse{0.0F};
-        for (std::size_t b = 0; b < NUM_BOOKS; ++b, ++code, doc += bookDim) {
-            #pragma clang loop unroll_count(4) vectorize(assume_safety)
-            for (std::size_t i = 0; i < bookDim; ++i) {
-                float di{doc[i] - codebooksCentres[(BOOK_SIZE * b + *code) * bookDim + i]};
-                mse += di * di;
-            }
-        }
-        totalMse += mse;
-    }
-    return totalMse / static_cast<double>(count);
-}
 
 std::vector<float> initCodebookCentres(std::size_t dim,
                                        const std::vector<float>& docs) {
@@ -96,27 +70,25 @@ void writeEncoding(const std::vector<float>& doc,
     // For each book, find the closest centroid and append the corresponding
     // code for the book.
     std::size_t dim{doc.size()};
-    for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
-        std::size_t bookDim{dim / NUM_BOOKS};
-        std::size_t bookSize{BOOK_SIZE * bookDim};
-        std::size_t bookOffset{b * bookSize};
-        std::size_t bookCodeOffset{b * BOOK_SIZE};
-        std::size_t iMinSd{0};
-        float minSd{std::numeric_limits<float>::max()};
-        auto docProj = doc.begin() + dim * b;
-        auto codebookCentre = codebooksCentres.begin() + bookOffset;
-        for (std::size_t c = 0; c < bookSize; c += bookDim) {
+    std::size_t bookDim{dim / NUM_BOOKS};
+    for (std::size_t b = 0; b < dim; b += bookDim) {
+        std::size_t iMsd{0};
+        float msd{std::numeric_limits<float>::max()};
+        auto docProj = doc.begin() + b;
+        auto codebookCentres = codebooksCentres.begin() + b * BOOK_SIZE;
+        for (std::size_t i = 0; i < BOOK_SIZE; ++i) {
             float sd{0.0F};
+            auto codebookCentre = codebookCentres + i;
             #pragma clang loop unroll_count(4) vectorize(assume_safety)
-            for (std::size_t i = 0; i < bookDim; ++i) {
-                float di{docProj[i] - codebookCentre[c + i]};
-                sd += di * di;
+            for (std::size_t j = 0; j < bookDim; ++j) {
+                float dij{docProj[j] - codebookCentre[j]};
+                sd += dij * dij;
             }
-            if (sd < minSd) {
-                iMinSd = c;
-                minSd = sd;
+            if (sd < msd) {
+                iMsd = i;
+                msd = sd;
             }
         }
-        codes[b] = static_cast<code_t>(iMinSd / bookDim);
+        codes[b] = static_cast<code_t>(iMsd);
     }
 }

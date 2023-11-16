@@ -113,13 +113,14 @@ double stepLloyd(std::size_t dim,
     // Since we sum up non-negative losses from each book we can compute
     // the optimal codebooks independently.
 
+    std::size_t numDocs{docs.size() / dim};
     std::size_t subspaceDim{dim / numSubspaces};
+    docsCodes.resize(numDocs * numSubspaces);
     std::vector<double> newCentres(numClusters * dim, 0.0);
     std::vector<std::size_t> centreCounts(numClusters * numSubspaces, 0);
 
     std::size_t pos{0};
     double avgSd{0.0};
-    std::size_t numDocs{docs.size() / dim};
     for (auto doc = docs.begin(); doc != docs.end(); /**/) {
         for (std::size_t b = 0; b < numSubspaces; ++b, ++pos, doc += subspaceDim) {
             // Find the nearest centroid.
@@ -144,7 +145,7 @@ double stepLloyd(std::size_t dim,
             for (std::size_t j = 0; j < subspaceDim; ++j) {
                 newCentre[j] += doc[j];
             }
-            ++centreCounts[iMsd];
+            ++centreCounts[b * numClusters + iMsd];
 
             // Encode the document.
             docsCodes[pos] = static_cast<CODE>(iMsd);
@@ -277,6 +278,7 @@ void coarseClustering(const BigVector& docs,
         float minMse{std::numeric_limits<float>::max()};
         for (int i = 0; i < numClusters; ++i) {
             float mse{0.0F};
+            #pragma clang loop unroll_count(4) vectorize(assume_safety)
             for (std::size_t j = 0; j < dim; ++j) {
                 float dij{clusterCentres[i * dim + j] - doc[j]};
                 mse += dij * dij;

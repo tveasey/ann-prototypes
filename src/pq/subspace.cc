@@ -226,6 +226,7 @@ std::vector<float> transform(const std::vector<float>& transformation,
     for (std::size_t i = 0; i < docs.size(); i += dim) {
         projected.assign(dim, 0.0F);
         for (std::size_t j = 0; j < dim; ++j) {
+            #pragma clang loop unroll_count(4) vectorize(assume_safety)
             for (std::size_t k = 0; k < dim; ++k) {
                 projected[j] += transformation[j * dim + k] * docs[i + k];
             }

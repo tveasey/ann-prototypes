@@ -17,32 +17,6 @@
 #include <vector>
 
 namespace {
-template<typename T>
-std::vector<T> toVector(std::priority_queue<T>& queue) {
-    std::vector<T> result;
-    result.reserve(queue.size());
-    while (!queue.empty()) {
-        result.push_back(queue.top());
-        queue.pop();
-    }
-    return result;
-}
-
-bool testReadFvecs() {
-    auto file = std::filesystem::path(__FILE__).parent_path() / "vectors.fvec";
-    auto [vectors, dim] = readFvecs(file);
-    if (dim != 4) {
-        std::cout << "FAILED: output " << dim << " != 4" << std::endl;
-        return false;
-    }
-    std::ostringstream result;
-    result << vectors;
-    if (result.str() != "[-1.1,2.1,0.3,1.7,1.2,3.1,-0.9,1.8]") {
-        std::cout << "FAILED: output " << vectors << std::endl;
-        return false;
-    }
-    return true;
-}
 
 bool testPacking() {
 
@@ -333,59 +307,6 @@ bool testNormalise() {
     return passed;
 }
 
-bool testSearchBruteForce() {
-    std::minstd_rand rng;
-    std::normal_distribution<> norm(2.0, 1.0);
-
-    std::size_t dim{80};
-    std::vector<float> docs(10 * dim);
-    std::generate_n(docs.begin(), docs.size(), [&] { return norm(rng); });
-    std::vector<float> query(dim);
-    std::generate_n(query.begin(), query.size(), [&] { return norm(rng); });
-
-    normalise(dim, docs);
-    normalise(dim, query);
-
-    std::priority_queue<std::pair<float, std::size_t>> topk;
-    searchBruteForce(5, docs, query, topk);
-
-    auto result = toVector(topk);
-    std::vector<std::size_t> indices(5);
-    std::transform(result.begin(), result.end(),
-                    indices.begin(),
-                    [](const auto& p) { return p.second; });
-    std::sort(indices.begin(), indices.end());
-
-    bool passed{true};
-    if (result.size() != 5) {
-        std::cout << "FAILED: output " << result << std::endl;
-        passed = false;
-    }
-    for (std::size_t i = 1; i < result.size(); ++i) {
-        if (result[i].first > result[i-1].first) {
-            std::cout << "FAILED: output " << result << std::endl;
-            passed = false;
-            break;
-        }
-    }
-    for (std::size_t i = 0; i < 10; ++i) {
-        if (!std::binary_search(indices.begin(), indices.end(), i)) {
-            float sim{0.0F};
-            for (std::size_t j = 0; j < dim; ++j) {
-                sim += query[j] * docs[i * dim + j];
-            }
-            float dist{1.0F - sim};
-            if (dist < result[0].first) {
-                std::cout << "FAILED: dist " << dist
-                          << " < " << result[0].first << std::endl;
-                passed = false;
-                break;
-            }
-        }
-    }
-    return passed;
-}
-
 bool testInitForgy() {
     std::minstd_rand rng;
 
@@ -439,71 +360,6 @@ bool testInitForgy() {
                     passed = false;
                 }
             }
-        }
-    }
-
-    return passed;
-}
-
-bool testStepLloyd() {
-    std::minstd_rand rng;
-
-    std::size_t bookDim{2};
-    std::size_t dim{bookDim * numBooks()};
-    std::vector<float> bookCentres(numBooks());
-    for (std::size_t b = 1; b <= numBooks(); ++b) {
-        bookCentres[b - 1] = 1000.0F * static_cast<float>(b);
-    }
-
-    std::vector<float> docs(20 * bookSize() * dim);
-    std::normal_distribution<> norm{0.0, 0.1};
-    std::uniform_int_distribution<> cluster{0, bookSize() - 1};
-    for (std::size_t i = 0; i < docs.size(); i += dim) {
-        for (std::size_t b = 0; b < numBooks(); ++b) {
-            float offset{bookCentres[b] + static_cast<float>(2 * cluster(rng) - bookSize())};
-            for (std::size_t j = 0; j < bookDim; ++j) {
-                docs[i + b * bookDim + j] = offset + static_cast<float>(norm(rng));
-            }
-        }
-    }
-
-    auto centres = initForgy(dim, docs, rng);
-
-    std::vector<code_t> docsCodes(20 * bookSize() * numBooks());
-    auto calculateErrors = [&] {
-        auto doc = docs.begin();
-        float maxMse{0.0F};
-        float totMse{0.0F};
-        for (std::size_t i = 0; i < docsCodes.size(); i += numBooks(), doc += dim) {
-            for (std::size_t b = 0; b < numBooks(); ++b) {
-                float mse{0.0F};
-                for (std::size_t j = 0; j < bookDim; ++j) {
-                    mse += std::powf(
-                        docs[b * bookDim + j] -
-                        centres[(b * bookSize() + docsCodes[i + b]) * bookDim + j], 2.0F);
-                }
-                mse = std::sqrtf(mse);
-                maxMse = std::max(maxMse, mse);
-                totMse += mse;
-            }
-        }
-        return std::make_pair(maxMse, totMse);
-    };
-
-    // Check usual k-means invariants.
-    bool passed{true};
-    float lastMaxMse{std::numeric_limits<float>::max()};
-    float lastTotMse{std::numeric_limits<float>::max()};
-    for (std::size_t i = 0; i < 5; ++i) {
-        stepLloyd(dim, docs, centres, docsCodes);
-        auto [maxMse, totMse] = calculateErrors();
-        if (maxMse > lastMaxMse) {
-            std::cout << "FAILED: " << maxMse << " > " << lastMaxMse << std::endl;
-            passed = false;
-        }
-        if (totMse > lastTotMse) {
-            std::cout << "FAILED: " << totMse << " > " << lastTotMse << std::endl;
-            passed = false;
         }
     }
 

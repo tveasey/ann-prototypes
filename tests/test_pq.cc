@@ -159,7 +159,148 @@ BOOST_AUTO_TEST_CASE(testClusteringInitializations) {
 }
 
 BOOST_AUTO_TEST_CASE(testClusteringStepLloyd) {
-    // Check that each step of Lloyd's algorithm decreases the MSE.
+
+    std::size_t dim{10};
+    std::size_t numDocs{1000};
+    std::minstd_rand rng{0};
+    std::uniform_real_distribution<float> u01{0.0F, 1.0F};
+    std::vector<float> docs(dim * numDocs);
+    for (std::size_t i = 0; i < docs.size(); ++i) {
+        docs[i] = u01(rng);
+    }
+
+    std::size_t numSubspaces{5};
+    std::size_t numClusters{10};
+    std::size_t subspaceDim{dim / numSubspaces};
+
+    auto centres = initForgyForTest(dim, numSubspaces, numClusters, docs, rng);
+
+    double lastMsd{std::numeric_limits<double>::max()};
+
+    for (std::size_t i = 0; i < 5; ++i) {
+
+        auto oldCentres = centres;
+
+        std::vector<code_t> docsCodes;
+        double msd{stepLloydForTest(dim, numSubspaces, numClusters, docs, centres, docsCodes)};
+
+        // Check that each step of Lloyd's algorithm decreases the MSE.
+        BOOST_REQUIRE_LT(msd, lastMsd);
+        lastMsd = msd;
+
+        // Check that the centres are the mean of the vectors assigned to them.
+        for (std::size_t b = 0; b < numSubspaces; ++b) {
+            std::vector<std::size_t> counts(numClusters, 0);
+            std::vector<float> centroids(numClusters * subspaceDim, 0.0F);
+            for (std::size_t i = 0; i < numDocs; ++i) {
+                std::size_t cluster{docsCodes[i * numSubspaces + b]};
+                ++counts[cluster];
+                for (std::size_t j = 0; j < subspaceDim; ++j) {
+                    centroids[cluster * subspaceDim + j] += docs[i * dim + b * subspaceDim + j];
+                }
+            }
+            for (std::size_t i = 0; i < numClusters; ++i) {
+                for (std::size_t j = 0; j < subspaceDim; ++j) {
+                    centroids[i * subspaceDim + j] /= static_cast<float>(counts[i]);
+                }
+            }
+
+            auto* subspaceCentres = &centres[b * numClusters * subspaceDim];
+            for (std::size_t i = 0; i < numClusters; ++i) {
+                for (std::size_t j = 0; j < subspaceDim; ++j) {
+                    BOOST_REQUIRE_CLOSE(centroids[i * subspaceDim + j],
+                                        subspaceCentres[i * subspaceDim + j], 1e-4);
+                }
+            }
+
+            // Check that each vector is assigned to the closest centre.
+            for (std::size_t i = 0; i < numDocs; ++i) {
+                auto* subspaceOldCentres = &oldCentres[b * numClusters * subspaceDim];
+
+                std::size_t iMsd{0};
+                float msd{std::numeric_limits<float>::max()};
+                for (std::size_t j = 0; j < numClusters; ++j) {
+                    float sd{0.0F};
+                    for (std::size_t k = 0; k < subspaceDim; ++k) {
+                        float di{docs[i * dim + b * subspaceDim + k] - 
+                                 subspaceOldCentres[j * subspaceDim + k]};
+                        sd += di * di;
+                    }
+                    if (sd < msd) {
+                        iMsd = j;
+                        msd = sd;
+                    }
+                }
+                BOOST_REQUIRE_EQUAL(docsCodes[i * numSubspaces + b], iMsd);
+            }
+        }
+
+        // Compute the MSE for the subspace with the old centres.
+        double avgMsd{0.0};
+        for (std::size_t b = 0; b < numSubspaces; ++b) {
+            double subspaceMsd{0.0};
+            for (std::size_t i = 0; i < numDocs; ++i) {
+                std::size_t cluster{docsCodes[i * numSubspaces + b]};
+                auto* subspaceOldCentres = &oldCentres[b * numClusters * subspaceDim];
+                for (std::size_t j = 0; j < subspaceDim; ++j) {
+                    float di{docs[i * dim + b * subspaceDim + j] -
+                             subspaceOldCentres[cluster * subspaceDim + j]};
+                    subspaceMsd += di * di;
+                }
+            }
+            avgMsd += subspaceMsd;
+        }
+        avgMsd /= static_cast<double>(numDocs);
+        BOOST_REQUIRE_CLOSE(avgMsd, msd, 1e-4);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(testWriteEncoding) {
+
+    std::size_t dim{NUM_BOOKS};
+    std::size_t numDocs{100};
+    
+    // Create some random centres.
+    std::vector<float> distinctCentres(BOOK_SIZE);
+    std::minstd_rand rng{0};
+    for (std::size_t i = 0; i < BOOK_SIZE; ++i) {
+        std::uniform_real_distribution<float> u01{0.0F, 5.0F};
+        distinctCentres[i] = u01(rng);
+    }
+    std::vector<float> codebooksCentres(dim * BOOK_SIZE);
+    for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+        for (std::size_t i = 0; i < BOOK_SIZE; ++i) {
+            codebooksCentres[b * BOOK_SIZE + i] = distinctCentres[i];
+        }
+    }
+
+    // Each document exactly matches one centre for each subspace. These should
+    // be the centres selected.
+    std::uniform_int_distribution<std::size_t> uxy{0, BOOK_SIZE - 1};
+    std::vector<float> docs(numDocs * dim);
+    std::vector<code_t> expectedDocsCodes(numDocs * NUM_BOOKS);
+    for (std::size_t i = 0; i < numDocs; ++i) {
+        for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+            std::size_t centre{uxy(rng)};
+            docs[i * dim + b] = distinctCentres[centre];
+            expectedDocsCodes[i * NUM_BOOKS + b] = static_cast<code_t>(centre);
+        }
+    }
+
+    std::vector<code_t> docsCodes(numDocs * NUM_BOOKS);
+    std::vector<float> doc(dim);
+    for (std::size_t i = 0; i < numDocs; ++i) {
+        std::copy(&docs[i * dim], &docs[(i + 1) * dim], doc.data());
+        writeEncoding(doc, codebooksCentres, &docsCodes[i * NUM_BOOKS]);
+    }
+
+    for (std::size_t i = 0; i < numDocs; ++i) {
+        for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+            BOOST_REQUIRE_EQUAL(
+                static_cast<std::size_t>(docsCodes[i * NUM_BOOKS + b]),
+                static_cast<std::size_t>(expectedDocsCodes[i * NUM_BOOKS + b]));
+        }
+    }
 }
 
 BOOST_AUTO_TEST_CASE(testCentreData) {
