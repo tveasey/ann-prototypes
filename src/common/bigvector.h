@@ -10,10 +10,15 @@
 #include <random>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
+#include <vector>
 
 // A wrapper around a boost::iostream::memory_mapped_file which provides
 // a random access const iterator over the vectors.
+//
+// Note this is not intended to be persistent and so the memory mapped file
+// is removed in the destructor. 
 class BigVector {
 public:
     // A reference to a vector in the memory mapped file.
@@ -22,9 +27,7 @@ public:
     class VectorReference {
     public:
         VectorReference() = default;
-        VectorReference(const float* data, std::size_t dim)
-            : data_{data},
-              dim_{dim} {
+        VectorReference(const float* data, std::size_t dim) : data_{data}, dim_{dim} {
         }
 
         const float& operator[](std::size_t i) const {
@@ -138,10 +141,6 @@ public:
     using TPrepare = std::function<void(std::size_t, std::vector<float>&)>;
 
 public:
-    // Create a BigVector with the given dimensions and number of vectors.
-    BigVector(std::size_t dim,
-              std::size_t numVectors,
-              const std::filesystem::path& storage);
     // Create with a generator function.
     BigVector(std::size_t dim,
               std::size_t numVectors,
@@ -152,8 +151,7 @@ public:
               const std::filesystem::path& storage,
               TPrepare prepare = [](std::size_t, std::vector<float>&) {});
 
-    // Note that the file is automatically closed when the memory_mapped_file
-    // object is destroyed.
+    ~BigVector();
 
     BigVector(const BigVector&) = delete;
     BigVector& operator=(const BigVector&) = delete;
@@ -186,40 +184,54 @@ private:
 
     std::size_t dim_;
     std::size_t numVectors_;
+    std::filesystem::path storage_;
     boost::iostreams::mapped_file file_;
     float* data_;
 };
 
+using Reader = std::function<void (std::size_t, BigVector::VectorReference)>;
+
+// Read all the vectors in parallel.
+//
+// It arranges to read multiple disjoint regions of the memory mapped file
+// concurrently to maximize IOPS.
+void parallelRead(const BigVector& docs, std::vector<Reader>& readers);
+
 // A simple reservoir sampler which stores the samples flat in a std::vector.
+//
+// This reads samples into a portion of a vector which is managed by the
+// caller. The caller is responsible for ensuring that the vector is large
+// enough to hold the samples.
 class ReservoirSampler {
 public:
-    ReservoirSampler(std::size_t dim, std::size_t sampleSize, std::minstd_rand& rng)
+    ReservoirSampler(std::size_t dim,
+                     std::size_t sampleSize,
+                     std::minstd_rand& rng,
+                     std::vector<float>::iterator beginSamples)
         : dim_{dim},
           sampleSize_{sampleSize},
-          rng_{rng} {
-        sample_.resize(sampleSize_ * dim_);
+          rng_{rng},
+          beginSamples_{beginSamples} {
     }
 
     // Sample a document.
     void add(const float* doc) {
         ++numDocs_;
-        if (sample_.size() < sampleSize_) {
-            std::copy(doc, doc + dim_, sample_.begin() + (numDocs_ - 1) * dim_);
+        if (numDocs_ < sampleSize_) {
+            std::copy(doc, doc + dim_, beginSamples_ + (numDocs_ - 1) * dim_);
         } else {
             std::uniform_int_distribution<std::size_t> u0n{0, numDocs_ - 1};
             std::size_t pos{u0n(rng_)};
             if (pos < sampleSize_) {
-                std::copy(doc, doc + dim_, sample_.begin() + pos * dim_);
+                std::copy(doc, doc + dim_, beginSamples_ + pos * dim_);
             }
         }
     }
 
-    std::vector<float>& sample() { return sample_; }
-
 private:
     std::size_t dim_;
     std::size_t sampleSize_;
-    std::minstd_rand& rng_;
     std::size_t numDocs_{0};
-    std::vector<float> sample_;
+    std::minstd_rand& rng_;
+    std::vector<float>::iterator beginSamples_;
 };

@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <random>
 
 void zeroPad(std::size_t dim, std::vector<float>& vectors) {
@@ -43,30 +44,58 @@ BigVector loadAndPrepareData(const std::filesystem::path& source, bool norm) {
            }};
 }
 
-std::vector<float> sampleDocs(const BigVector& docs,
-                              double sampleProbability,
-                              std::minstd_rand& rng) {
+std::vector<float>
+sampleDocs(const BigVector& docs, std::size_t sampleSize, std::minstd_rand rng) {
 
     std::size_t dim{docs.dim()};
 
-    if (sampleProbability <= 0.0) {
+    if (sampleSize == 0) {
         return {};
-    } else if (sampleProbability >= 1.0) {
+    } else if (sampleSize >= docs.numVectors()) {
         std::vector<float> sampledDocs(docs.size());
-        auto sampledDoc = sampledDocs.begin();
-        for (auto doc : docs) {
-            std::copy(doc.data(), doc.data() + dim, sampledDoc);
-            sampledDoc += dim;
+        auto beginSampledDoc = sampledDocs.begin();
+        std::vector<Reader> readers;
+        readers.reserve(NUM_READERS);
+        for (std::size_t i = 0; i < NUM_READERS; ++i) {
+            readers.emplace_back([dim, &beginSampledDoc](std::size_t pos,
+                                                         BigVector::VectorReference doc) {
+                std::copy(doc.data(), doc.data() + dim, beginSampledDoc + pos * dim);
+            });
         }
+        parallelRead(docs, readers);
         return sampledDocs;
     }
 
-    auto sampleSize =
-        static_cast<std::size_t>(sampleProbability * docs.numVectors());
+    // Sample using reservoir sampling.
 
-    ReservoirSampler reservoirSampler{dim, sampleSize, rng};
-    for (auto doc : docs) {
-        reservoirSampler.add(doc.data());
+    std::size_t numSamplesPerReader{(sampleSize + NUM_READERS - 1) / NUM_READERS};
+
+    std::vector<float> sampledDocs(numSamplesPerReader * NUM_READERS * dim,
+                                   std::numeric_limits<float>::quiet_NaN());
+    auto beginSampledDoc = sampledDocs.begin();
+
+    std::vector<std::minstd_rand> rngs(NUM_READERS, rng);
+    std::vector<ReservoirSampler> samplers;
+    std::vector<Reader> sampleReaders;
+    samplers.reserve(NUM_READERS);
+    sampleReaders.reserve(NUM_READERS);
+
+    for (std::size_t i = 0; i < NUM_READERS; ++i) {
+        auto storage = beginSampledDoc + i * numSamplesPerReader * dim;
+        samplers.emplace_back(dim, numSamplesPerReader, rngs[i], storage);
+        auto& sampler = samplers.back();
+        sampleReaders.emplace_back([&sampler](std::size_t,
+                                              BigVector::VectorReference doc) {
+            sampler.add(doc.data());
+        });
     }
-    return std::move(reservoirSampler.sample());
+
+    parallelRead(docs, sampleReaders);
+
+    sampledDocs.erase(std::remove_if(sampledDocs.begin(), sampledDocs.end(),
+                                     [](float f) { return std::isnan(f); }),
+                      sampledDocs.end());
+    sampledDocs.resize(sampleSize * dim);
+
+    return sampledDocs;
 }

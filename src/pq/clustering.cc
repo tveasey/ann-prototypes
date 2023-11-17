@@ -220,8 +220,7 @@ void coarseClustering(const BigVector& docs,
 
     std::minstd_rand rng;
     std::size_t sampleSize{std::min(COARSE_CLUSTERING_SAMPLE_SIZE, numDocs)};
-    double sampleProbability{static_cast<double>(sampleSize) / numDocs};
-    std::vector<float> sampledDocs{sampleDocs(docs, sampleProbability, rng)};
+    std::vector<float> sampledDocs{sampleDocs(docs, sampleSize, rng)};
 
     std::size_t dim{docs.dim()};
     std::size_t numClusters{std::max(1UL, numDocs / COARSE_CLUSTERING_DOCS_PER_CLUSTER)};

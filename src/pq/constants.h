@@ -19,3 +19,5 @@ constexpr std::size_t COARSE_CLUSTERING_DOCS_PER_CLUSTER{256 * 1024};
 constexpr std::size_t COARSE_CLUSTERING_KMEANS_ITR{10};
 // The number of random restarts of clustering to use when computing the coarse clustering.
 constexpr std::size_t COARSE_CLUSTERING_KMEANS_RESTARTS{5};
+// The number of threads to use when reading docs from the disk.
+constexpr std::size_t NUM_READERS{32};

@@ -14,6 +14,5 @@ void zeroPad(std::size_t dim, std::vector<float>& vectors);
 BigVector loadAndPrepareData(const std::filesystem::path& source, bool normalize);
 
 // Sample documents from docs uniformly at random specified probability.
-std::vector<float> sampleDocs(const BigVector& docs,
-                              double sampleProbability,
-                              std::minstd_rand& rng);
+std::vector<float>
+sampleDocs(const BigVector& docs, std::size_t sampleSize, std::minstd_rand rng);

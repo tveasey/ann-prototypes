@@ -680,12 +680,10 @@ BOOST_AUTO_TEST_CASE(testSampleDocs) {
     BigVector docs{dim, numDocs, tmpFile, [&] { return u01(rng); }};
 
     // Sample 5% of the docs.
-    double sampleProbability{0.05};
-    auto sampledDocs = sampleDocs(docs, sampleProbability, rng);
+    auto sampledDocs = sampleDocs(docs, 50, rng);
 
     // Check we get the correct number.
-    BOOST_REQUIRE_EQUAL(sampledDocs.size(),
-                        static_cast<std::size_t>(sampleProbability * numDocs * dim));
+    BOOST_REQUIRE_EQUAL(sampledDocs.size(), static_cast<std::size_t>(50 * dim));
 
     // Check that the vectors we sample are all in the original set.
     auto hash_combine = [](std::size_t seed, std::size_t value) {

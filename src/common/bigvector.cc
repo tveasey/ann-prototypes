@@ -2,8 +2,12 @@
 
 #include <boost/iostreams/device/mapped_file.hpp>
 
+#include <algorithm>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -15,18 +19,11 @@
 
 BigVector::BigVector(std::size_t dim,
                      std::size_t numVectors,
-                     const std::filesystem::path& storage)
-    : dim_{dim},
-      numVectors_{numVectors} {
-    this->create_memory_mapped_file(dim, numVectors, storage);
-}
-
-BigVector::BigVector(std::size_t dim,
-                     std::size_t numVectors,
                      const std::filesystem::path& storage,
                      const TGenerator& generator)
     : dim_{dim},
-      numVectors_{numVectors} {
+      numVectors_{numVectors},
+      storage_{storage} {
     this->create_memory_mapped_file(dim, numVectors, storage);
     for (std::size_t i = 0; i < numVectors_; ++i) {
         for (std::size_t j = 0; j < dim_; ++j) {
@@ -37,7 +34,8 @@ BigVector::BigVector(std::size_t dim,
 
 BigVector::BigVector(const std::filesystem::path& fvecs,
                      const std::filesystem::path& storage,
-                     TPrepare prepare) {
+                     TPrepare prepare)
+    : storage_{storage} {
 
     // Create from an numpy fvecs without ever copying the full data
     // into process memory.
@@ -106,6 +104,16 @@ BigVector::BigVector(const std::filesystem::path& fvecs,
     std::fclose(source);
 }
 
+BigVector::~BigVector() {
+    file_.close();
+    // Remove the file.
+    if (std::filesystem::remove(storage_)) {
+        std::cout << "Removed temporary file " << storage_ << std::endl;
+    } else {
+        std::cerr << "Failed to remove temporary file " << storage_ << std::endl;
+    }
+}
+
 void BigVector::create_memory_mapped_file(std::size_t dim,
                                           std::size_t numVectors,
                                           const std::filesystem::path& storage) {
@@ -120,4 +128,32 @@ void BigVector::create_memory_mapped_file(std::size_t dim,
         throw std::runtime_error("Failed to open file " + storage.u8string());
     }
     data_ = reinterpret_cast<float*>(file_.data());
+}
+
+void parallelRead(const BigVector& docs, std::vector<Reader>& readers) {
+
+    std::size_t numReaders{readers.size()};
+    std::size_t blocksize{(docs.numVectors() + numReaders - 1) / numReaders};
+
+    // Compared to the cost of reading a large number of vectors from disk
+    // the cost of creating the threads is negligible so we don't bother
+    // reusing them.
+    std::vector<std::thread> threads;
+    threads.reserve(numReaders);
+    for (std::size_t i = 0; i < numReaders; ++i) {
+        auto& reader = readers[i];
+        threads.emplace_back([i, blocksize, &reader, &docs]() {
+            std::size_t blockBegin{i * blocksize};
+            std::size_t blockEnd{std::min((i + 1) * blocksize, docs.numVectors())};
+            auto endDocs = docs.begin() + blockEnd;
+            std::size_t id{blockBegin};
+            for (auto doc = docs.begin() + blockBegin; doc != endDocs; ++id, ++doc) {
+                reader(id, *doc);
+            }
+        });
+    }
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
 }

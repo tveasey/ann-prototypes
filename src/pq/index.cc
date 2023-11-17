@@ -13,6 +13,8 @@
 #include <ostream>
 #include <queue>
 #include <random>
+#include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -21,6 +23,7 @@ namespace {
 void centre(std::size_t dim,
             const float* centre,
             float* doc) {
+    #pragma clang loop unroll_count(4) vectorize(assume_safety)
     for (std::size_t i = 0; i < dim; ++i) {
         doc[i] = doc[i] - centre[i];
     }
@@ -32,10 +35,56 @@ void transform(std::size_t dim,
                float* projectedDoc) {
     std::fill_n(projectedDoc, dim, 0.0F);
     for (std::size_t i = 0; i < dim; ++i) {
+        #pragma clang loop unroll_count(4) vectorize(assume_safety)
         for (std::size_t j = 0; j < dim; ++j) {
             projectedDoc[i] += transformation[i * dim + j] * doc[j];
         }
     }
+}
+
+void removeNans(std::vector<std::vector<float>>& samples) {
+    for (auto& sample : samples) {
+        auto end = std::remove_if(sample.begin(), sample.end(),
+                                 [](float x) { return std::isnan(x); });
+        sample.erase(end, sample.end());
+    }
+}
+
+std::vector<Reader>
+initializeSampleReaders(std::size_t dim,
+                        std::size_t numClusters,
+                        std::size_t numSamplesPerCluster,
+                        const std::vector<cluster_t>& docsClusters,
+                        std::vector<std::minstd_rand>& rngs,
+                        std::vector<std::vector<float>>& samples,
+                        std::vector<std::vector<ReservoirSampler>>& samplers) {
+
+    // For each thread we write into a non-overlapping region of the
+    // sample vector.
+
+    std::size_t numReaders{samplers.size()};
+    std::size_t numSamplesPerReader{numSamplesPerCluster / numReaders};
+
+    for (std::size_t i = 0; i < numClusters; ++i) {
+        for (std::size_t j = 0; j < numReaders; ++j) {
+            auto storage = samples[i].begin() + numSamplesPerReader * j * dim;
+            samplers[j].emplace_back(dim, numSamplesPerReader, rngs[j], storage);
+        }
+    }
+
+    std::vector<Reader> readers;
+    readers.reserve(numReaders);
+    auto beginDocCluster = docsClusters.begin();
+    for (std::size_t i = 0; i < numReaders; ++i) {
+        auto& sampler = samplers[i];
+        readers.emplace_back(
+            [=, &sampler](std::size_t pos, BigVector::VectorReference doc) {
+                auto docCluster = *(beginDocCluster + pos);
+                sampler[docCluster].add(doc.data());
+            });
+    }
+
+    return readers;
 }
 
 } // unnamed::
@@ -53,6 +102,7 @@ PqIndex::PqIndex(bool normalized,
       codebooksCentres_(std::move(codebooksCentres)),
       docsClusters_(std::move(docsClusters)),
       docsCodes_(std::move(docsCodes)) {
+
     this->buildNormsTables();
 }
 
@@ -319,23 +369,28 @@ buildCodebooksForPqIndex(const BigVector& docs,
     std::size_t dim{docs.dim()};
     std::size_t numDocs{docs.numVectors()};
     std::size_t numClusters{clustersCentres.size() / dim};
+    std::vector<std::minstd_rand> rngs(NUM_READERS);
 
     std::vector<std::vector<float>> transformations;
     transformations.reserve(numClusters);
-    std::minstd_rand rng;
-    // We use a codeblock to ensure the samplers are destroyed before we
+
+    // We use a codeblock to ensure the samples are destroyed before we
     // move the next step. This reduces the peak memory usage.
     {
-        // Use a random sample of 20 docs per dimension.
-        std::vector<ReservoirSampler> samplers(numClusters, {dim, 20 * dim, rng});
-        auto i = docsClusters.begin();
-        for (auto doc : docs) {
-            samplers[*(i++)].add(doc.data());
-        }
+        // Use a random sample of 32 docs per dimension.
+        std::vector<float> initialSamples(32 * dim * dim,
+                                          std::numeric_limits<float>::quiet_NaN());
+        std::vector<std::vector<float>> samples(numClusters, initialSamples);
+
+        // Do the sampling.
+        std::vector<std::vector<ReservoirSampler>> samplers(NUM_READERS);
+        auto sampleReaders = initializeSampleReaders(
+            dim, numClusters, 32 * dim, docsClusters, rngs, samples, samplers);
+        parallelRead(docs, sampleReaders);
+        removeNans(samples);
 
         // Compute optimal transformations for each coarse cluster.
-        for (auto& sampler : samplers) {
-            auto& sample = sampler.sample();
+        for (auto& sample : samples) {
             auto [eigVecs, eigVals] = pca(dim, std::move(sample));
             transformations.emplace_back(
                 computeOptimalPQSubspaces(dim, eigVecs, eigVals));
@@ -353,20 +408,27 @@ buildCodebooksForPqIndex(const BigVector& docs,
         // Depending on the expected cluster size this may be more the memory
         // bottleneck. We can always trade runtime for memory by using an outer
         // iteration over cluster ranges.
-        std::vector<ReservoirSampler> samplers(numClusters, {dim, 128 * BOOK_SIZE, rng});
-        auto i = docsClusters.begin();
-        for (auto doc : docs) {
-            samplers[*(i++)].add(doc.data());
-        }
+
+        // Use a random sample of 128 docs per cluster.
+        std::vector<float> initialSamples(128 * BOOK_SIZE * dim,
+                                          std::numeric_limits<float>::quiet_NaN());
+        std::vector<std::vector<float>> samples(numClusters, initialSamples);
+
+        // Do the sampling.
+        std::vector<std::vector<ReservoirSampler>> samplers(NUM_READERS);
+        auto sampleReaders = initializeSampleReaders(
+            dim, numClusters, 128 * BOOK_SIZE, docsClusters, rngs, samples, samplers);
+        parallelRead(docs, sampleReaders);
+        removeNans(samples);
 
         // Compute the residuals from the coarse cluster centres and transform
         // them into the optimal subspaces.
-        for (std::size_t i = 0; i < clustersCentres.size(); i += dim) {
+        for (std::size_t i = 0; i < numClusters; ++i) {
             auto& transformation = transformations[i];
             auto& projectedSample = projectedSamples[i];
-            projectedSample = std::move(samplers[i].sample());
+            projectedSample = std::move(samples[i]);
             for (std::size_t j = 0; j < projectedSample.size(); j += dim) {
-                centre(dim, &clustersCentres[i], &projectedSample[j]);
+                centre(dim, &clustersCentres[i * dim], &projectedSample[j]);
             }
             projectedSample = transform(transformation, dim, std::move(projectedSample));
         }
@@ -402,23 +464,35 @@ PqIndex buildPqIndex(bool normalized, const BigVector& docs) {
         }
     }
 
-    auto [transformations, codebooksCentres] = 
+    std::vector<std::vector<float>> transformations;
+    std::vector<std::vector<float>> codebooksCentres;
+    std::tie(transformations, codebooksCentres) = 
         buildCodebooksForPqIndex(docs, clustersCentres, docsClusters);
 
     // Compute the codes for each doc.
+
     std::vector<code_t> docsCodes(numDocs * NUM_BOOKS);
-    auto docCodes = docsCodes.data();
-    auto docCluster = docsClusters.begin();
-    std::vector<float> centredDoc;
-    std::vector<float> projectedDoc;
-    for (auto doc : docs) {
-        centredDoc.assign(doc.data(), doc.data() + dim);
-        centre(dim, &clustersCentres[*docCluster], centredDoc.data());
-        transform(dim, transformations[*docCluster], centredDoc.data(), projectedDoc.data());
-        writeEncoding(projectedDoc, codebooksCentres[*docCluster], docCodes);
-        ++docCluster;
-        docCodes += NUM_BOOKS;
+    auto beginDocCodes = docsCodes.data();
+    auto beginDocCluster = docsClusters.begin();
+    std::vector<float> centredDoc(dim);
+    std::vector<float> projectedDoc(dim);
+
+    std::vector<Reader> encoders;
+    encoders.reserve(NUM_READERS);
+    for (std::size_t i = 0; i < NUM_READERS; ++i) {
+        encoders.emplace_back([=, &clustersCentres, &transformations](
+                std::size_t pos,
+                BigVector::VectorReference doc) mutable {
+            auto docCluster = *(beginDocCluster + pos);
+            auto docCodes = beginDocCodes + NUM_BOOKS * pos;
+            centredDoc.assign(doc.data(), doc.data() + dim);
+            centre(dim, &clustersCentres[docCluster], centredDoc.data());
+            transform(dim, transformations[docCluster], centredDoc.data(), projectedDoc.data());
+            writeEncoding(projectedDoc, codebooksCentres[docCluster], docCodes);
+        });
     }
+
+    parallelRead(docs, encoders);
 
     return {normalized, dim, std::move(clustersCentres), std::move(transformations),
             std::move(codebooksCentres), std::move(docsClusters), std::move(docsCodes)};

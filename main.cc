@@ -50,7 +50,7 @@ void loadAndRunScalarBenchmark(const std::string& dataset, Metric metric, Scalar
     runScalarBenchmark(dataset, metric, bits, 10, qdim, docs, queries);
 }
 
-}
+} // unnamed::
 
 int main(int argc, char* argv[]) {
 

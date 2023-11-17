@@ -4,14 +4,14 @@
 #include "../src/common/bigvector.h"
 #include "../src/common/utils.h"
 
-#include <algorithm>
-#include <boost/test/tools/old/interface.hpp>
 #include <boost/test/unit_test.hpp>
 
-#include <boost/test/unit_test_suite.hpp>
+#include <algorithm>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <numeric>
 #include <queue>
 #include <random>
@@ -25,41 +25,87 @@ namespace {
 BOOST_AUTO_TEST_SUITE(common)
 
 BOOST_AUTO_TEST_CASE(testBigVector) {
+
     // Create a temporary file.
-    char filename[] = "/tmp/prefXXXXXX";
+    char filename[] = "/tmp/test_storage_XXXXXX";
     int ret{::mkstemp(filename)};
     if (ret == -1) {
         BOOST_FAIL("Couldn't create temporary file");
     }
     std::cout << "Created temporary file " << filename << std::endl;
 
+    std::size_t dim{10};
+    std::size_t numVectors{10};
     std::filesystem::path tmpFile{filename};
-
-    // Write some data to the file.
-    std::vector<float> data(100);
-    std::iota(data.begin(), data.end(), 0.0f);
-    std::ofstream ofs{tmpFile, std::ios::binary};
-    ofs.write(reinterpret_cast<const char*>(data.data()), data.size() * sizeof(float));
-    ofs.close();
-
-    // Create a BigVector from the file.
-    BigVector vec{10, 10, tmpFile};
+    BigVector vec{dim, numVectors, tmpFile, [i = 0]() mutable {
+        return i++;
+    }};
 
     BOOST_REQUIRE_EQUAL(vec.dim(), 10);
     BOOST_REQUIRE_EQUAL(vec.numVectors(), 10);
     BOOST_REQUIRE_EQUAL(vec.size(), 100);
     float i{0.0F};
     for (auto vec : vec) {
-        for (std::size_t j = 1.0; j < 10.0; j += 1.0F) {
+        for (std::size_t j = 0.0; j < 10.0; j += 1.0F) {
             BOOST_REQUIRE_EQUAL(vec[j], i + j);
         }
         i += 10.0F;
     }
+}
 
-    // The temporary file will be deleted when the BigVector is destroyed.
+BOOST_AUTO_TEST_CASE(testParallelReadBigVector) {
+
+    // Create a temporary file.
+    char filename[] = "/tmp/test_storage_XXXXXX";
+    int ret{::mkstemp(filename)};
+    if (ret == -1) {
+        BOOST_FAIL("Couldn't create temporary file");
+    }
+    std::cout << "Created temporary file \"" << filename << "\"" << std::endl;
+
+    std::size_t dim{512};
+    std::size_t numVectors{1000000};
+    std::filesystem::path tmpFile{filename};
+    BigVector vec{dim, numVectors, tmpFile, [dim, i = std::uint64_t{0}]() mutable {
+        return i++ / dim;
+    }};
+
+    // Read the vectors in parallel checking that the results are correct.
+    std::vector<Reader> checker;
+    checker.reserve(32);
+    std::vector<bool> passed(32, true);
+    std::vector<std::vector<std::size_t>> visited(32);
+    for (std::size_t i = 0; i < 2; ++i) {
+        checker.emplace_back([i, dim, &passed, &visited](std::size_t pos,
+                                                         BigVector::VectorReference vec) {
+            for (std::size_t j = 0; j < dim; ++j) {
+                passed[i] = passed[i] && (vec[j] == static_cast<float>(pos));
+            }
+            visited[i].push_back(pos);
+        });
+    }
+
+    parallelRead(vec, checker);
+
+    BOOST_REQUIRE(std::all_of(passed.begin(), passed.end(), [](bool x) { return x; }));
+
+    // Merge the visited vectors.
+    std::vector<std::size_t> merged;
+    merged.reserve(numVectors);
+    for (auto& v : visited) {
+        merged.insert(merged.end(), v.begin(), v.end());
+    }
+
+    // Check we visited every vector.
+    std::sort(merged.begin(), merged.end());
+    BOOST_REQUIRE_EQUAL(merged.size(), numVectors);
+    for (std::size_t i = 0; i < numVectors; ++i) {
+        BOOST_REQUIRE_EQUAL(merged[i], i);
+    }
 }
 
 BOOST_AUTO_TEST_CASE(testNormalize) {
+
     std::minstd_rand rng{0};
     std::uniform_real_distribution<float> u01{0.0F, 1.0F};
     std::vector<float> vectors(1000);
@@ -77,6 +123,7 @@ BOOST_AUTO_TEST_CASE(testNormalize) {
 }
 
 BOOST_AUTO_TEST_CASE(testReadFvecs) {
+
     auto file = std::filesystem::path(__FILE__).parent_path() / "vectors.fvec";
     auto [vectors, dim] = readFvecs(file);
     BOOST_REQUIRE_EQUAL(dim, 4);
@@ -86,6 +133,7 @@ BOOST_AUTO_TEST_CASE(testReadFvecs) {
 }
 
 BOOST_AUTO_TEST_CASE(testRecall) {
+
     // Test that the recall is calculated correctly.
     std::vector<std::size_t> exact{0, 1, 2, 5, 4, 3, 6, 9, 8, 7};
     std::vector<std::size_t> approx{1, 0, 2, 4, 6, 7, 17, 11, 14, 8};
@@ -136,6 +184,47 @@ BOOST_AUTO_TEST_CASE(testSampleDocs) {
     for (std::size_t i = 0; i < sampledVectors.size(); i += dim) {
         BOOST_REQUIRE_EQUAL(hashes.count(hash(sampledVectors.data() + i,
                                               sampledVectors.data() + i + dim)), 1);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(testReservoirSample) {
+
+    // Create a temporary file.
+    char filename[] = "/tmp/test_storage_XXXXXX";
+    int ret{::mkstemp(filename)};
+    if (ret == -1) {
+        BOOST_FAIL("Couldn't create temporary file");
+    }
+    std::cout << "Created temporary file \"" << filename << "\"" << std::endl;
+
+    std::size_t dim{10};
+    std::size_t numVectors{1000};
+    std::filesystem::path tmpFile{filename};
+    BigVector vec{dim, numVectors, tmpFile, [dim, i = std::uint64_t{0}]() mutable {
+        return static_cast<float>(i++ / dim);
+    }};
+
+    std::vector<float> samples(100 * dim, std::numeric_limits<float>::quiet_NaN());
+    std::minstd_rand rng{0};
+    ReservoirSampler sampler{dim, 100, rng, samples.begin()};
+
+    for (auto vec : vec) {
+        sampler.add(vec.data());
+    }
+
+    BOOST_REQUIRE(std::none_of(samples.begin(), samples.end(),
+                               [](float x) { return std::isnan(x); }));
+
+    // Check that the vectors we sample are all in the original set.
+    // We can do this by checking that each vector is a constant vector
+    // whose cmoponents are integers in the range [0, 1000).
+    for (std::size_t i = 0; i < samples.size(); i += dim) {
+        float value{samples[i]};
+        BOOST_REQUIRE(std::all_of(samples.begin() + i, samples.begin() + i + dim,
+                                  [value](float x) { return x == value; }));
+        BOOST_REQUIRE_CLOSE(value, std::round(value), 1e-6);
+        BOOST_REQUIRE(value >= 0.0F);
+        BOOST_REQUIRE(value < 1000.0F);
     }
 }
 
