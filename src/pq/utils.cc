@@ -28,7 +28,7 @@ void zeroPad(std::size_t dim, std::vector<float>& vectors) {
 BigVector loadAndPrepareData(const std::filesystem::path& source, bool norm) {
 
     // A temporary file for storing the data.
-    char filename[] = "/tmp/prefXXXXXX";
+    char filename[] = "/tmp/big_vector_storage_XXXXXX";
     int ret{::mkstemp(filename)};
     if (ret == -1) {
         throw std::runtime_error("Couldn't create temporary file.");

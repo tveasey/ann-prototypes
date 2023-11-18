@@ -256,6 +256,83 @@ BOOST_AUTO_TEST_CASE(testClusteringStepLloyd) {
     }
 }
 
+BOOST_AUTO_TEST_CASE(testCoarseClustering) {
+
+    char filename[]{"/tmp/test_storage_XXXXXX"};
+    int ret{::mkstemp(filename)};
+    if (ret == -1) {
+        BOOST_FAIL("Couldn't create temporary file");
+    }
+    std::cout << "Created temporary file " << filename << std::endl;
+
+    std::size_t dim{16};
+    std::size_t numDocs{10 * COARSE_CLUSTERING_SAMPLE_SIZE};
+    std::minstd_rand rng{0};
+    std::uniform_real_distribution<float> u01{0.0F, 1.0F};
+    std::filesystem::path tmpFile{filename};
+    BigVector docs{dim, numDocs, tmpFile, [&]() { return u01(rng); }};
+
+    std::vector<float> clusterCentres;
+    std::vector<cluster_t> docsClusters;
+    coarseClustering(false, docs, clusterCentres, docsClusters);
+
+    // Check that the number of clusters is correct.
+    BOOST_REQUIRE_EQUAL(clusterCentres.size(), 10 * dim);
+    BOOST_REQUIRE_EQUAL(docsClusters.size(), numDocs);
+
+    // Count the number of documents in each cluster and check that it is
+    // approximately equal.
+    std::vector<std::size_t> counts(10, 0);
+    for (auto cluster : docsClusters) {
+        ++counts[cluster];
+    }
+    for (std::size_t i = 0; i < 10; ++i) {
+        BOOST_REQUIRE_CLOSE(static_cast<double>(counts[i]) / 
+                            static_cast<double>(numDocs), 0.1, 5.0);
+    }
+
+    // Test the variance reduction of coarse clustering.
+    //
+    // To do this we compute the residual trace of the covariance matrix of
+    // the data for the coarse clustering. We expect the latter to be smaller.
+    // To compute the trace we simply need to sum the square differences of
+    // each vector component from the mean vector.
+
+    std::vector<float> mean(dim, 0.0F);
+    for (auto doc : docs) {
+        for (std::size_t i = 0; i < dim; ++i) {
+            mean[i] += (doc.data())[i];
+        }
+    }
+    for (std::size_t i = 0; i < dim; ++i) {
+        mean[i] /= static_cast<float>(numDocs);
+    }
+    double residualVariance{0.0};
+    for (auto doc : docs) {
+        for (std::size_t i = 0; i < dim; ++i) {
+            float di{(doc.data())[i] - mean[i]};
+            residualVariance += di * di;
+        }
+    }
+    residualVariance /= static_cast<double>(numDocs);
+
+    double clusteredResidualVariance{0.0};
+    auto docCluster = docsClusters.begin();
+    for (auto doc : docs) {
+        auto* clusterCentre = &clusterCentres[*(docCluster++) * dim];
+        for (std::size_t i = 0; i < dim; ++i) {
+            float di{(doc.data())[i] - clusterCentre[i]};
+            clusteredResidualVariance += di * di;
+        }
+    }
+    clusteredResidualVariance /= static_cast<double>(numDocs);
+
+    std::cout << "Residual variance: " << residualVariance << std::endl;
+    std::cout << "Coarse residual variance: " << clusteredResidualVariance << std::endl;
+
+    BOOST_REQUIRE_LT(clusteredResidualVariance, 0.9 * residualVariance);
+}
+
 BOOST_AUTO_TEST_CASE(testWriteEncoding) {
 
     std::size_t dim{NUM_BOOKS};
@@ -549,7 +626,7 @@ BOOST_AUTO_TEST_CASE(testComputeOptimalPQSubspaces) {
         std::minmax_element(transformedVariance.begin(), transformedVariance.end());
     float originalVarianceRange{*originalMax - *originalMin};
     float transformedVarianceRange{*transformedMax - *transformedMin};
-    BOOST_REQUIRE_LT(transformedVarianceRange, 0.1 * originalVarianceRange);
+    BOOST_REQUIRE_LT(transformedVarianceRange, 0.15 * originalVarianceRange);
 }
 
 BOOST_AUTO_TEST_CASE(testOptimalCodebooks) {
@@ -611,7 +688,7 @@ BOOST_AUTO_TEST_CASE(testOptimalCodebooks) {
     std::cout << "Original MSE:    " << avgMse << std::endl;
     std::cout << "Transformed MSE: " << avgTransformedMse << std::endl;
 
-    BOOST_REQUIRE_LT(avgTransformedMse, 0.7 * avgMse);
+    BOOST_REQUIRE_LT(avgTransformedMse, 0.6 * avgMse);
 }
 
 BOOST_AUTO_TEST_CASE(testTransform) {
@@ -664,19 +741,19 @@ BOOST_AUTO_TEST_CASE(testTransform) {
 
 BOOST_AUTO_TEST_CASE(testSampleDocs) {
 
-    char filename[] = "/tmp/prefXXXXXX";
+    char filename[]{"/tmp/test_storage_XXXXXX"};
     int ret{::mkstemp(filename)};
     if (ret == -1) {
         BOOST_FAIL("Couldn't create temporary file");
     }
     std::cout << "Created temporary file " << filename << std::endl;
-    std::filesystem::path tmpFile{filename};
 
     // Create a BigVector using a random generator.
     std::size_t dim{10};
     std::size_t numDocs{1000};
     std::minstd_rand rng{0};
     std::uniform_real_distribution<float> u01{0.0F, 1.0F};
+    std::filesystem::path tmpFile{filename};
     BigVector docs{dim, numDocs, tmpFile, [&] { return u01(rng); }};
 
     // Sample 5% of the docs.

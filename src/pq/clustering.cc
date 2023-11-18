@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <iostream>
 #include <limits>
 #include <random>
 #include <set>
@@ -120,7 +121,7 @@ double stepLloyd(std::size_t dim,
     std::vector<std::size_t> centreCounts(numClusters * numSubspaces, 0);
 
     std::size_t pos{0};
-    double avgSd{0.0};
+    double sumSd{0.0};
     for (auto doc = docs.begin(); doc != docs.end(); /**/) {
         for (std::size_t b = 0; b < numSubspaces; ++b, ++pos, doc += subspaceDim) {
             // Find the nearest centroid.
@@ -149,7 +150,7 @@ double stepLloyd(std::size_t dim,
 
             // Encode the document.
             docsCodes[pos] = static_cast<CODE>(iMsd);
-            avgSd += msd;
+            sumSd += msd;
         }
     }
 
@@ -163,7 +164,7 @@ double stepLloyd(std::size_t dim,
         }
     }
 
-    return avgSd / static_cast<double>(numDocs);
+    return sumSd / static_cast<double>(numDocs);
 }
 
 } // unnamed::
@@ -209,28 +210,34 @@ double stepLloydForTest(std::size_t dim,
     return stepLloyd(dim, numSubspaces, numClusters, docs, centres, docsCodes);
 }
 
-void coarseClustering(const BigVector& docs,
+void coarseClustering(bool normalized,
+                      const BigVector& docs,
                       std::vector<float>& clusterCentres,
                       std::vector<cluster_t>& docsClusters) {
 
     // Use k-means to compute a coarse clustering of the data. We will use
     // one codebook per cluster.
 
+    std::size_t dim{docs.dim()};
     std::size_t numDocs{docs.numVectors()};
+    std::cout << "Coarse clustering " << numDocs << " documents..." << std::endl;
 
     std::minstd_rand rng;
     std::size_t sampleSize{std::min(COARSE_CLUSTERING_SAMPLE_SIZE, numDocs)};
     std::vector<float> sampledDocs{sampleDocs(docs, sampleSize, rng)};
 
-    std::size_t dim{docs.dim()};
     std::size_t numClusters{std::max(1UL, numDocs / COARSE_CLUSTERING_DOCS_PER_CLUSTER)};
 
-    clusterCentres.assign(numClusters * dim, 0.0F);
-    docsClusters.resize(numDocs, 0);
+    auto ifSphericalKMeansNormalize = [dim, normalized](std::vector<float>& vectors) {
+        if (normalized) {
+            normalize(dim, vectors);
+        }
+    };
 
     // If there is only one cluster then the centre is the mean of the data
     // and the docs are all assigned to cluster zero.
     if (numClusters == 1) {
+        clusterCentres.assign(numClusters * dim, 0.0F);
         for (auto doc = sampledDocs.begin(); doc != sampledDocs.end(); doc += docs.dim()) {
             for (std::size_t i = 0; i < dim; ++i) {
                 clusterCentres[i] += doc[i];
@@ -239,60 +246,111 @@ void coarseClustering(const BigVector& docs,
         for (std::size_t i = 0; i < dim; ++i) {
             clusterCentres[i] /= static_cast<float>(sampleSize);
         }
+        ifSphericalKMeansNormalize(clusterCentres);
+        docsClusters.resize(numDocs, 0);
         return;
     }
 
-    double minMse{std::numeric_limits<double>::max()};
-    std::vector<float> minMseCentres;
+    std::chrono::steady_clock::time_point start{std::chrono::steady_clock::now()};
 
     // A few restarts with Forgy initialisation is good enough.
+    double msd{std::numeric_limits<double>::max()};
     for (std::size_t restarts = 0;
          restarts < COARSE_CLUSTERING_KMEANS_RESTARTS;
          ++restarts) {
-        auto centre = clusterCentres.begin();
-        for (auto i : initForgy(sampleSize, numClusters, rng)) {
-            auto doc = sampledDocs.begin() + i * dim;
-            std::copy(doc, doc + dim, centre);
-            centre += dim;
-        }
 
-        double mse{std::numeric_limits<double>::max()};
+        auto candidateClusterCentres = initForgy(dim, 1, numClusters, sampledDocs, rng);
+
+        double sd{std::numeric_limits<double>::max()};
         for (std::size_t i = 0; i < COARSE_CLUSTERING_KMEANS_ITR; ++i) {
-            mse = stepLloyd(dim, 1, numClusters, sampledDocs, clusterCentres, docsClusters);
+            sd = stepLloyd(dim, 1, numClusters, sampledDocs, candidateClusterCentres, docsClusters);
+            ifSphericalKMeansNormalize(candidateClusterCentres);
         }
-
-        if (mse < minMse) {
-            minMse = mse;
-            minMseCentres.assign(clusterCentres.begin(), clusterCentres.end());
+        if (sd < msd) {
+            msd = sd;
+            clusterCentres = std::move(candidateClusterCentres);
         }
     }
-    clusterCentres = std::move(minMseCentres);
+    std::cout << "Coarse clustering MSE = " << msd << std::endl;
+
+    std::chrono::steady_clock::time_point end{std::chrono::steady_clock::now()};
+    std::cout << "Coarse clustering took "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms" << std::endl;
 
     // Assign each document to the nearest centroid and update the centres.
-    std::size_t pos{0};
-    std::vector<float> newCentres(numClusters * dim, 0.0F);
-    for (auto doc : docs) {
-        // Find the nearest centroid.
-        int iMinMse{0};
-        float minMse{std::numeric_limits<float>::max()};
-        for (int i = 0; i < numClusters; ++i) {
-            float mse{0.0F};
-            #pragma clang loop unroll_count(4) vectorize(assume_safety)
+
+    docsClusters.resize(numDocs, 0);
+    std::vector<std::vector<float>> newCentres(
+        NUM_READERS, std::vector<float>(numClusters * dim, 0.0F));
+    std::vector<std::vector<float>> compensations(
+        NUM_READERS, std::vector<float>(numClusters * dim, 0.0F));
+
+    std::vector<Reader> clusterWriters;
+    clusterWriters.reserve(NUM_READERS);
+    
+    for (std::size_t i = 0; i < NUM_READERS; ++i) {
+
+        auto& readerNewCentres = newCentres[i];
+        auto& readerCompensations = compensations[i];
+
+        clusterWriters.emplace_back([&](std::size_t pos, BigVector::VectorReference doc) {
+            // Find the nearest centroid.
+            int iMsd{0};
+            float msd{std::numeric_limits<float>::max()};
+            for (int i = 0; i < numClusters; ++i) {
+                float sd{0.0F};
+                #pragma clang loop unroll_count(4) vectorize(assume_safety)
+                for (std::size_t j = 0; j < dim; ++j) {
+                    float dij{clusterCentres[i * dim + j] - doc[j]};
+                    sd += dij * dij;
+                }
+                if (sd < msd) {
+                    iMsd = i;
+                    msd = sd;
+                }
+            }
+
+            docsClusters[pos] = static_cast<cluster_t>(iMsd);
+
+            // Use Kahan summation to accumulate the new centres since we can
+            // easily reach the limits of float precision for large datasets.
+            auto* newCentre = &readerNewCentres[iMsd * dim];
+            auto* compensation = &readerCompensations[iMsd * dim];
             for (std::size_t j = 0; j < dim; ++j) {
-                float dij{clusterCentres[i * dim + j] - doc[j]};
-                mse += dij * dij;
+                float y{doc[j] - compensation[j]};
+                float t{newCentre[j] + y};
+                compensation[j] = (t - newCentre[j]) - y;
+                newCentre[j] = t;
             }
-            if (mse < minMse) {
-                iMinMse = i;
-                minMse = mse;
-            }
-        }
-        docsClusters[pos++] = static_cast<cluster_t>(iMinMse);
-        auto* newCentre = &newCentres[iMinMse * dim];
-        for (std::size_t j = 0; j < dim; ++j) {
-            newCentre[j] += doc[j];
-        }
+        });
     }
 
-    clusterCentres = std::move(newCentres);
+    start = std::chrono::steady_clock::now();
+
+    parallelRead(docs, clusterWriters);
+
+    end = std::chrono::steady_clock::now();
+    std::cout << "Assigning documents to clusters took "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
+              << " ms" << std::endl;
+
+    std::vector<std::size_t> clusterCounts(numClusters, 0);
+    for (std::size_t i = 0; i < numDocs; ++i) {
+        ++clusterCounts[docsClusters[i]];
+    }
+
+    // Reduce the new centres into the centres by summation and divide by
+    // the total document count.
+    for (std::size_t i = 0; i < numClusters; ++i) {
+        for (std::size_t j = 0; j < dim; ++j) {
+            clusterCentres[i * dim + j] = 0.0F;
+            #pragma clang loop unroll_count(4) vectorize(assume_safety)
+            for (std::size_t k = 0; k < NUM_READERS; ++k) {
+                clusterCentres[i * dim + j] += newCentres[k][i * dim + j];
+            }
+            clusterCentres[i * dim + j] /= static_cast<float>(clusterCounts[i]);
+        }
+    }
+    ifSphericalKMeansNormalize(clusterCentres);
 }

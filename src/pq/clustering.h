@@ -55,6 +55,7 @@ double stepLloydForTest(std::size_t dim,
 //
 // All vectors are assigned to the closest centre and separate codebooks
 // are constructed for each cluster.
-void coarseClustering(const BigVector& docs,
+void coarseClustering(bool normalized,
+                      const BigVector& docs,
                       std::vector<float>& clusterCentres,
                       std::vector<cluster_t>& docsClusters);

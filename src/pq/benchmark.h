@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+// Run a benchmark of the PQ brute force search and write the search
+// stats using writeStats.
 void runPQBenchmark(const std::string& tag,
                     Metric metric,
                     std::size_t k,

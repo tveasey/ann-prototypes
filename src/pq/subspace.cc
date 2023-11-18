@@ -58,22 +58,6 @@ std::vector<double> covarianceMatrix(std::size_t dim,
         }
     }
 
-    // We ensure that the matrix is positive definite by adding a small
-    // multiple of the identity matrix to it. Since the matrix is symmetric
-    // we only need to ensure it is also diagonally dominant.
-    double maxDiagDiff{0.0F};
-    for (std::size_t j = 0; j < dim; ++j) {
-        double sum{0.0F};
-        for (std::size_t k = 0; k < dim; ++k) {
-            if (j != k) {
-                sum += std::abs(cov[j * dim + k]);
-            }
-        }
-        maxDiagDiff = std::max(maxDiagDiff, cov[j * dim + j] - sum);
-    }
-    for (std::size_t j = 0; j < dim; ++j) {
-        cov[j * dim + j] += (1 + 1e-4) * maxDiagDiff;
-    }
 
     return cov;
 }

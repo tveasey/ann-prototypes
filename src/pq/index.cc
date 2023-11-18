@@ -450,19 +450,7 @@ PqIndex buildPqIndex(bool normalized, const BigVector& docs) {
 
     std::vector<float> clustersCentres;
     std::vector<cluster_t> docsClusters;
-    coarseClustering(docs, clustersCentres, docsClusters);
-    if (normalized) {
-        // Normalize the cluster centres (i.e. spherical k-means).
-        for (std::size_t i = 0; i < clustersCentres.size(); i += dim) {
-            float norm{std::sqrtf(
-                std::accumulate(clustersCentres.begin() + i,
-                                clustersCentres.begin() + i + dim,
-                                0.0F))};
-            for (std::size_t j = i; j < i + dim; ++j) {
-                clustersCentres[i] /= norm;
-            }
-        }
-    }
+    coarseClustering(normalized, docs, clustersCentres, docsClusters);
 
     std::vector<std::vector<float>> transformations;
     std::vector<std::vector<float>> codebooksCentres;
