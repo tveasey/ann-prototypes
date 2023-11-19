@@ -65,7 +65,7 @@ void normalize(std::size_t dim, std::vector<float>& vectors) {
     }
 }
 
-std::vector<float> norms2(std::size_t dim, std::vector<float>& vectors) {
+std::vector<float> norms2(std::size_t dim, const std::vector<float>& vectors) {
     std::vector<float> norms2(vectors.size() / dim);
     for (std::size_t i = 0, j = 0; i < vectors.size(); i += dim, ++j) {
         float norm2{0.0F};

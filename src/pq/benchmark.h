@@ -13,6 +13,7 @@
 // stats using writeStats.
 void runPQBenchmark(const std::string& tag,
                     Metric metric,
+                    float distanceThreshold,
                     std::size_t k,
                     const BigVector& docs,
                     std::vector<float>& queries,

@@ -333,7 +333,7 @@ BOOST_AUTO_TEST_CASE(testCoarseClustering) {
     BOOST_REQUIRE_LT(clusteredResidualVariance, 0.9 * residualVariance);
 }
 
-BOOST_AUTO_TEST_CASE(testWriteEncoding) {
+BOOST_AUTO_TEST_CASE(testEncode) {
 
     std::size_t dim{NUM_BOOKS};
     std::size_t numDocs{100};
@@ -369,7 +369,7 @@ BOOST_AUTO_TEST_CASE(testWriteEncoding) {
     std::vector<float> doc(dim);
     for (std::size_t i = 0; i < numDocs; ++i) {
         std::copy(&docs[i * dim], &docs[(i + 1) * dim], doc.data());
-        writeEncoding(doc, codebooksCentres, &docsCodes[i * NUM_BOOKS]);
+        encode(doc, codebooksCentres, &docsCodes[i * NUM_BOOKS]);
     }
 
     for (std::size_t i = 0; i < numDocs; ++i) {
@@ -379,6 +379,76 @@ BOOST_AUTO_TEST_CASE(testWriteEncoding) {
                 static_cast<std::size_t>(expectedDocsCodes[i * NUM_BOOKS + b]));
         }
     }
+}
+
+BOOST_AUTO_TEST_CASE(testAnisotropicEncode) {
+
+    std::size_t dim{16 * NUM_BOOKS};
+    std::size_t numDocs{10000};
+    std::minstd_rand rng{0};
+    std::uniform_real_distribution<float> u01{0.0F, 1.0F};
+    std::vector<float> docs(dim * numDocs);
+    for (std::size_t i = 0; i < docs.size(); ++i) {
+        docs[i] = u01(rng);
+    }
+
+    auto [eigVecs, eigVals] = pca(dim, docs);
+    auto transformation = computeOptimalPQSubspaces(dim, eigVecs, eigVals);
+    docs = transform(transformation, dim, std::move(docs));
+    auto [centres, docsCodes] = buildCodebook(dim, docs);
+
+    // Compute the anisotropic codes for each document.
+    std::vector<code_t> anisotropicDocsCodes(numDocs * NUM_BOOKS);
+    std::vector<float> doc(dim);
+    for (std::size_t i = 0; i < numDocs; ++i) {
+        std::copy(&docs[i * dim], &docs[(i + 1) * dim], doc.data());
+        anisotropicEncode(doc, centres, 0.6F, &anisotropicDocsCodes[i * NUM_BOOKS]);
+    }
+
+    // Compute the dot product between the original and anisotropic encoded
+    // vectors and the original document for each document. This is given by
+    // sum of the dot product from each subspace to the corresponding codebook
+    // centre.
+    std::vector<float> dotProducts(numDocs, 0.0F);
+    std::vector<float> pqDotProducts(numDocs, 0.0F);
+    std::vector<float> pqDotProductsAnisotropic(numDocs, 0.0F);
+    std::size_t bookDim{dim / NUM_BOOKS};
+    for (std::size_t i = 0; i < numDocs; ++i) {
+        for (std::size_t j = 0; j < dim; ++j) {
+            dotProducts[i] += docs[i * dim + j] * docs[i * dim + j];
+        }
+
+        for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+            auto* docProj = &docs[i * dim + b * bookDim];
+
+            std::size_t code{docsCodes[i * NUM_BOOKS + b]};
+            auto* centre = &centres[(b * BOOK_SIZE + code) * bookDim];
+            for (std::size_t j = 0; j < bookDim; ++j) {
+                pqDotProducts[i] += centre[j] * docProj[j];
+            }
+
+            code = anisotropicDocsCodes[i * NUM_BOOKS + b];
+            centre = &centres[(b * BOOK_SIZE + code) * bookDim];
+            for (std::size_t j = 0; j < bookDim; ++j) {
+                pqDotProductsAnisotropic[i] += centre[j] * docProj[j];
+            }
+        }
+    }
+
+    float avgPqDiff{0.0F};
+    float avgPqAnisotropicDiff{0.0F};
+    for (std::size_t i = 0; i < numDocs; ++i) {
+        avgPqDiff += std::fabsf(dotProducts[i] - pqDotProducts[i]);
+        avgPqAnisotropicDiff += std::fabsf(dotProducts[i] - pqDotProductsAnisotropic[i]);
+    }
+    avgPqDiff /= static_cast<float>(numDocs);
+    avgPqAnisotropicDiff /= static_cast<float>(numDocs);
+    std::cout << "Average PQ diff: " << avgPqDiff << std::endl;
+    std::cout << "Average PQ anisotropic diff: " << avgPqAnisotropicDiff << std::endl;
+
+    // We expect the anisotropic codes to result in lower dot product error
+    // for vectors close to the original document.
+    BOOST_REQUIRE_LT(avgPqAnisotropicDiff, 0.75 * avgPqDiff);
 }
 
 BOOST_AUTO_TEST_CASE(testBuildCodebook) {
@@ -410,7 +480,7 @@ BOOST_AUTO_TEST_CASE(testBuildCodebook) {
         std::vector<float> doc(dim);
         for (std::size_t i = 0; i < numDocs; ++i) {
             std::copy(&docs[i * dim], &docs[(i + 1) * dim], doc.data());
-            writeEncoding(doc, randomCentres, &docsCodes[i * NUM_BOOKS]);
+            encode(doc, randomCentres, &docsCodes[i * NUM_BOOKS]);
         }
     }
 

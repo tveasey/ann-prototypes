@@ -40,4 +40,4 @@ std::vector<float> sampleDocs(std::size_t dim,
 
 void normalize(std::size_t dim, std::vector<float>& vectors);
 
-std::vector<float> norms2(std::size_t dim, std::vector<float>& vectors);
+std::vector<float> norms2(std::size_t dim, const std::vector<float>& vectors);

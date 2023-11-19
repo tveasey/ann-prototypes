@@ -106,7 +106,9 @@ private:
 
 std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>>
 buildCodebooksForPqIndex(const BigVector& docs,
-                           const std::vector<float>& centres,
-                           const std::vector<cluster_t>& docsCentres);
+                         const std::vector<float>& centres,
+                         const std::vector<cluster_t>& docsCentres);
 
-PqIndex buildPqIndex(bool normalized, const BigVector& docs);
+PqIndex buildPqIndex(const BigVector& docs,
+                     bool normalized,
+                     float distanceThreshold = 0.0F);

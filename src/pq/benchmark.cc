@@ -63,6 +63,7 @@ std::chrono::duration<double> time(std::function<void()> f,
 
 void runPQBenchmark(const std::string& tag,
                     Metric metric,
+                    float distanceThreshold,
                     std::size_t k,
                     const BigVector& docs,
                     std::vector<float>& queries,
@@ -85,7 +86,7 @@ void runPQBenchmark(const std::string& tag,
     std::cout << "Building PQ index..." << std::endl;
     PqIndex index{[&] {
         Timer timer{"Building PQ index", diff};
-        return buildPqIndex(normalized, docs);
+        return buildPqIndex(docs, normalized, distanceThreshold);
     }()};
 
     PQStats stats{tag, toString(metric), numQueries, numDocs, dim, k};

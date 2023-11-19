@@ -443,7 +443,7 @@ buildCodebooksForPqIndex(const BigVector& docs,
     return {std::move(transformations), std::move(codebooksCentres)};
 }
 
-PqIndex buildPqIndex(bool normalized, const BigVector& docs) {
+PqIndex buildPqIndex(const BigVector& docs, bool normalized, float distanceThreshold) {
 
     std::size_t dim{docs.dim()};
     std::size_t numDocs{docs.numVectors()};
@@ -459,14 +459,14 @@ PqIndex buildPqIndex(bool normalized, const BigVector& docs) {
 
     // Compute the codes for each doc.
 
+    std::vector<Reader> encoders;
+    encoders.reserve(NUM_READERS);
+
     std::vector<code_t> docsCodes(numDocs * NUM_BOOKS);
     auto beginDocCodes = docsCodes.data();
     auto beginDocCluster = docsClusters.begin();
     std::vector<float> centredDoc(dim);
     std::vector<float> projectedDoc(dim);
-
-    std::vector<Reader> encoders;
-    encoders.reserve(NUM_READERS);
     for (std::size_t i = 0; i < NUM_READERS; ++i) {
         encoders.emplace_back([=, &clustersCentres, &transformations](
                 std::size_t pos,
@@ -476,7 +476,12 @@ PqIndex buildPqIndex(bool normalized, const BigVector& docs) {
             centredDoc.assign(doc.data(), doc.data() + dim);
             centre(dim, &clustersCentres[docCluster], centredDoc.data());
             transform(dim, transformations[docCluster], centredDoc.data(), projectedDoc.data());
-            writeEncoding(projectedDoc, codebooksCentres[docCluster], docCodes);
+            if (distanceThreshold > 0.0F) {
+                anisotropicEncode(projectedDoc, codebooksCentres[docCluster],
+                                  distanceThreshold, docCodes);
+            } else {
+                encode(projectedDoc, codebooksCentres[docCluster], docCodes);
+            }
         });
     }
 
