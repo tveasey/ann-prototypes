@@ -12,7 +12,7 @@
 #include <limits>
 #include <random>
 
-void zeroPad(std::size_t dim, std::vector<float>& vectors) {
+std::size_t zeroPad(std::size_t dim, std::vector<float>& vectors) {
     if (dim % NUM_BOOKS != 0) {
         std::size_t numVectors{vectors.size() / dim};
         std::size_t paddedDim{NUM_BOOKS * ((dim + NUM_BOOKS - 1) / NUM_BOOKS)};
@@ -22,10 +22,12 @@ void zeroPad(std::size_t dim, std::vector<float>& vectors) {
                       &vectors[paddedDim * (i - 1)]);
         }
         std::fill(&vectors[dim], &vectors[paddedDim], 0.0F);
+        return paddedDim;
     }
+    return dim;
 }
 
-BigVector loadAndPrepareData(const std::filesystem::path& source, bool norm) {
+BigVector loadAndPrepareData(const std::filesystem::path& source, bool normalized) {
 
     // A temporary file for storing the data.
     char filename[] = "/tmp/big_vector_storage_XXXXXX";
@@ -36,11 +38,11 @@ BigVector loadAndPrepareData(const std::filesystem::path& source, bool norm) {
     std::cout << "Created temporary file " << filename << std::endl;
 
     return {source, filename,
-            [norm](std::size_t dim_, std::vector<float>& docs) {
-                if (norm) {
+            [normalized](std::size_t dim_, std::vector<float>& docs) {
+                if (normalized) {
                     normalize(dim_, docs);
                 }
-                zeroPad(dim_, docs);
+                return zeroPad(dim_, docs);
            }};
 }
 

@@ -64,42 +64,52 @@ BigVector::BigVector(const std::filesystem::path& fvecs,
     }
     numVectors_ = bytes / ((dim_ + 1) * 4);
 
-    create_memory_mapped_file(dim_, numVectors_, storage);
+    // Dry run to estimate the padded dimension.
+    std::vector<float> doc(dim_, 0.0F);
+    std::size_t preparedDim{prepare(dim_, doc)};
+
+    this->create_memory_mapped_file(preparedDim, numVectors_, storage);
 
     // Read the data into the memory mapped file in 1MB chunks and then drop
     // the dimension header from each row and write the data to the memory
     // mapped file.
     std::size_t chunkSize{(1024UL * 1024UL / (4 * (dim_ + 1)))};
     std::vector<float> chunk(chunkSize * (dim_ + 1));
-    std::size_t numChunks{numVectors_ / chunkSize};
+    std::size_t numChunks{(numVectors_ + chunkSize - 1) / chunkSize};
+    auto* writePos = data_;
     for (std::size_t i = 0; i < numChunks; ++i) {
-        std::size_t currentChunkSize{
-            std::min(chunkSize, (numVectors_ - i * chunkSize))};
+        chunkSize = std::min(chunkSize, (numVectors_ - i * chunkSize));
 
-        chunk.resize(currentChunkSize * (dim_ + 1));
+        chunk.resize(chunkSize * (dim_ + 1));
         std::size_t floatsRead{std::fread(
-            chunk.data(), sizeof(float), currentChunkSize * (dim_ + 1), source)};
-        if (floatsRead != currentChunkSize * (dim_ + 1)) {
+            chunk.data(), sizeof(float), chunkSize * (dim_ + 1), source)};
+        if (floatsRead != chunkSize * (dim_ + 1)) {
             throw std::runtime_error(
                 "Only read " + std::to_string(floatsRead) + " out of " +
-                std::to_string(currentChunkSize * (dim_ + 1)) + " floats");
+                std::to_string(chunkSize * (dim_ + 1)) + " floats");
         }
 
         // Shift to remove row headers and zero pad to a multiple of the
         // number of books.
-        for (std::size_t i = 0; i < currentChunkSize; i++) {
+        for (std::size_t i = 0; i < chunkSize; i++) {
             std::memmove(chunk.data() + i * dim_,
                          chunk.data() + 1 + i * (dim_ + 1),
                          dim_ * sizeof(float));
         }
-        chunk.resize(currentChunkSize * dim_);
-        prepare(dim_, chunk);
+        chunk.resize(chunkSize * dim_);
+
+        // Any other preparation, such as zero padding or normalization.
+        if (prepare(dim_, chunk) != preparedDim) {
+            std::fclose(source);
+            throw std::runtime_error("The vector dimension must be the same for all chunks");
+        }
 
         // Write the chunk to the memory mapped file.
-        std::memcpy(data_ + i * chunkSize * dim_,
-                    chunk.data(),
-                    chunkSize * dim_ * sizeof(float));
+        std::memcpy(writePos, chunk.data(), chunkSize * preparedDim * sizeof(float));
+        writePos += chunkSize * preparedDim;
     }
+
+    dim_ = preparedDim;
 
     std::fclose(source);
 }

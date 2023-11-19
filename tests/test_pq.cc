@@ -7,6 +7,8 @@
 #include "../src/pq/stats.h"
 #include "../src/pq/subspace.h"
 #include "../src/pq/utils.h"
+#include "../src/common/io.h" 
+#include "../src/common/utils.h" 
 
 #include <boost/test/tools/old/interface.hpp>
 #include <boost/test/unit_test.hpp>
@@ -32,6 +34,44 @@
 namespace {
 
 BOOST_AUTO_TEST_SUITE(pq)
+
+BOOST_AUTO_TEST_CASE(testLoadAndPrepareDocs) {
+
+    auto file = std::filesystem::path(__FILE__).parent_path() / "vectors.fvec";
+
+    auto [vectors, dim] = readFvecs(file);
+
+    dim = zeroPad(dim, vectors);
+
+    {
+        BigVector vector{loadAndPrepareData(file, false)};
+
+        BOOST_REQUIRE_EQUAL(vector.dim(), dim);
+        BOOST_REQUIRE_EQUAL(vector.numVectors(), vectors.size() / dim);
+        BOOST_REQUIRE_EQUAL(vector.size(), vectors.size());
+
+        std::size_t i{0};
+        for (auto vec : vector) {
+            for (std::size_t j = 0; j < dim; ++j) {
+                BOOST_REQUIRE_EQUAL(vec[j], vectors[i++]);
+            }
+        }
+    }
+
+    normalize(dim, vectors);
+
+    {
+        // Load again normalizing.
+        BigVector vector{loadAndPrepareData(file, true)};
+
+        std::size_t i{0};
+        for (auto vec : vector) {
+            for (std::size_t j = 0; j < dim; ++j) {
+                BOOST_REQUIRE_CLOSE(vec[j], vectors[i++], 1e-4);
+            }
+        }
+    }
+}
 
 BOOST_AUTO_TEST_CASE(testClusteringInitializations) {
 
@@ -446,8 +486,8 @@ BOOST_AUTO_TEST_CASE(testAnisotropicEncode) {
     std::cout << "Average PQ diff: " << avgPqDiff << std::endl;
     std::cout << "Average PQ anisotropic diff: " << avgPqAnisotropicDiff << std::endl;
 
-    // We expect the anisotropic codes to result in lower dot product error
-    // for vectors close to the original document.
+    // We expect the anisotropic codes to result in lower dot product
+    // error for vectors close to the original document.
     BOOST_REQUIRE_LT(avgPqAnisotropicDiff, 0.75 * avgPqDiff);
 }
 
@@ -468,8 +508,8 @@ BOOST_AUTO_TEST_CASE(testBuildCodebook) {
     BOOST_REQUIRE_EQUAL(centres.size(), dim * BOOK_SIZE);
     BOOST_REQUIRE_EQUAL(docsCodes.size(), numDocs * NUM_BOOKS);
 
-    // Check that the resconstruction error is much less than encoding with
-    // random centres.
+    // Check that the resconstruction error is much less than encoding
+    // with random centres.
 
     std::vector<float> randomCentres(dim * BOOK_SIZE);
     for (std::size_t i = 0; i < randomCentres.size(); ++i) {
@@ -870,6 +910,10 @@ BOOST_AUTO_TEST_CASE(testZeroPad) {
         }
         BOOST_REQUIRE_EQUAL(vectors[i * NUM_BOOKS + NUM_BOOKS - 1], 0.0F);
     }
+}
+
+BOOST_AUTO_TEST_CASE(testBuildIndex) {
+    
 }
 
 BOOST_AUTO_TEST_SUITE_END()

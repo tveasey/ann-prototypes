@@ -138,7 +138,7 @@ public:
     };
 
     using TGenerator = std::function<float ()>;
-    using TPrepare = std::function<void(std::size_t, std::vector<float>&)>;
+    using TPrepare = std::function<std::size_t(std::size_t, std::vector<float>&)>;
 
 public:
     // Create with a generator function.
@@ -149,7 +149,7 @@ public:
     // Create a BigVector reading the vectors from from an numpy fvecs file.
     BigVector(const std::filesystem::path& fvecs,
               const std::filesystem::path& storage,
-              TPrepare prepare = [](std::size_t, std::vector<float>&) {});
+              TPrepare prepare = [](std::size_t dim, std::vector<float>&) { return dim; });
 
     ~BigVector();
 
