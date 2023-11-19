@@ -46,9 +46,11 @@ void transform(std::size_t dim,
 
 void removeNans(std::vector<std::vector<float>>& samples) {
     for (auto& sample : samples) {
-        auto end = std::remove_if(sample.begin(), sample.end(),
-                                 [](float x) { return std::isnan(x); });
-        sample.erase(end, sample.end());
+        if (!sample.empty()) {
+            auto end = std::remove_if(sample.begin(), sample.end(),
+                                     [](float x) { return std::isnan(x); });
+            sample.erase(end, sample.end());
+        }
     }
 }
 
@@ -109,6 +111,15 @@ PqIndex::PqIndex(bool normalized,
       docsCodes_(std::move(docsCodes)) {
 
     this->buildNormsTables();
+}
+
+std::size_t PqIndex::numCodebooksCentres() const {
+    std::size_t bookDim{dim_ / NUM_BOOKS};
+    return std::accumulate(codebooksCentres_.begin(),
+                           codebooksCentres_.end(), 0,
+                           [](std::size_t sum, const auto& codebook) {
+                               return sum + codebook.size();
+                           }) / bookDim;
 }
 
 std::pair<std::vector<std::size_t>, std::vector<float>>

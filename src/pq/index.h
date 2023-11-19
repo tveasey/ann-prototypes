@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <numeric>
 #include <utility>
 #include <vector>
 
@@ -62,6 +63,18 @@ public:
             std::vector<std::vector<float>> codebooksCentres,
             std::vector<cluster_t> docsClusters,
             std::vector<code_t> docsCodes);
+
+    // Return the number of clusters.
+    std::size_t numClusters() const { return clustersCentres_.size() / dim_; }
+
+    // Return the number of centres.
+    std::size_t numCodebooksCentres() const;
+
+    // Return the number of transformations.
+    std::size_t numTransformations() const { return transformations_.size(); }
+
+    // Return the number of codes.
+    std::size_t numCodes() const { return docsCodes_.size(); }
 
     // Perform a k-nearest neighbor search.
     std::pair<std::vector<std::size_t>, std::vector<float>>

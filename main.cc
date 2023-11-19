@@ -15,7 +15,7 @@
 
 namespace {
 
-void loadAndRunPQBenchmark(const std::string& dataset, Metric metric) {
+void loadAndRunPQBenchmark(const std::string& dataset, Metric metric, float distanceThreshold) {
 
     auto root = std::filesystem::path(__FILE__).parent_path();
 
@@ -34,7 +34,7 @@ void loadAndRunPQBenchmark(const std::string& dataset, Metric metric) {
         return;
     }
 
-    runPQBenchmark(dataset, metric, 10, docs, queries, writePQStats);
+    runPQBenchmark(dataset, metric, distanceThreshold, 10, docs, queries, writePQStats);
 }
 
 void loadAndRunScalarBenchmark(const std::string& dataset, Metric metric, ScalarBits bits) {
@@ -56,6 +56,7 @@ int main(int argc, char* argv[]) {
 
     std::optional<ScalarBits> scalar;
     Metric metric{Cosine};
+    float distanceThreshold{0.0F};
     std::string dataset;
 
     boost::program_options::options_description desc("Usage: run_benchmark\nOptions");
@@ -66,7 +67,9 @@ int main(int argc, char* argv[]) {
         ("run,r", boost::program_options::value<std::string>(),
             "Run a test dataset")
         ("metric,m", boost::program_options::value<std::string>()->default_value("cosine"),
-            "The metric, must be cosine or dot, with which to compare vectors (default cosine)");
+            "The metric, must be cosine or dot, with which to compare vectors (default cosine)")
+        ("distance,d", boost::program_options::value<float>()->default_value(0.0F),
+            "The ScaNN threshold used for computing the parallel distance cost multiplier (default 0.0)");
 
     try {
         boost::program_options::variables_map vm;
@@ -102,7 +105,9 @@ int main(int argc, char* argv[]) {
                 throw boost::program_options::error("Invalid metric");
             }
         }
-    
+        if (vm.count("distance")) {
+            distanceThreshold = vm["distance"].as<float>();
+        }
     } catch (const boost::program_options::error& e) {
         std::cerr << "Error parsing command line: " << e.what() << std::endl;
         std::cerr << desc << std::endl;
@@ -114,7 +119,7 @@ int main(int argc, char* argv[]) {
             if (scalar != std::nullopt) {
                 loadAndRunScalarBenchmark(dataset, metric, *scalar);
             } else {
-                loadAndRunPQBenchmark(dataset, metric);
+                loadAndRunPQBenchmark(dataset, metric, distanceThreshold);
             }
         } catch (const std::exception& e) {
             std::cerr << "Caught exception: " << e.what() << std::endl;

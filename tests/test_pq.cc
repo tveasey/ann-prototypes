@@ -1048,6 +1048,40 @@ BOOST_AUTO_TEST_CASE(testBuildCodebooksForPqIndex) {
     BOOST_REQUIRE_LT(avgRelativeError, 0.01);
 }
 
+BOOST_AUTO_TEST_CASE(testPqIndex) {
+
+    char filename[]{"/tmp/test_storage_XXXXXX"};
+    int ret{::mkstemp(filename)};
+    if (ret == -1) {
+        BOOST_FAIL("Couldn't create temporary file");
+    }
+    std::cout << "Created temporary file " << filename << std::endl;
+
+    // Create a BigVector using a random generator.
+    std::size_t dim{2 * NUM_BOOKS};
+    std::size_t bookDim{dim / NUM_BOOKS};
+    std::size_t numDocs{6 * COARSE_CLUSTERING_DOCS_PER_CLUSTER};
+    std::minstd_rand rng{0};
+    std::uniform_real_distribution<float> u01{0.0F, 1.0F};
+    std::filesystem::path tmpFile{filename};
+    BigVector docs{dim, numDocs, tmpFile, [&] { return u01(rng); }};
+
+    std::vector<float> clusterCentres;
+    std::vector<cluster_t> docsClusters;
+    coarseClustering(false, docs, clusterCentres, docsClusters);
+
+    auto pqIndex = buildPqIndex(docs, false);
+
+    BOOST_REQUIRE_EQUAL(pqIndex.numClusters(), 6);
+    BOOST_REQUIRE_EQUAL(pqIndex.numCodebooksCentres(), 6 * NUM_BOOKS * BOOK_SIZE);
+    BOOST_REQUIRE_EQUAL(pqIndex.numTransformations(), 6);
+    BOOST_REQUIRE_EQUAL(pqIndex.numCodes(), numDocs * NUM_BOOKS);
+
+    // Check the compression ratio which should a little less than 8.
+    std::cout << "Compression factor: " << pqIndex.compressionRatio() << std::endl;
+    BOOST_REQUIRE_GT(pqIndex.compressionRatio(), 7.0);
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 } // unnamed::
