@@ -76,12 +76,12 @@ initializeSampleReaders(std::size_t dim,
 
     std::vector<Reader> readers;
     readers.reserve(numReaders);
-    auto beginDocCluster = docsClusters.begin();
+    auto beginDocsClusters = docsClusters.begin();
     for (std::size_t i = 0; i < numReaders; ++i) {
         auto& sampler = samplers[i];
         readers.emplace_back(
             [=, &sampler](std::size_t pos, BigVector::VectorReference doc) {
-                auto docCluster = *(beginDocCluster + pos);
+                auto docCluster = *(beginDocsClusters + pos);
                 sampler[docCluster].add(doc.data());
             });
     }
@@ -390,7 +390,7 @@ buildCodebooksForPqIndex(const BigVector& docs,
         std::cout << "Sampling " << 64 * dim << " docs per cluster" << std::endl;
         std::vector<std::vector<ReservoirSampler>> samplers(NUM_READERS);
         auto sampleReaders = initializeSampleReaders(
-            dim, numClusters, 32 * dim, docsClusters, rngs, samples, samplers);
+            dim, numClusters, 64 * dim, docsClusters, rngs, samples, samplers);
         parallelRead(docs, sampleReaders);
         removeNans(samples);
 
