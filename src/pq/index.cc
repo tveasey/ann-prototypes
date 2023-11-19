@@ -381,8 +381,8 @@ buildCodebooksForPqIndex(const BigVector& docs,
     transformations.reserve(numClusters);
 
     // We sample in chunks of NUM_READERS clusters to reduce the peak memory
-    // usage. We store 64 * dim samples per cluster. For example, 768 d vectors
-    // this amounts to 768 * 64 * 768 * 4 = 144 MB per cluster. So for 32 readers
+    // usage. We store 64 * dim samples per cluster. For e768 d vectors this
+    // amounts to 768 * 64 * 768 * 4 = 144 MB per cluster. So for 32 readers
     // our peak memory usage is 144 * 32 = 4.6 GB.
     std::cout << "Computing optimal transforms" << std::endl;
     for (std::size_t i = 0; i < numClusters; i += NUM_READERS) {
@@ -415,46 +415,49 @@ buildCodebooksForPqIndex(const BigVector& docs,
         }
     }
 
-    // Prepare the data set for computing code book centres.
-    std::vector<std::vector<float>> projectedSamples(numClusters);
+    // Compute the codebook centres for each coarse cluster.
+    std::vector<std::vector<float>> codebooksCentres(numClusters);
+    std::cout << "Computing codebooks" << std::endl;
 
-    // We use a codeblock to ensure the samplers are destroyed before
-    // we move the next step. This reduces the peak memory usage.
-    {
-        std::cout << "Sampling data to build codebooks" << std::endl;
+    // We sample in chunks of NUM_READERS clusters to reduce the peak memory
+    // usage. We store 128 * BOOK_SIZE samples per cluster. For 768 d vectors
+    // this amounts to 128 * 256 * 768 * 4 = 96 MB per cluster. So for 32
+    // readers our peak memory usage is 96 * 32 = 3 GB.
+    ProgressBar progress{numClusters};
+    for (std::size_t i = 0; i < numClusters; i += NUM_READERS) {
 
-        // Use a random sample of 128 docs per cluster.
-        std::vector<float> initialSamples(128 * BOOK_SIZE * dim,
+        std::size_t beginClusters{i};
+        std::size_t endClusters{i + std::min(NUM_READERS, numClusters - i)};
+        std::size_t numSamplesPerCluster{128 * BOOK_SIZE};
+
+        std::vector<float> initialSamples(numSamplesPerCluster * dim,
                                           std::numeric_limits<float>::quiet_NaN());
-        std::vector<std::vector<float>> samples(numClusters, initialSamples);
+        std::vector<std::vector<float>> samples(numClusters);
+        std::fill(samples.begin() + beginClusters,
+                  samples.end() + endClusters, initialSamples);
 
-        std::cout << "Sampling " << 128 * BOOK_SIZE << " docs per cluster" << std::endl;
         std::vector<std::vector<ReservoirSampler>> samplers(NUM_READERS);
-        auto sampleReaders = initializeSampleReaders(
-            dim, 0, numClusters, 128 * BOOK_SIZE, docsClusters, rngs, samples, samplers);
+        auto sampleReaders = initializeSampleReaders(dim, beginClusters, endClusters,
+                                                     numSamplesPerCluster, docsClusters,
+                                                     rngs, samples, samplers);
         parallelRead(docs, sampleReaders);
         removeNans(samples);
 
         // Compute the residuals from the coarse cluster centres and transform
         // them into the optimal subspaces.
-        for (std::size_t i = 0; i < numClusters; ++i) {
-            auto& transformation = transformations[i];
-            auto& projectedSample = projectedSamples[i];
-            projectedSample = std::move(samples[i]);
-            for (std::size_t j = 0; j < projectedSample.size(); j += dim) {
-                centre(dim, &clustersCentres[i * dim], &projectedSample[j]);
+        for (std::size_t j = 0; j < numClusters; ++j) {
+            auto& transformation = transformations[j];
+            auto& sample = samples[j];
+            for (std::size_t k = 0; k < sample.size(); k += dim) {
+                centre(dim, &clustersCentres[j * dim], &sample[k]);
             }
-            projectedSample = transform(transformation, dim, std::move(projectedSample));
+            sample = transform(transformation, dim, std::move(sample));
         }
-    }
 
-    // Compute the codebook centres for each coarse cluster.
-    std::vector<std::vector<float>> codebooksCentres(numClusters);
-    std::cout << "Computing optimal transformations" << std::endl;
-    ProgressBar progress{numClusters};
-    for (std::size_t i = 0; i < numClusters; ++i) {
-        codebooksCentres[i] = buildCodebook(dim, projectedSamples[i]).first;
-        progress.update();
+        for (std::size_t j = beginClusters; j < endClusters; ++j) {
+            codebooksCentres[j] = buildCodebook(dim, samples[j]).first;
+            progress.update();
+        }
     }
 
     return {std::move(transformations), std::move(codebooksCentres)};

@@ -16,9 +16,9 @@ public:
     void update(std::size_t progress = 1) {
         progress_ += progress;
         std::size_t percent{100 * progress_ / total_};
-        std::cout << '\r' << '[' << std::string(percent * width_ / 100, '=')
-                  << std::string(width_ - percent * width_ / 100, ' ') << "] "
-                  << percent << '%';
+        std::cout << '\r' << '[' << std::string(percent * width_ / 100 - 1, '=')
+                  << ">" << std::string(width_ - percent * width_ / 100, ' ')
+                  << "] "<< percent << '%';
         std::cout.flush();
     }
 
