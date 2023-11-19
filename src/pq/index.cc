@@ -54,7 +54,8 @@ void removeNans(std::vector<std::vector<float>>& samples) {
 
 std::vector<Reader>
 initializeSampleReaders(std::size_t dim,
-                        std::size_t numClusters,
+                        std::size_t beginClusters,
+                        std::size_t endClusters,
                         std::size_t numSamplesPerCluster,
                         const std::vector<cluster_t>& docsClusters,
                         std::vector<std::minstd_rand>& rngs,
@@ -67,7 +68,7 @@ initializeSampleReaders(std::size_t dim,
     std::size_t numReaders{samplers.size()};
     std::size_t numSamplesPerReader{numSamplesPerCluster / numReaders};
 
-    for (std::size_t i = 0; i < numClusters; ++i) {
+    for (std::size_t i = beginClusters; i < endClusters; ++i) {
         for (std::size_t j = 0; j < numReaders; ++j) {
             auto storage = samples[i].begin() + numSamplesPerReader * j * dim;
             samplers[j].emplace_back(dim, numSamplesPerReader, rngs[j], storage);
@@ -82,7 +83,9 @@ initializeSampleReaders(std::size_t dim,
         readers.emplace_back(
             [=, &sampler](std::size_t pos, BigVector::VectorReference doc) {
                 auto docCluster = *(beginDocsClusters + pos);
-                sampler[docCluster].add(doc.data());
+                if (docCluster >= beginClusters && docCluster < endClusters) {
+                    sampler[docCluster].add(doc.data());
+                }
             });
     }
 
@@ -377,26 +380,36 @@ buildCodebooksForPqIndex(const BigVector& docs,
     std::vector<std::vector<float>> transformations;
     transformations.reserve(numClusters);
 
-    // We use a codeblock to ensure the samples are destroyed before we
-    // move the next step. This reduces the peak memory usage.
-    {
-        std::cout << "Computing optimal transforms" << std::endl;
+    // We sample in chunks of NUM_READERS clusters to reduce the peak memory
+    // usage. We store 64 * dim samples per cluster. For example, 768 d vectors
+    // this amounts to 768 * 64 * 768 * 4 = 144 MB per cluster. So for 32 readers
+    // our peak memory usage is 144 * 32 = 4.6 GB.
+    std::cout << "Computing optimal transforms" << std::endl;
+    for (std::size_t i = 0; i < numClusters; i += NUM_READERS) {
 
-        // Use a random sample of 64 docs per dimension.
-        std::vector<float> initialSamples(64 * dim * dim,
+        std::size_t beginClusters{i};
+        std::size_t endClusters{i + std::min(NUM_READERS, numClusters - i)};
+        std::size_t numSamplesPerCluster{64 * dim};
+        std::cout << "Sampling clusters in range "
+                  << "[" << beginClusters << "," << endClusters << ") "
+                  << "docs per cluster = " << numSamplesPerCluster << std::endl;
+
+        std::vector<float> initialSamples(numSamplesPerCluster * dim,
                                           std::numeric_limits<float>::quiet_NaN());
-        std::vector<std::vector<float>> samples(numClusters, initialSamples);
+        std::vector<std::vector<float>> samples(numClusters);
+        std::fill(samples.begin() + beginClusters,
+                  samples.end() + endClusters, initialSamples);
 
-        std::cout << "Sampling " << 64 * dim << " docs per cluster" << std::endl;
         std::vector<std::vector<ReservoirSampler>> samplers(NUM_READERS);
-        auto sampleReaders = initializeSampleReaders(
-            dim, numClusters, 64 * dim, docsClusters, rngs, samples, samplers);
+        auto sampleReaders = initializeSampleReaders(dim, beginClusters, endClusters,
+                                                     numSamplesPerCluster, docsClusters,
+                                                     rngs, samples, samplers);
         parallelRead(docs, sampleReaders);
         removeNans(samples);
 
         // Compute optimal transformations for each coarse cluster.
-        for (auto& sample : samples) {
-            auto [eigVecs, eigVals] = pca(dim, std::move(sample));
+        for (std::size_t i = beginClusters; i < endClusters; ++i) {
+            auto [eigVecs, eigVals] = pca(dim, std::move(samples[i]));
             transformations.emplace_back(
                 computeOptimalPQSubspaces(dim, eigVecs, eigVals));
         }
@@ -418,7 +431,7 @@ buildCodebooksForPqIndex(const BigVector& docs,
         std::cout << "Sampling " << 128 * BOOK_SIZE << " docs per cluster" << std::endl;
         std::vector<std::vector<ReservoirSampler>> samplers(NUM_READERS);
         auto sampleReaders = initializeSampleReaders(
-            dim, numClusters, 128 * BOOK_SIZE, docsClusters, rngs, samples, samplers);
+            dim, 0, numClusters, 128 * BOOK_SIZE, docsClusters, rngs, samples, samplers);
         parallelRead(docs, sampleReaders);
         removeNans(samples);
 
