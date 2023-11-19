@@ -5,9 +5,11 @@
 #include "constants.h"
 #include "subspace.h"
 #include "../common/bigvector.h"
+#include "../common/progress_bar.h"
 
 #include <algorithm>
 #include <cstdint>
+#include <iostream>
 #include <limits>
 #include <numeric>
 #include <ostream>
@@ -175,7 +177,7 @@ std::vector<float> PqIndex::decode(std::size_t id) const {
     const auto* codeBooks = &codebooksCentres_[*docCluster][0];    
     std::size_t bookDim{dim_ / NUM_BOOKS};
     for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
-        const auto* centroid = &codeBooks[(BOOK_SIZE * b + docCode[b]) * bookDim];
+        const auto* centroid = &codeBooks[(b * BOOK_SIZE + docCode[b]) * bookDim];
         std::copy(centroid, centroid + bookDim, &result[b * bookDim]);
     }
 
@@ -370,6 +372,7 @@ buildCodebooksForPqIndex(const BigVector& docs,
     std::size_t numDocs{docs.numVectors()};
     std::size_t numClusters{clustersCentres.size() / dim};
     std::vector<std::minstd_rand> rngs(NUM_READERS);
+    std::cout << "Building codebooks for " << numClusters << " clusters" << std::endl;
 
     std::vector<std::vector<float>> transformations;
     transformations.reserve(numClusters);
@@ -377,12 +380,14 @@ buildCodebooksForPqIndex(const BigVector& docs,
     // We use a codeblock to ensure the samples are destroyed before we
     // move the next step. This reduces the peak memory usage.
     {
-        // Use a random sample of 32 docs per dimension.
-        std::vector<float> initialSamples(32 * dim * dim,
+        std::cout << "Computing optimal transforms" << std::endl;
+
+        // Use a random sample of 64 docs per dimension.
+        std::vector<float> initialSamples(64 * dim * dim,
                                           std::numeric_limits<float>::quiet_NaN());
         std::vector<std::vector<float>> samples(numClusters, initialSamples);
 
-        // Do the sampling.
+        std::cout << "Sampling " << 64 * dim << " docs per cluster" << std::endl;
         std::vector<std::vector<ReservoirSampler>> samplers(NUM_READERS);
         auto sampleReaders = initializeSampleReaders(
             dim, numClusters, 32 * dim, docsClusters, rngs, samples, samplers);
@@ -400,21 +405,17 @@ buildCodebooksForPqIndex(const BigVector& docs,
     // Prepare the data set for computing code book centres.
     std::vector<std::vector<float>> projectedSamples(numClusters);
 
-    // We use a codeblock to ensure the samplers are destroyed before we
-    // move the next step. This reduces the peak memory usage.
+    // We use a codeblock to ensure the samplers are destroyed before
+    // we move the next step. This reduces the peak memory usage.
     {
-        // Use a random sample of 128 docs per cluster centre.
-        //
-        // Depending on the expected cluster size this may be more the memory
-        // bottleneck. We can always trade runtime for memory by using an outer
-        // iteration over cluster ranges.
+        std::cout << "Sampling data to build codebooks" << std::endl;
 
         // Use a random sample of 128 docs per cluster.
         std::vector<float> initialSamples(128 * BOOK_SIZE * dim,
                                           std::numeric_limits<float>::quiet_NaN());
         std::vector<std::vector<float>> samples(numClusters, initialSamples);
 
-        // Do the sampling.
+        std::cout << "Sampling " << 128 * BOOK_SIZE << " docs per cluster" << std::endl;
         std::vector<std::vector<ReservoirSampler>> samplers(NUM_READERS);
         auto sampleReaders = initializeSampleReaders(
             dim, numClusters, 128 * BOOK_SIZE, docsClusters, rngs, samples, samplers);
@@ -436,8 +437,11 @@ buildCodebooksForPqIndex(const BigVector& docs,
 
     // Compute the codebook centres for each coarse cluster.
     std::vector<std::vector<float>> codebooksCentres(numClusters);
+    std::cout << "Computing optimal transformations" << std::endl;
+    ProgressBar progress{numClusters};
     for (std::size_t i = 0; i < numClusters; ++i) {
         codebooksCentres[i] = buildCodebook(dim, projectedSamples[i]).first;
+        progress.update();
     }
 
     return {std::move(transformations), std::move(codebooksCentres)};

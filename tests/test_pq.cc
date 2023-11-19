@@ -33,6 +33,16 @@
 
 namespace {
 
+std::vector<float> transpose(const std::vector<float>& matrix, std::size_t dim) {
+    std::vector<float> transposed(dim * dim);
+    for (std::size_t i = 0; i < dim; ++i) {
+        for (std::size_t j = 0; j < dim; ++j) {
+            transposed[i * dim + j] = matrix[j * dim + i];
+        }
+    }
+    return transposed;
+};
+
 BOOST_AUTO_TEST_SUITE(pq)
 
 BOOST_AUTO_TEST_CASE(testLoadAndPrepareDocs) {
@@ -341,7 +351,7 @@ BOOST_AUTO_TEST_CASE(testCoarseClustering) {
     std::vector<float> mean(dim, 0.0F);
     for (auto doc : docs) {
         for (std::size_t i = 0; i < dim; ++i) {
-            mean[i] += (doc.data())[i];
+            mean[i] += doc[i];
         }
     }
     for (std::size_t i = 0; i < dim; ++i) {
@@ -350,7 +360,7 @@ BOOST_AUTO_TEST_CASE(testCoarseClustering) {
     double residualVariance{0.0};
     for (auto doc : docs) {
         for (std::size_t i = 0; i < dim; ++i) {
-            float di{(doc.data())[i] - mean[i]};
+            float di{doc[i] - mean[i]};
             residualVariance += di * di;
         }
     }
@@ -361,7 +371,7 @@ BOOST_AUTO_TEST_CASE(testCoarseClustering) {
     for (auto doc : docs) {
         auto* clusterCentre = &clusterCentres[*(docCluster++) * dim];
         for (std::size_t i = 0; i < dim; ++i) {
-            float di{(doc.data())[i] - clusterCentre[i]};
+            float di{doc[i] - clusterCentre[i]};
             clusteredResidualVariance += di * di;
         }
     }
@@ -912,8 +922,130 @@ BOOST_AUTO_TEST_CASE(testZeroPad) {
     }
 }
 
-BOOST_AUTO_TEST_CASE(testBuildIndex) {
-    
+BOOST_AUTO_TEST_CASE(testBuildCodebooksForPqIndex) {
+
+    char filename[]{"/tmp/test_storage_XXXXXX"};
+    int ret{::mkstemp(filename)};
+    if (ret == -1) {
+        BOOST_FAIL("Couldn't create temporary file");
+    }
+    std::cout << "Created temporary file " << filename << std::endl;
+
+    // Create a BigVector using a random generator.
+    std::size_t dim{2 * NUM_BOOKS};
+    std::size_t bookDim{dim / NUM_BOOKS};
+    std::size_t numDocs{6 * COARSE_CLUSTERING_DOCS_PER_CLUSTER};
+    std::minstd_rand rng{0};
+    std::uniform_real_distribution<float> u01{0.0F, 1.0F};
+    std::filesystem::path tmpFile{filename};
+    BigVector docs{dim, numDocs, tmpFile, [&] { return u01(rng); }};
+
+    std::vector<float> clusterCentres;
+    std::vector<cluster_t> docsClusters;
+    coarseClustering(false, docs, clusterCentres, docsClusters);
+
+    auto [transformations, codebooksCentres] =
+        buildCodebooksForPqIndex(docs, clusterCentres, docsClusters);
+
+    // We should have a transformation and codebook for each cluster.
+    BOOST_REQUIRE_EQUAL(transformations.size(), 6);
+    BOOST_REQUIRE_EQUAL(codebooksCentres.size(), 6);
+
+    // Each transform should be a dim * dim matrix.
+    for (auto& transform : transformations) {
+        BOOST_REQUIRE_EQUAL(transform.size(), dim * dim);
+    }
+
+    // Each codebook should have NUM_BOOKS * BOOK_SIZE centres.
+    std::size_t numCl{clusterCentres.size() / dim};
+    for (auto& codebook : codebooksCentres) {
+        BOOST_REQUIRE_EQUAL(codebook.size(), NUM_BOOKS * BOOK_SIZE * bookDim);
+    }
+
+    // Check the quantization error in the calculation of the dot products
+    // between 1000 randomly selected pairs of documents is small.
+
+    float avgRelativeError{0.0F};
+
+    for (std::size_t i = 0; i < 1000; ++i) {
+        // Choose a random pair of documents.
+        std::uniform_int_distribution<std::size_t> uxy{0, numDocs - 1};
+        std::size_t x{uxy(rng)};
+        std::size_t y{uxy(rng)};
+        std::vector<float> docX(dim);
+        std::vector<float> docY(dim);
+
+        // Read the documents from the BigVector via random access iterators.
+        const auto* beginX = (*(docs.begin() + x)).data();
+        const auto* beginY = (*(docs.begin() + y)).data();
+        std::copy(beginX, beginX + dim, docX.begin());
+        std::copy(beginY, beginY + dim, docY.begin());
+
+        // Compute the dot product between the documents.
+        float dot{0.0F};
+        for (std::size_t j = 0; j < dim; ++j) {
+            dot += docX[j] * docY[j];
+        }
+
+        std::size_t clusterX{docsClusters[x]};
+        std::size_t clusterY{docsClusters[y]};
+        const auto& transformationX = transformations[clusterX];
+        const auto& transformationY = transformations[clusterY];
+        const auto& codebooksCentresX = codebooksCentres[clusterX];
+        const auto& codebooksCentresY = codebooksCentres[clusterY];
+        const auto* clusterCentreX = &clusterCentres[clusterX * dim];
+        const auto* clusterCentreY = &clusterCentres[clusterY * dim];
+
+        // Encode the documents.
+        std::vector<code_t> docsCodesX(NUM_BOOKS);
+        std::vector<code_t> docsCodesY(NUM_BOOKS);
+        std::vector<float> residualX(dim);
+        std::vector<float> residualY(dim);
+        for (std::size_t j = 0; j < dim; ++j) {
+            residualX[j] = docX[j] - clusterCentreX[j];
+            residualY[j] = docY[j] - clusterCentreY[j];
+        }
+        residualX = transform(transformationX, dim, residualX);
+        residualY = transform(transformationY, dim, residualY);
+        encode(residualX, codebooksCentresX, docsCodesX.data());
+        encode(residualY, codebooksCentresY, docsCodesY.data());
+
+        // Compute the dot product between the documents from the coarse cluster
+        // centres and the corresponding codebooks approximations. This is given
+        // by (c_x + r_x)^t (c_y + r_y). The residuals r_x and r_y are read from
+        // the document codes then transformed by the inverse of the corresponding
+        // transformation matrices. Since these are othogonal, the inverse is the
+        // transpose.
+        std::vector<float> quantizedResidualX(dim);
+        std::vector<float> quantizedResidualY(dim);
+        for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+            std::size_t codeX{docsCodesX[b]};
+            std::size_t codeY{docsCodesY[b]};
+            auto* codebookCentreX = &codebooksCentresX[(b * BOOK_SIZE + codeX) * bookDim];
+            auto* codebookCentreY = &codebooksCentresY[(b * BOOK_SIZE + codeY) * bookDim];
+            for (std::size_t j = 0; j < bookDim; ++j) {
+                quantizedResidualX[b * bookDim + j] = codebookCentreX[j];
+                quantizedResidualY[b * bookDim + j] = codebookCentreY[j];
+            }
+        }
+        quantizedResidualX = transform(transpose(transformationX, dim),
+                                       dim, quantizedResidualX);
+        quantizedResidualY = transform(transpose(transformationY, dim),
+                                       dim, quantizedResidualY);
+
+        float quantizedDot{0.0F};
+        for (std::size_t j = 0; j < dim; ++j) {
+            quantizedDot += (clusterCentreX[j] + quantizedResidualX[j]) *
+                            (clusterCentreY[j] + quantizedResidualY[j]);
+        }
+
+        avgRelativeError += std::fabsf(dot - quantizedDot) / std::fabsf(dot);
+    }
+
+    avgRelativeError /= 1000.0F;
+
+    std::cout << "Average relative error: " << avgRelativeError << std::endl;
+    BOOST_REQUIRE_LT(avgRelativeError, 0.01);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
