@@ -169,7 +169,7 @@ std::uint32_t dot4B64(std::size_t dim,
                       const std::uint8_t*__restrict x,
                       const std::uint8_t*__restrict y) {
     // Tell the compiler dim contraints.
-    dim = std::min(dim, 4096U) & ~0x3F;
+    dim = std::min(dim, 4096UL) & ~0x3F;
     std::uint32_t xy{0};
     #pragma clang loop unroll_count(16) vectorize(assume_safety)
     for (std::size_t i = 0; i < dim; ++i) {
@@ -182,7 +182,7 @@ std::uint32_t dot4BP64(std::size_t dim,
                        const std::uint8_t*__restrict x,
                        const std::uint8_t*__restrict y) {
     // Tell the compiler dim contraints.
-    dim = std::min(dim, 4096U) & ~0x3F;
+    dim = std::min(dim, 4096UL) & ~0x3F;
     std::uint32_t xy{0};
     for (std::size_t i = 0; i < dim; i += 32) {
         #pragma clang loop unroll_count(8) vectorize(assume_safety)

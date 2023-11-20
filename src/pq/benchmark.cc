@@ -28,15 +28,15 @@ public:
           std::chrono::duration<double>& duration) :
         operation_{operation},
         duration_{duration},
-        start_{std::chrono::high_resolution_clock::now()} {
+        start_{std::chrono::steady_clock::now()} {
     }
 
     Timer(const Timer&) = delete;
     Timer& operator=(const Timer&) = delete;
 
     ~Timer() {
-        std::chrono::high_resolution_clock::time_point end;
-        end = std::chrono::high_resolution_clock::now();
+        std::chrono::steady_clock::time_point end;
+        end = std::chrono::steady_clock::now();
         duration_ = end - start_;
         if (!operation_.empty()) {
             std::cout << operation_ << " took " << duration_.count() << "s" << std::endl;
@@ -46,7 +46,7 @@ public:
 private:
     const std::string& operation_;
     std::chrono::duration<double>& duration_;
-    std::chrono::high_resolution_clock::time_point start_;
+    std::chrono::steady_clock::time_point start_;
 };
 
 std::chrono::duration<double> time(std::function<void()> f,

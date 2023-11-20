@@ -410,7 +410,7 @@ buildCodebooksForPqIndex(const BigVector& docs,
                                           std::numeric_limits<float>::quiet_NaN());
         std::vector<std::vector<float>> samples(numClusters);
         std::fill(samples.begin() + beginClusters,
-                  samples.end() + endClusters, initialSamples);
+                  samples.begin() + endClusters, initialSamples);
  
         std::vector<std::vector<ReservoirSampler>> samplers(NUM_READERS);
         auto sampleReaders = initializeSampleReaders(dim, beginClusters, endClusters,
@@ -447,7 +447,7 @@ buildCodebooksForPqIndex(const BigVector& docs,
                                           std::numeric_limits<float>::quiet_NaN());
         std::vector<std::vector<float>> samples(numClusters);
         std::fill(samples.begin() + beginClusters,
-                  samples.end() + endClusters, initialSamples);
+                  samples.begin() + endClusters, initialSamples);
 
         std::vector<std::vector<ReservoirSampler>> samplers(NUM_READERS);
         auto sampleReaders = initializeSampleReaders(dim, beginClusters, endClusters,

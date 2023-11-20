@@ -2,7 +2,9 @@
 
 #include "../common/types.h"
 
+#include <cstdint>
 #include <queue>
+#include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -20,8 +22,8 @@ std::uint32_t dot4BP(std::size_t dim,
                      const std::uint8_t*__restrict y);
 
 void pack4B(std::size_t dim,
-             const std::uint8_t*__restrict raw,
-             std::uint8_t*__restrict packed);
+            const std::uint8_t*__restrict raw,
+            std::uint8_t*__restrict packed);
 
 void unpack4B(std::size_t dim,
               const std::uint8_t*__restrict packed,
@@ -49,7 +51,6 @@ std::vector<float> scalarDequantise4B(const std::pair<float, float>& range,
                                       bool packed,
                                       std::size_t dim,
                                       const std::vector<std::uint8_t>& quantised);
-
 
 void runScalarBenchmark(const std::string& tag,
                         Metric metric,
