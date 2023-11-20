@@ -151,14 +151,13 @@ void parallelRead(const BigVector& docs, std::vector<Reader>& readers) {
     std::vector<std::thread> threads;
     threads.reserve(numReaders);
     for (std::size_t i = 0; i < numReaders; ++i) {
-        auto& reader = readers[i];
-        threads.emplace_back([i, blocksize, &reader, &docs]() {
+        threads.emplace_back([i, blocksize, &readers, &docs]() {
             std::size_t blockBegin{i * blocksize};
             std::size_t blockEnd{std::min((i + 1) * blocksize, docs.numVectors())};
             auto endDocs = docs.begin() + blockEnd;
             std::size_t id{blockBegin};
             for (auto doc = docs.begin() + blockBegin; doc != endDocs; ++id, ++doc) {
-                reader(id, *doc);
+                readers[i](id, *doc);
             }
         });
     }

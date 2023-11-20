@@ -60,7 +60,7 @@ initializeSampleReaders(std::size_t dim,
                         std::size_t endClusters,
                         std::size_t numSamplesPerCluster,
                         const std::vector<cluster_t>& docsClusters,
-                        std::vector<std::minstd_rand>& rngs,
+                        const std::minstd_rand& rng,
                         std::vector<std::vector<float>>& samples,
                         std::vector<std::vector<ReservoirSampler>>& samplers) {
 
@@ -73,7 +73,7 @@ initializeSampleReaders(std::size_t dim,
     for (std::size_t i = beginClusters; i < endClusters; ++i) {
         for (std::size_t j = 0; j < numReaders; ++j) {
             auto storage = samples[i].begin() + numSamplesPerReader * j * dim;
-            samplers[j].emplace_back(dim, numSamplesPerReader, rngs[j], storage);
+            samplers[j].emplace_back(dim, numSamplesPerReader, rng, storage);
         }
     }
 
@@ -81,12 +81,11 @@ initializeSampleReaders(std::size_t dim,
     readers.reserve(numReaders);
     auto beginDocsClusters = docsClusters.begin();
     for (std::size_t i = 0; i < numReaders; ++i) {
-        auto& sampler = samplers[i];
         readers.emplace_back(
-            [=, &sampler](std::size_t pos, BigVector::VectorReference doc) {
+            [=, &docsClusters, &samplers](std::size_t pos, BigVector::VectorReference doc) {
                 auto docCluster = *(beginDocsClusters + pos);
                 if (docCluster >= beginClusters && docCluster < endClusters) {
-                    sampler[docCluster].add(doc.data());
+                    samplers[i][docCluster - beginClusters].add(doc.data());
                 }
             });
     }
@@ -385,7 +384,9 @@ buildCodebooksForPqIndex(const BigVector& docs,
     std::size_t dim{docs.dim()};
     std::size_t numDocs{docs.numVectors()};
     std::size_t numClusters{clustersCentres.size() / dim};
-    std::vector<std::minstd_rand> rngs(NUM_READERS);
+    std::minstd_rand rng;
+    std::uniform_int_distribution<std::uint_fast32_t> seedDist(
+        0, std::numeric_limits<std::uint_fast32_t>::max());
     std::cout << "Building codebooks for " << numClusters << " clusters" << std::endl;
 
     std::vector<std::vector<float>> transformations;
@@ -410,11 +411,12 @@ buildCodebooksForPqIndex(const BigVector& docs,
         std::vector<std::vector<float>> samples(numClusters);
         std::fill(samples.begin() + beginClusters,
                   samples.end() + endClusters, initialSamples);
-
+ 
         std::vector<std::vector<ReservoirSampler>> samplers(NUM_READERS);
         auto sampleReaders = initializeSampleReaders(dim, beginClusters, endClusters,
                                                      numSamplesPerCluster, docsClusters,
-                                                     rngs, samples, samplers);
+                                                     std::minstd_rand{seedDist(rng)},
+                                                     samples, samplers);
         parallelRead(docs, sampleReaders);
         removeNans(samples);
 
@@ -450,13 +452,14 @@ buildCodebooksForPqIndex(const BigVector& docs,
         std::vector<std::vector<ReservoirSampler>> samplers(NUM_READERS);
         auto sampleReaders = initializeSampleReaders(dim, beginClusters, endClusters,
                                                      numSamplesPerCluster, docsClusters,
-                                                     rngs, samples, samplers);
+                                                     std::minstd_rand{seedDist(rng)},
+                                                     samples, samplers);
         parallelRead(docs, sampleReaders);
         removeNans(samples);
 
         // Compute the residuals from the coarse cluster centres and transform
         // them into the optimal subspaces.
-        for (std::size_t j = 0; j < numClusters; ++j) {
+        for (std::size_t j = beginClusters; j < endClusters; ++j) {
             auto& transformation = transformations[j];
             auto& sample = samples[j];
             for (std::size_t k = 0; k < sample.size(); k += dim) {

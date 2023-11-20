@@ -291,10 +291,7 @@ void coarseClustering(bool normalized,
     
     for (std::size_t i = 0; i < NUM_READERS; ++i) {
 
-        auto& readerNewCentres = newCentres[i];
-        auto& readerCompensations = compensations[i];
-
-        clusterWriters.emplace_back([&](std::size_t pos, BigVector::VectorReference doc) {
+        clusterWriters.emplace_back([&, i](std::size_t pos, BigVector::VectorReference doc) {
             // Find the nearest centroid.
             int iMsd{0};
             float msd{std::numeric_limits<float>::max()};
@@ -315,8 +312,8 @@ void coarseClustering(bool normalized,
 
             // Use Kahan summation to accumulate the new centres since we can
             // easily reach the limits of float precision for large datasets.
-            auto* newCentre = &readerNewCentres[iMsd * dim];
-            auto* compensation = &readerCompensations[iMsd * dim];
+            auto* newCentre = &newCentres[i][iMsd * dim];
+            auto* compensation = &compensations[i][iMsd * dim];
             for (std::size_t j = 0; j < dim; ++j) {
                 float y{doc[j] - compensation[j]};
                 float t{newCentre[j] + y};

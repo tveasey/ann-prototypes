@@ -944,6 +944,9 @@ BOOST_AUTO_TEST_CASE(testBuildCodebooksForPqIndex) {
     std::vector<cluster_t> docsClusters;
     coarseClustering(false, docs, clusterCentres, docsClusters);
 
+    BOOST_REQUIRE_EQUAL(clusterCentres.size(), 6 * dim);
+    BOOST_REQUIRE_EQUAL(docsClusters.size(), numDocs);
+
     auto [transformations, codebooksCentres] =
         buildCodebooksForPqIndex(docs, clusterCentres, docsClusters);
 
@@ -1058,9 +1061,9 @@ BOOST_AUTO_TEST_CASE(testPqIndex) {
     std::cout << "Created temporary file " << filename << std::endl;
 
     // Create a BigVector using a random generator.
-    std::size_t dim{2 * NUM_BOOKS};
+    std::size_t dim{4 * NUM_BOOKS};
     std::size_t bookDim{dim / NUM_BOOKS};
-    std::size_t numDocs{6 * COARSE_CLUSTERING_DOCS_PER_CLUSTER};
+    std::size_t numDocs{24 * COARSE_CLUSTERING_DOCS_PER_CLUSTER};
     std::minstd_rand rng{0};
     std::uniform_real_distribution<float> u01{0.0F, 1.0F};
     std::filesystem::path tmpFile{filename};

@@ -197,8 +197,8 @@ BOOST_AUTO_TEST_CASE(testReservoirSample) {
     }
     std::cout << "Created temporary file \"" << filename << "\"" << std::endl;
 
-    std::size_t dim{10};
-    std::size_t numVectors{1000};
+    std::size_t dim{96};
+    std::size_t numVectors{1500000};
     std::filesystem::path tmpFile{filename};
     BigVector vec{dim, numVectors, tmpFile, [dim, i = std::uint64_t{0}]() mutable {
         return static_cast<float>(i++ / dim);

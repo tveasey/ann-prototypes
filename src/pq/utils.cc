@@ -59,8 +59,8 @@ sampleDocs(const BigVector& docs, std::size_t sampleSize, std::minstd_rand rng) 
         std::vector<Reader> readers;
         readers.reserve(NUM_READERS);
         for (std::size_t i = 0; i < NUM_READERS; ++i) {
-            readers.emplace_back([dim, &beginSampledDoc](std::size_t pos,
-                                                         BigVector::VectorReference doc) {
+            readers.emplace_back([dim, beginSampledDoc](std::size_t pos,
+                                                        BigVector::VectorReference doc) {
                 std::copy(doc.data(), doc.data() + dim, beginSampledDoc + pos * dim);
             });
         }
@@ -85,10 +85,9 @@ sampleDocs(const BigVector& docs, std::size_t sampleSize, std::minstd_rand rng) 
     for (std::size_t i = 0; i < NUM_READERS; ++i) {
         auto storage = beginSampledDoc + i * numSamplesPerReader * dim;
         samplers.emplace_back(dim, numSamplesPerReader, rngs[i], storage);
-        auto& sampler = samplers.back();
-        sampleReaders.emplace_back([&sampler](std::size_t,
-                                              BigVector::VectorReference doc) {
-            sampler.add(doc.data());
+        sampleReaders.emplace_back([i, &samplers](std::size_t,
+                                                  BigVector::VectorReference doc) {
+            samplers[i].add(doc.data());
         });
     }
 

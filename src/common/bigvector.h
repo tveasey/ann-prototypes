@@ -206,7 +206,7 @@ class ReservoirSampler {
 public:
     ReservoirSampler(std::size_t dim,
                      std::size_t sampleSize,
-                     std::minstd_rand& rng,
+                     const std::minstd_rand& rng,
                      std::vector<float>::iterator beginSamples)
         : dim_{dim},
           sampleSize_{sampleSize},
@@ -232,6 +232,6 @@ private:
     std::size_t dim_;
     std::size_t sampleSize_;
     std::size_t numDocs_{0};
-    std::minstd_rand& rng_;
+    std::minstd_rand rng_;
     std::vector<float>::iterator beginSamples_;
 };
