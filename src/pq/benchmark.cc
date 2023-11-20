@@ -35,7 +35,7 @@ public:
     Timer& operator=(const Timer&) = delete;
 
     ~Timer() {
-        std::chrono::steady_clock::time_point end;
+        std::chrono::high_resolution_clock::time_point end;
         end = std::chrono::high_resolution_clock::now();
         duration_ = end - start_;
         if (!operation_.empty()) {
@@ -46,7 +46,7 @@ public:
 private:
     const std::string& operation_;
     std::chrono::duration<double>& duration_;
-    std::chrono::steady_clock::time_point start_;
+    std::chrono::high_resolution_clock::time_point start_;
 };
 
 std::chrono::duration<double> time(std::function<void()> f,

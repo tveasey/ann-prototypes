@@ -5,6 +5,8 @@
 #include "../common/utils.h"
 
 #include <algorithm>
+#include <array>
+#include <chrono>
 #include <iomanip>
 #include <iostream>
 #include <queue>
@@ -602,14 +604,14 @@ void runScalarBenchmark(const std::string& tag,
     std::vector<std::vector<std::size_t>> nnExact(numQueries);
     for (std::size_t i = 0; i < queries.size(); i += dim) {
         std::copy(queries.begin() + i, queries.begin() + i + dim, query.begin());
-        start = std::chrono::high_resolution_clock::now();
+        start = std::chrono::steady_clock::now();
         nnExact[i / dim] = searchBruteForce(k, docs, query).first;
-        end = std::chrono::high_resolution_clock::now();
+        end = std::chrono::steady_clock::now();
         diff += std::chrono::duration<double>(end - start);
     }
     std::cout << "Brute force took " << diff.count() << "s" << std::endl;
 
-    start = std::chrono::high_resolution_clock::now();
+    start = std::chrono::steady_clock::now();
     auto range = quantiles(dim, docs, 0.999);
     auto [quantisedDocs, p1] = [&] {
         switch (bits) {
@@ -621,7 +623,7 @@ void runScalarBenchmark(const std::string& tag,
             return scalarQuantise8B(range, dim, docs);
         }
     }();
-    end = std::chrono::high_resolution_clock::now();
+    end = std::chrono::steady_clock::now();
     diff = std::chrono::duration<double>(end - start);
     std::cout << "(lower, upper) = " << range << std::endl;
     std::cout << "Quantisation took " << diff.count() << "s" << std::endl;
@@ -634,7 +636,7 @@ void runScalarBenchmark(const std::string& tag,
         for (std::size_t i = 0; i < queries.size(); i += dim) {
             std::copy(queries.begin() + i, queries.begin() + i + dim, query.begin());
 
-            start = std::chrono::high_resolution_clock::now();
+            start = std::chrono::steady_clock::now();
             switch (bits) {
             case B4:
                 searchScalarQuantise4B(k + a, range, false, quantisedDocs, p1, query, topk);
@@ -646,7 +648,7 @@ void runScalarBenchmark(const std::string& tag,
                 searchScalarQuantise8B(k + a, range, quantisedDocs, p1, query, topk);
                 break;
             }
-            end = std::chrono::high_resolution_clock::now();
+            end = std::chrono::steady_clock::now();
             diff += std::chrono::duration<double>(end - start);
 
             for (std::size_t j = 1; j <= k + a && !topk.empty(); ++j) {

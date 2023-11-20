@@ -397,7 +397,7 @@ buildCodebooksForPqIndex(const BigVector& docs,
     // amounts to 768 * 64 * 768 * 4 = 144 MB per cluster. So for 32 readers
     // our peak memory usage is 144 * 32 = 4.6 GB.
     std::cout << "Computing optimal transforms" << std::endl;
-    for (std::size_t i = 0; i < numClusters; i += NUM_READERS) {
+    for (std::size_t i = 0; i < numClusters; i += 32) {
 
         std::size_t beginClusters{i};
         std::size_t endClusters{i + std::min(NUM_READERS, numClusters - i)};
@@ -437,7 +437,7 @@ buildCodebooksForPqIndex(const BigVector& docs,
     // this amounts to 128 * 256 * 768 * 4 = 96 MB per cluster. So for 32
     // readers our peak memory usage is 96 * 32 = 3 GB.
     ProgressBar progress{numClusters};
-    for (std::size_t i = 0; i < numClusters; i += NUM_READERS) {
+    for (std::size_t i = 0; i < numClusters; i += 32) {
 
         std::size_t beginClusters{i};
         std::size_t endClusters{i + std::min(NUM_READERS, numClusters - i)};

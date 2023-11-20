@@ -91,7 +91,7 @@ to install the Boost headers and libraries.
 
 To build native code navigate to the root directory and run:
 
-```
+```bash
 >>> cmake -S . -B build
 >>> cmake --build build
 ```
