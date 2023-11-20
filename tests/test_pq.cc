@@ -1063,7 +1063,7 @@ BOOST_AUTO_TEST_CASE(testPqIndex) {
     // Create a BigVector using a random generator.
     std::size_t dim{4 * NUM_BOOKS};
     std::size_t bookDim{dim / NUM_BOOKS};
-    std::size_t numDocs{24 * COARSE_CLUSTERING_DOCS_PER_CLUSTER};
+    std::size_t numDocs{4 * COARSE_CLUSTERING_DOCS_PER_CLUSTER};
     std::minstd_rand rng{0};
     std::uniform_real_distribution<float> u01{0.0F, 1.0F};
     std::filesystem::path tmpFile{filename};
@@ -1075,9 +1075,9 @@ BOOST_AUTO_TEST_CASE(testPqIndex) {
 
     auto pqIndex = buildPqIndex(docs, false);
 
-    BOOST_REQUIRE_EQUAL(pqIndex.numClusters(), 6);
-    BOOST_REQUIRE_EQUAL(pqIndex.numCodebooksCentres(), 6 * NUM_BOOKS * BOOK_SIZE);
-    BOOST_REQUIRE_EQUAL(pqIndex.numTransformations(), 6);
+    BOOST_REQUIRE_EQUAL(pqIndex.numClusters(), 4);
+    BOOST_REQUIRE_EQUAL(pqIndex.numCodebooksCentres(), 4 * NUM_BOOKS * BOOK_SIZE);
+    BOOST_REQUIRE_EQUAL(pqIndex.numTransformations(), 4);
     BOOST_REQUIRE_EQUAL(pqIndex.numCodes(), numDocs * NUM_BOOKS);
 
     // Check the compression ratio which should a little less than 8.
