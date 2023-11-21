@@ -3,6 +3,7 @@
 #include "constants.h"
 #include "types.h"
 #include "../common/bigvector.h"
+#include "../common/types.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -56,7 +57,7 @@ class BigVector;
 // In total this is 2.96 GB. The raw vectors use 100M * 768 * 4 = 286 GB.
 class PqIndex {
 public:
-    PqIndex(bool normalized,
+    PqIndex(Metric metric,
             std::size_t dim,
             std::vector<float> clustersCentres,
             std::vector<std::vector<float>> transformations,
@@ -130,7 +131,7 @@ private:
                       const code_t* docCodes) const;
 
 private:
-    bool normalized_;
+    Metric metric_;
     std::size_t dim_;
     std::vector<float> clustersCentres_;
     std::vector<std::vector<float>> transformations_;
@@ -146,5 +147,5 @@ buildCodebooksForPqIndex(const BigVector& docs,
                          const std::vector<cluster_t>& docsCentres);
 
 PqIndex buildPqIndex(const BigVector& docs,
-                     bool normalized,
+                     Metric metric,
                      float distanceThreshold = 0.0F);

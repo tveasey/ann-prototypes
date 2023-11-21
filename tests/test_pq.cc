@@ -1052,7 +1052,7 @@ BOOST_AUTO_TEST_CASE(testBuildCodebooksForPqIndex) {
     BOOST_REQUIRE_LT(avgRelativeError, 0.01);
 }
 
-BOOST_AUTO_TEST_CASE(testPqIndex) {
+BOOST_AUTO_TEST_CASE(testPqIndexDot) {
 
     char filename[]{"/tmp/test_storage_XXXXXX"};
     int ret{::mkstemp(filename)};
@@ -1074,7 +1074,7 @@ BOOST_AUTO_TEST_CASE(testPqIndex) {
     std::vector<cluster_t> docsClusters;
     coarseClustering(false, docs, clusterCentres, docsClusters);
 
-    auto pqIndex = buildPqIndex(docs, false);
+    auto pqIndex = buildPqIndex(docs, Dot);
 
     BOOST_REQUIRE_EQUAL(pqIndex.numClusters(), 6);
     BOOST_REQUIRE_EQUAL(pqIndex.numCodebooksCentres(), 6 * NUM_BOOKS * BOOK_SIZE);
@@ -1144,13 +1144,13 @@ BOOST_AUTO_TEST_CASE(testPqIndex) {
             sim += decodedDoc[j] * query[j];
         }
         auto expectedDist = 1.0F - sim;
-        float dist = pqIndex.computeDist(query, id);
+        float dist{pqIndex.computeDist(query, id)};
 
         BOOST_REQUIRE_CLOSE(dist, expectedDist, 1e-4);
     }
 }
 
-BOOST_AUTO_TEST_CASE(testPqIndexNormed) {
+BOOST_AUTO_TEST_CASE(testPqIndexCosine) {
 
     char filename[]{"/tmp/test_storage_XXXXXX"};
     int ret{::mkstemp(filename)};
@@ -1169,7 +1169,7 @@ BOOST_AUTO_TEST_CASE(testPqIndexNormed) {
     BigVector docs{dim, numDocs, tmpFile, [&] { return u01(rng); }};
     docs.normalize();
 
-    auto pqIndex = buildPqIndex(docs, true);
+    auto pqIndex = buildPqIndex(docs, Cosine);
 
     BOOST_REQUIRE_EQUAL(pqIndex.numClusters(), 6);
     BOOST_REQUIRE_EQUAL(pqIndex.numCodebooksCentres(), 6 * NUM_BOOKS * BOOK_SIZE);
@@ -1201,7 +1201,56 @@ BOOST_AUTO_TEST_CASE(testPqIndexNormed) {
             sim += decodedDoc[j] * query[j];
         }
         auto expectedDist = 1.0F - sim;
-        float dist = pqIndex.computeDist(query, id);
+        float dist{pqIndex.computeDist(query, id)};
+
+        BOOST_REQUIRE_CLOSE(dist, expectedDist, 1e-3);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(testPqIndexEuclidean) {
+
+    char filename[]{"/tmp/test_storage_XXXXXX"};
+    int ret{::mkstemp(filename)};
+    if (ret == -1) {
+        BOOST_FAIL("Couldn't create temporary file");
+    }
+    std::cout << "Created temporary file " << filename << std::endl;
+
+    // Create a BigVector using a random generator.
+    std::size_t dim{2 * NUM_BOOKS};
+    std::size_t bookDim{dim / NUM_BOOKS};
+    std::size_t numDocs{6 * COARSE_CLUSTERING_DOCS_PER_CLUSTER};
+    std::minstd_rand rng{0};
+    std::uniform_real_distribution<float> u01{0.0F, 1.0F};
+    std::filesystem::path tmpFile{filename};
+    BigVector docs{dim, numDocs, tmpFile, [&] { return u01(rng); }};
+    docs.normalize();
+
+    auto pqIndex = buildPqIndex(docs, Euclidean);
+
+    BOOST_REQUIRE_EQUAL(pqIndex.numClusters(), 6);
+    BOOST_REQUIRE_EQUAL(pqIndex.numCodebooksCentres(), 6 * NUM_BOOKS * BOOK_SIZE);
+    BOOST_REQUIRE_EQUAL(pqIndex.numTransformations(), 6);
+    BOOST_REQUIRE_EQUAL(pqIndex.numCodes(), numDocs * NUM_BOOKS);
+
+    // Check the compression ratio which should a little less than 8.
+    std::cout << "Compression ratio: " << pqIndex.compressionRatio() << std::endl;
+    BOOST_REQUIRE_GT(pqIndex.compressionRatio(), 7.0);
+
+    // Decode some vectors and check that the distance calculation matches
+    // the lookup table.
+    std::vector<float> query(dim);
+    std::generate_n(query.begin(), dim, [&] { return u01(rng); });
+    std::uniform_int_distribution<std::size_t> u0n{0, numDocs - 1};
+    for (std::size_t i = 0; i < 100; ++i) {
+        std::size_t id{u0n(rng)};
+        auto decodedDoc = pqIndex.decode(id);
+        float expectedDist{0.0F};
+        for (std::size_t j = 0; j < dim; ++j) {
+            float dj{decodedDoc[j] - query[j]};
+            expectedDist += dj * dj;
+        }
+        float dist{pqIndex.computeDist(query, id)};
 
         BOOST_REQUIRE_CLOSE(dist, expectedDist, 1e-3);
     }

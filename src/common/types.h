@@ -1,8 +1,9 @@
 #pragma once
 
 enum Metric {
+    Cosine,
     Dot,
-    Cosine
+    Euclidean
 };
 
 enum ScalarBits {

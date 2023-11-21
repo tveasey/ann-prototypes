@@ -78,7 +78,6 @@ void runPQBenchmark(const std::string& tag,
         throw std::invalid_argument("Invalid query size");
     }
 
-    bool normalized{metric == Cosine};
     std::size_t numQueries{queries.size() / dim};
     std::size_t numDocs{docs.size() / dim};
     std::chrono::duration<double> diff{0};
@@ -86,7 +85,7 @@ void runPQBenchmark(const std::string& tag,
     std::cout << "Building PQ index..." << std::endl;
     PqIndex index{[&] {
         Timer timer{"Building PQ index", diff};
-        return buildPqIndex(docs, normalized, distanceThreshold);
+        return buildPqIndex(docs, metric, distanceThreshold);
     }()};
 
     PQStats stats{tag, toString(metric), numQueries, numDocs, dim, k};
@@ -100,7 +99,7 @@ void runPQBenchmark(const std::string& tag,
     std::cout << std::boolalpha
               << "metric = " << toString(metric)
               << ", top-k = " << k
-              << ", normalize = " << (metric == Cosine)
+              << ", normalized = " << (metric == Cosine)
               << ", book count = " << NUM_BOOKS
               << ", book size = " << BOOK_SIZE << std::endl;
 

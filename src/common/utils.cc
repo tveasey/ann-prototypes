@@ -4,7 +4,7 @@
 #include <array>
 
 namespace {
-const std::array<std::string, 2> METRICS{"dot", "cosine"};
+const std::array<std::string, 3> METRICS{"cosine", "dot", "euclidean"};
 const std::array<std::string, 3> BITS{"4 bit", "4 bit packed", "8 bit"};
 
 std::vector<std::size_t> uniformSamples(std::size_t n,

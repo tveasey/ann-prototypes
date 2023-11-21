@@ -67,7 +67,7 @@ int main(int argc, char* argv[]) {
         ("run,r", boost::program_options::value<std::string>(),
             "Run a test dataset")
         ("metric,m", boost::program_options::value<std::string>()->default_value("cosine"),
-            "The metric, must be cosine or dot, with which to compare vectors (default cosine)")
+            "The metric, must be cosine, dot or euclidean with which to compare vectors (default cosine)")
         ("distance,d", boost::program_options::value<float>()->default_value(0.0F),
             "The ScaNN threshold used for computing the parallel distance cost multiplier (default 0.0)");
 
@@ -101,6 +101,8 @@ int main(int argc, char* argv[]) {
                 metric = Cosine;
             } else if (m == "dot") {
                 metric = Dot;
+            } else if (m == "euclidean") {
+                metric = Euclidean;
             } else {
                 throw boost::program_options::error("Invalid metric");
             }

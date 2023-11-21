@@ -6,6 +6,7 @@
 #include "subspace.h"
 #include "../common/bigvector.h"
 #include "../common/progress_bar.h"
+#include "../common/utils.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -97,14 +98,14 @@ initializeSampleReaders(std::size_t dim,
 
 } // unnamed::
 
-PqIndex::PqIndex(bool normalized,
+PqIndex::PqIndex(Metric metric,
                  std::size_t dim,
                  std::vector<float> clustersCentres,
                  std::vector<std::vector<float>> transformations,
                  std::vector<std::vector<float>> codebooksCentres,
                  std::vector<cluster_t> docsClusters,
                  std::vector<code_t> docsCodes)
-    : normalized_{normalized}, dim_{dim},
+    : metric_{metric}, dim_{dim},
       clustersCentres_(std::move(clustersCentres)),
       transformations_(std::move(transformations)),
       codebooksCentres_(std::move(codebooksCentres)),
@@ -218,7 +219,7 @@ std::vector<float> PqIndex::decode(std::size_t id) const {
     }
 
     // If the vectors are normalized then we need to normalize the result.
-    if (normalized_) {
+    if (metric_ == Cosine) {
         float norm{std::sqrtf(
             std::accumulate(result.begin(), result.end(), 0.0F,
                             [](auto& pnorm, auto& x) { return pnorm + x * x; } ))};
@@ -288,9 +289,11 @@ void PqIndex::buildNormsTables() {
     std::size_t numClusters{clustersCentres_.size() / dim_};
     std::size_t bookDim{dim_ / NUM_BOOKS};
 
-    normsTable_.resize(numClusters, std::vector<float>(2 * BOOK_SIZE * NUM_BOOKS));
+    normsTable_.resize(numClusters);
 
-    if (normalized_) {
+    if (metric_ == Cosine) {
+        std::fill_n(normsTable_.begin(), numClusters,
+                    std::vector<float>(2 * NUM_BOOKS * BOOK_SIZE));
         std::vector<float> transformedCentre(dim_);
         for (std::size_t cluster = 0; cluster < numClusters; ++cluster) {
             auto& normsTable = normsTable_[cluster];
@@ -329,33 +332,75 @@ PqIndex::buildSimTable(std::size_t cluster,
     std::size_t dim{query.size()};
     std::size_t bookDim{dim / NUM_BOOKS};
 
-    // Transform the query vector into the codebook's coordinate system.
-    std::vector<float> transformedQuery(dim, 0.0F);
-    transform(dim, transformations_[cluster], query.data(), transformedQuery.data());
-
     // Compute the dot product distance from the query to each centre in
     // the codebook.
-    std::vector<float> simTable(BOOK_SIZE * NUM_BOOKS);
-    const auto& codebooksCentres = codebooksCentres_[cluster];
-    for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
-        const auto* queryProj = &transformedQuery[b * bookDim];
-        const auto* codebookCentres = &codebooksCentres[b * BOOK_SIZE * bookDim];
-        for (std::size_t i = 0; i < BOOK_SIZE; ++i) {
-            float sim{0.0F};
-            const auto* codebookCentre = codebookCentres + i * bookDim;
-            #pragma omp simd reduction(+:sim)
-            for (std::size_t j = 0; j < bookDim; ++j) {
-                sim += queryProj[j] * codebookCentre[j];
-            }
-            simTable[BOOK_SIZE * b + i] = sim;
-        }
-    }
-
-    // Compute the dot product distance from the query to cluster centre.
     float sim{0.0F};
-    const auto* clusterCentre = &clustersCentres_[cluster * dim];
-    for (std::size_t i = 0; i < dim; ++i) {
-        sim += query[i] * clusterCentre[i];
+    std::vector<float> simTable(BOOK_SIZE * NUM_BOOKS);
+    switch (metric_) {
+    case Cosine:
+    case Dot: {
+        // Compute the dot product distance from the query to cluster centre.
+        const auto* clusterCentre = &clustersCentres_[cluster * dim];
+        for (std::size_t i = 0; i < dim; ++i) {
+            sim += query[i] * clusterCentre[i];
+        }
+
+        // Transform the query vector into the codebook's coordinate system.
+        std::vector<float> transformedQuery(dim, 0.0F);
+        transform(dim, transformations_[cluster], query.data(), transformedQuery.data());
+
+        const auto& codebooksCentres = codebooksCentres_[cluster];
+        for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+            const auto* queryProj = &transformedQuery[b * bookDim];
+            const auto* codebookCentres = &codebooksCentres[b * BOOK_SIZE * bookDim];
+            for (std::size_t i = 0; i < BOOK_SIZE; ++i) {
+                float sim{0.0F};
+                const auto* codebookCentre = codebookCentres + i * bookDim;
+                #pragma omp simd reduction(+:sim)
+                for (std::size_t j = 0; j < bookDim; ++j) {
+                    sim += queryProj[j] * codebookCentre[j];
+                }
+                simTable[BOOK_SIZE * b + i] = sim;
+            }
+        }
+        break;
+    }
+    case Euclidean: {
+        // The Euclidean difference is |q - (c + r)| = |T * (q - c) - T * r|.
+        // We store T * r in the codebook centres so we can compute this by
+        // first computing the residual vector q - c and then transforming.
+        // Ultimately we compute the squared Euclidean distance by subtracting
+        // the sum over codebook distances from 1. So transform the distances
+        // to similarities by negating.
+
+        std::vector<float> queryResidual(query);
+        centre(dim_, &clustersCentres_[cluster * dim_], queryResidual.data());
+
+        // Transform the residual vector into the codebook's coordinate system.
+        std::vector<float> transformedQuery(dim, 0.0F);
+        transform(dim, transformations_[cluster], queryResidual.data(), transformedQuery.data());
+
+        // We set this to one so it cancels when we subtract the sum of
+        // terms from one to convert similarity to distance.
+        sim = 1.0;
+
+        const auto& codebooksCentres = codebooksCentres_[cluster];
+        for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+            const auto* queryProj = &transformedQuery[b * bookDim];
+            const auto* codebookCentres = &codebooksCentres[b * BOOK_SIZE * bookDim];
+            for (std::size_t i = 0; i < BOOK_SIZE; ++i) {
+                float dist2{0.0F};
+                const auto* codebookCentre = codebookCentres + i * bookDim;
+                #pragma omp simd reduction(+:dist2)
+                for (std::size_t j = 0; j < bookDim; ++j) {
+                    float dij{queryProj[j] - codebookCentre[j]};
+                    dist2 += dij * dij;
+                }
+                simTable[BOOK_SIZE * b + i] = -dist2;
+            }
+        }
+        break;
+    }
     }
 
     return {sim, std::move(simTable)};
@@ -385,7 +430,7 @@ float PqIndex::computeDist(float centreSim,
     // centres are normalized so this simplifies to (1 + 2 c^t r + |r|)^(1/2).
     // We can look up the dot product between the centre and the residual
     // and the norm of the residual in the normsTable.
-    if (normalized_) {
+    if (metric_ == Cosine) {
         float cdotr{0.0F};
         float rnorm2{0.0F};
         for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
@@ -502,14 +547,14 @@ buildCodebooksForPqIndex(const BigVector& docs,
     return {std::move(transformations), std::move(codebooksCentres)};
 }
 
-PqIndex buildPqIndex(const BigVector& docs, bool normalized, float distanceThreshold) {
+PqIndex buildPqIndex(const BigVector& docs, Metric metric, float distanceThreshold) {
 
     std::size_t dim{docs.dim()};
     std::size_t numDocs{docs.numVectors()};
 
     std::vector<float> clustersCentres;
     std::vector<cluster_t> docsClusters;
-    coarseClustering(normalized, docs, clustersCentres, docsClusters);
+    coarseClustering(metric == Cosine, docs, clustersCentres, docsClusters);
 
     std::vector<std::vector<float>> transformations;
     std::vector<std::vector<float>> codebooksCentres;
@@ -547,6 +592,6 @@ PqIndex buildPqIndex(const BigVector& docs, bool normalized, float distanceThres
 
     parallelRead(docs, encoders);
 
-    return {normalized, dim, std::move(clustersCentres), std::move(transformations),
+    return {metric, dim, std::move(clustersCentres), std::move(transformations),
             std::move(codebooksCentres), std::move(docsClusters), std::move(docsCodes)};
 }
