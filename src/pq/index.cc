@@ -70,10 +70,10 @@ initializeSampleReaders(std::size_t dim,
     std::size_t numReaders{samplers.size()};
     std::size_t numSamplesPerReader{numSamplesPerCluster / numReaders};
 
-    for (std::size_t i = beginClusters; i < endClusters; ++i) {
-        for (std::size_t j = 0; j < numReaders; ++j) {
-            auto storage = samples[i].begin() + numSamplesPerReader * j * dim;
-            samplers[j].emplace_back(dim, numSamplesPerReader, rng, storage);
+    for (std::size_t i = 0; i < numReaders; ++i) {
+        for (std::size_t j = beginClusters; j < endClusters; ++j) {
+            auto storage = samples[j].begin() + numSamplesPerReader * i * dim;
+            samplers[i][j] = ReservoirSampler{dim, numSamplesPerReader, rng, storage};
         }
     }
 
@@ -85,7 +85,7 @@ initializeSampleReaders(std::size_t dim,
             [=, &docsClusters, &samplers](std::size_t pos, BigVector::VectorReference doc) {
                 auto docCluster = *(beginDocsClusters + pos);
                 if (docCluster >= beginClusters && docCluster < endClusters) {
-                    samplers[i][docCluster - beginClusters].add(doc.data());
+                    samplers[i][docCluster].add(doc.data());
                 }
             });
     }
@@ -412,7 +412,8 @@ buildCodebooksForPqIndex(const BigVector& docs,
         std::fill(samples.begin() + beginClusters,
                   samples.begin() + endClusters, initialSamples);
  
-        std::vector<std::vector<ReservoirSampler>> samplers(NUM_READERS);
+        std::vector<std::vector<ReservoirSampler>> samplers(
+            NUM_READERS, std::vector<ReservoirSampler>(numClusters));
         auto sampleReaders = initializeSampleReaders(dim, beginClusters, endClusters,
                                                      numSamplesPerCluster, docsClusters,
                                                      std::minstd_rand{seedDist(rng)},
@@ -449,7 +450,8 @@ buildCodebooksForPqIndex(const BigVector& docs,
         std::fill(samples.begin() + beginClusters,
                   samples.begin() + endClusters, initialSamples);
 
-        std::vector<std::vector<ReservoirSampler>> samplers(NUM_READERS);
+        std::vector<std::vector<ReservoirSampler>> samplers(
+            NUM_READERS, std::vector<ReservoirSampler>(numClusters));
         auto sampleReaders = initializeSampleReaders(dim, beginClusters, endClusters,
                                                      numSamplesPerCluster, docsClusters,
                                                      std::minstd_rand{seedDist(rng)},

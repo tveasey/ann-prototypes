@@ -204,6 +204,7 @@ void parallelRead(const BigVector& docs, std::vector<Reader>& readers);
 // enough to hold the samples.
 class ReservoirSampler {
 public:
+    ReservoirSampler() = default;
     ReservoirSampler(std::size_t dim,
                      std::size_t sampleSize,
                      const std::minstd_rand& rng,
@@ -216,6 +217,9 @@ public:
 
     // Sample a document.
     void add(const float* doc) {
+        if (dim_ == 0) {
+            return;
+        }
         ++numDocs_;
         if (numDocs_ < sampleSize_) {
             std::copy(doc, doc + dim_, beginSamples_ + (numDocs_ - 1) * dim_);
@@ -229,8 +233,8 @@ public:
     }
 
 private:
-    std::size_t dim_;
-    std::size_t sampleSize_;
+    std::size_t dim_{0};
+    std::size_t sampleSize_{0};
     std::size_t numDocs_{0};
     std::minstd_rand rng_;
     std::vector<float>::iterator beginSamples_;
