@@ -115,9 +115,8 @@ computeOptimalPQSubspaces(std::size_t dim,
     // "Optimized Product Quantization for Approximate Nearest Neighbor Search"
     // by Tiezheng Ge, Kaiming He, Qifa Ke, and Jian Sun.
 
-    // We assume that we have all eigenvectors and eigenvaluess of the data
-    // covariance matrix which is rank full and they sorted descending by
-    // eigenvalue.
+    // We assume that we have all eigenvectors and eigenvalues of the data
+    // covariance matrix and they sorted descending by eigenvalue.
     if (eigVecs.size() != dim * dim) {
         throw std::invalid_argument("eigVecs.size() != dim * dim");
     }
@@ -148,9 +147,10 @@ computeOptimalPQSubspaces(std::size_t dim,
 
     std::size_t subspaceDim{dim / NUM_BOOKS};
 
-    // We rescale eigenvalues so that the smalled is 1.0. This means that
+    // We rescale eigenvalues so that the smallest is 1.0. This means that
     // each time we add an eigenvector to a subspace we increase its product
-    // of eigenvalues.
+    // of eigenvalues. Note that we also ensure that the smallest eigenvalue
+    // is positive so log it's well defined.
     double logMinEigVal{std::log(std::max(eigVals.back(), 1e-8 * maxEigVal))};
 
     // Assign the first numSubspaces eigenvectors (one to each book).

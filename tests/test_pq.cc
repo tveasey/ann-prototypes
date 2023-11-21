@@ -14,6 +14,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <cstdio>
@@ -1147,7 +1148,6 @@ BOOST_AUTO_TEST_CASE(testPqIndex) {
 
         BOOST_REQUIRE_CLOSE(dist, expectedDist, 1e-4);
     }
-
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -331,8 +331,8 @@ PqIndex::buildSimTable(std::size_t cluster,
     std::vector<float> transformedQuery(dim, 0.0F);
     transform(dim, transformations_[cluster], query.data(), transformedQuery.data());
 
-    // Compute the dot product distance from the query to each centre in the
-    // codebook.
+    // Compute the dot product distance from the query to each centre in
+    // the codebook.
     std::vector<float> simTable(BOOK_SIZE * NUM_BOOKS);
     const auto& codebooksCentres = codebooksCentres_[cluster];
     for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
@@ -378,7 +378,7 @@ float PqIndex::computeDist(float centreSim,
     }
 
     // If the index is normalized then we need to normalize the distance
-    // by the norm of the query vector. The norm of the document vector
+    // by the norm of the document vector. The norm of the document vector
     // is |c + r| = (|c|^2 + 2 c^t r + |r|^2)^(1/2). By construction the
     // centres are normalized so this simplifies to (1 + 2 c^t r + |r|)^(1/2).
     // We can look up the dot product between the centre and the residual
@@ -413,10 +413,10 @@ buildCodebooksForPqIndex(const BigVector& docs,
     std::vector<std::vector<float>> transformations;
     transformations.reserve(numClusters);
 
-    // We sample in chunks of NUM_READERS clusters to reduce the peak memory
-    // usage. We store 64 * dim samples per cluster. For e768 d vectors this
-    // amounts to 768 * 64 * 768 * 4 = 144 MB per cluster. So for 32 readers
-    // our peak memory usage is 144 * 32 = 4.6 GB.
+    // We sample in chunks of 32 clusters to reduce the peak memory usage.
+    // We store 64 * dim samples per cluster. For 768 d vectors this amounts
+    // to 768 * 64 * 768 * 4 = 144 MB per cluster. So our peak memory usage
+    // is 144 MB * 32 = 4.6 GB.
     std::cout << "Computing optimal transforms" << std::endl;
     for (std::size_t i = 0; i < numClusters; i += 32) {
 
@@ -454,10 +454,10 @@ buildCodebooksForPqIndex(const BigVector& docs,
     std::vector<std::vector<float>> codebooksCentres(numClusters);
     std::cout << "Computing codebooks" << std::endl;
 
-    // We sample in chunks of NUM_READERS clusters to reduce the peak memory
-    // usage. We store 128 * BOOK_SIZE samples per cluster. For 768 d vectors
-    // this amounts to 128 * 256 * 768 * 4 = 96 MB per cluster. So for 32
-    // readers our peak memory usage is 96 * 32 = 3 GB.
+    // We sample in chunks of 32 clusters to reduce the peak memory usage.
+    // We store 128 * BOOK_SIZE samples per cluster. For 768 d vectors
+    // this amounts to 128 * 256 * 768 * 4 = 96 MB per cluster. So our
+    // peak memory usage is 96 MB * 32 = 3 GB.
     ProgressBar progress{numClusters};
     for (std::size_t i = 0; i < numClusters; i += 32) {
 
@@ -481,7 +481,7 @@ buildCodebooksForPqIndex(const BigVector& docs,
         removeNans(samples);
 
         // Compute the residuals from the coarse cluster centres and transform
-        // them into the optimal subspaces.
+        // them to align with the optimal subspaces.
         for (std::size_t j = beginClusters; j < endClusters; ++j) {
             auto& transformation = transformations[j];
             auto& sample = samples[j];
