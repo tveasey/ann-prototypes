@@ -168,6 +168,10 @@ public:
     std::size_t size() const {
         return dim_ * numVectors_;
     }
+    // Get the i'th document.
+    VectorReference operator[](std::size_t i) const {
+        return {data_ + i * dim_, dim_};
+    }
     // An iterator over the vectors of a memory mapped file.
     const_iterator begin() const {
         return {data_, dim_};

@@ -27,7 +27,7 @@ void centre(std::size_t dim,
             float* doc) {
     #pragma clang loop unroll_count(4) vectorize(assume_safety)
     for (std::size_t i = 0; i < dim; ++i) {
-        doc[i] = doc[i] - centre[i];
+        doc[i] -= centre[i];
     }
 }
 
@@ -121,6 +121,11 @@ std::size_t PqIndex::numCodebooksCentres() const {
                            }) / bookDim;
 }
 
+std::vector<code_t> PqIndex::codes(std::size_t id) const {
+    return {docsCodes_.begin() + id * NUM_BOOKS,
+            docsCodes_.begin() + (id + 1) * NUM_BOOKS};
+}
+
 std::pair<std::vector<std::size_t>, std::vector<float>>
 PqIndex::search(const std::vector<float>& query, std::size_t k) const {
 
@@ -182,31 +187,30 @@ std::vector<float> PqIndex::decode(std::size_t id) const {
             "Document id " + std::to_string(id) + " out of range"};
     }
 
-    std::vector<float> result(dim_);
-
     // Read the nearest centre to the document from each codebook.
+    auto docCluster = docsClusters_[id];
     const auto* docCode = &docsCodes_[id * NUM_BOOKS];
-    const auto* docCluster = &docsClusters_[id];
-    const auto* codeBooks = &codebooksCentres_[*docCluster][0];    
+    const auto* codebooks = &codebooksCentres_[docCluster][0];
     std::size_t bookDim{dim_ / NUM_BOOKS};
+    std::vector<float> projectedResult(dim_, 0.0F);
     for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
-        const auto* centroid = &codeBooks[(b * BOOK_SIZE + docCode[b]) * bookDim];
-        std::copy(centroid, centroid + bookDim, &result[b * bookDim]);
+        const auto* centre = &codebooks[(b * BOOK_SIZE + docCode[b]) * bookDim];
+        std::copy(centre, centre + bookDim, &projectedResult[b * bookDim]);
     }
 
-    // Map back into the original coordinate system. We use the fact that
-    // the transformation matrix is orthogonal so its inverse is its transpose.
-    std::vector<float> projectedResult(dim_, 0.0F);
-    const auto* transformation = &transformations_[*docCluster][0];
+    // Transform back into the original coordinate system. We use the fact
+    // that the transformation matrix is orthogonal so its inverse is its
+    // transpose.
+    std::vector<float> result(dim_, 0.0F);
+    const auto& transformation = transformations_[docCluster];
     for (std::size_t i = 0; i < dim_; ++i) {
         for (std::size_t j = 0; j < dim_; ++j) {
-            projectedResult[i] += transformation[j * dim_ + i] * result[j];
+            result[i] += transformation[j * dim_ + i] * projectedResult[j];
         }
     }
-    result = std::move(projectedResult);
 
     // Add on the cluster centre.
-    const auto* clusterCentre = &clustersCentres_[*docCluster * dim_];
+    const auto* clusterCentre = &clustersCentres_[docCluster * dim_];
     for (std::size_t i = 0; i < dim_; ++i) {
         result[i] += clusterCentre[i];
     }
@@ -214,13 +218,30 @@ std::vector<float> PqIndex::decode(std::size_t id) const {
     // If the vectors are normalized then we need to normalize the result.
     if (normalized_) {
         float norm{std::sqrtf(
-            std::accumulate(result.begin(), result.end(), 0.0F))};
+            std::accumulate(result.begin(), result.end(), 0.0F,
+                            [](auto& pnorm, auto& x) { return pnorm + x * x; } ))};
         for (std::size_t i = 0; i < dim_; ++i) {
             result[i] /= norm;
         }
     }
 
     return result;
+}
+
+float PqIndex::computeDist(const std::vector<float>& query, std::size_t id) const {
+
+    // Compute the dot product distance between the query vector and the
+    // document vector with the given id.
+
+    if (id >= docsClusters_.size()) {
+        throw std::runtime_error{
+            "Document id " + std::to_string(id) + " out of range"};
+    }
+
+    std::size_t cluster{docsClusters_[id]};
+    const auto* docCode = &docsCodes_[id * NUM_BOOKS];
+    auto [clusterSim, simTable] = this->buildSimTable(cluster, query);
+    return this->computeDist(clusterSim, simTable, normsTable_[cluster], docCode);
 }
 
 double PqIndex::compressionRatio() const {
@@ -297,7 +318,7 @@ void PqIndex::buildNormsTables() {
 }
 
 std::pair<float, std::vector<float>>
-PqIndex::buildSimTable(std::size_t cluster, 
+PqIndex::buildSimTable(std::size_t cluster,
                        const std::vector<float> &query) const {
 
     // Compute the dot product distance from the query to each centre
@@ -411,7 +432,7 @@ buildCodebooksForPqIndex(const BigVector& docs,
         std::vector<std::vector<float>> samples(numClusters);
         std::fill(samples.begin() + beginClusters,
                   samples.begin() + endClusters, initialSamples);
- 
+
         std::vector<std::vector<ReservoirSampler>> samplers(
             NUM_READERS, std::vector<ReservoirSampler>(numClusters));
         auto sampleReaders = initializeSampleReaders(dim, beginClusters, endClusters,
@@ -490,7 +511,7 @@ PqIndex buildPqIndex(const BigVector& docs, bool normalized, float distanceThres
 
     std::vector<std::vector<float>> transformations;
     std::vector<std::vector<float>> codebooksCentres;
-    std::tie(transformations, codebooksCentres) = 
+    std::tie(transformations, codebooksCentres) =
         buildCodebooksForPqIndex(docs, clustersCentres, docsClusters);
 
     // Compute the codes for each doc.
@@ -499,24 +520,25 @@ PqIndex buildPqIndex(const BigVector& docs, bool normalized, float distanceThres
     encoders.reserve(NUM_READERS);
 
     std::vector<code_t> docsCodes(numDocs * NUM_BOOKS);
-    auto beginDocCodes = docsCodes.data();
-    auto beginDocCluster = docsClusters.begin();
+    auto beginDocsCodes = docsCodes.data();
+    auto beginDocsClusters = docsClusters.begin();
     std::vector<float> centredDoc(dim);
     std::vector<float> projectedDoc(dim);
     for (std::size_t i = 0; i < NUM_READERS; ++i) {
         encoders.emplace_back([=, &clustersCentres, &transformations](
                 std::size_t pos,
                 BigVector::VectorReference doc) mutable {
-            auto docCluster = *(beginDocCluster + pos);
-            auto docCodes = beginDocCodes + NUM_BOOKS * pos;
+            auto docCodes = beginDocsCodes + NUM_BOOKS * pos;
+            auto docCluster = *(beginDocsClusters + pos);
+            const auto& transformation = transformations[docCluster];
+            const auto& codebookCentres = codebooksCentres[docCluster];
             centredDoc.assign(doc.data(), doc.data() + dim);
-            centre(dim, &clustersCentres[docCluster], centredDoc.data());
-            transform(dim, transformations[docCluster], centredDoc.data(), projectedDoc.data());
+            centre(dim, &clustersCentres[docCluster * dim], centredDoc.data());
+            transform(dim, transformation, centredDoc.data(), projectedDoc.data());
             if (distanceThreshold > 0.0F) {
-                anisotropicEncode(projectedDoc, codebooksCentres[docCluster],
-                                  distanceThreshold, docCodes);
+                anisotropicEncode(projectedDoc, codebookCentres, distanceThreshold, docCodes);
             } else {
-                encode(projectedDoc, codebooksCentres[docCluster], docCodes);
+                encode(projectedDoc, codebookCentres, docCodes);
             }
         });
     }

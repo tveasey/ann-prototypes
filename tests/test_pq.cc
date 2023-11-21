@@ -972,15 +972,15 @@ BOOST_AUTO_TEST_CASE(testBuildCodebooksForPqIndex) {
 
     for (std::size_t i = 0; i < 1000; ++i) {
         // Choose a random pair of documents.
-        std::uniform_int_distribution<std::size_t> uxy{0, numDocs - 1};
-        std::size_t x{uxy(rng)};
-        std::size_t y{uxy(rng)};
+        std::uniform_int_distribution<std::size_t> u0n{0, numDocs - 1};
+        std::size_t x{u0n(rng)};
+        std::size_t y{u0n(rng)};
         std::vector<float> docX(dim);
         std::vector<float> docY(dim);
 
         // Read the documents from the BigVector via random access iterators.
-        const auto* beginX = (*(docs.begin() + x)).data();
-        const auto* beginY = (*(docs.begin() + y)).data();
+        const auto* beginX = docs[x].data();
+        const auto* beginY = docs[y].data();
         std::copy(beginX, beginX + dim, docX.begin());
         std::copy(beginY, beginY + dim, docY.begin());
 
@@ -1008,8 +1008,8 @@ BOOST_AUTO_TEST_CASE(testBuildCodebooksForPqIndex) {
             residualX[j] = docX[j] - clusterCentreX[j];
             residualY[j] = docY[j] - clusterCentreY[j];
         }
-        residualX = transform(transformationX, dim, residualX);
-        residualY = transform(transformationY, dim, residualY);
+        residualX = transform(transformationX, dim, std::move(residualX));
+        residualY = transform(transformationY, dim, std::move(residualY));
         encode(residualX, codebooksCentresX, docsCodesX.data());
         encode(residualY, codebooksCentresY, docsCodesY.data());
 
@@ -1032,9 +1032,9 @@ BOOST_AUTO_TEST_CASE(testBuildCodebooksForPqIndex) {
             }
         }
         quantizedResidualX = transform(transpose(transformationX, dim),
-                                       dim, quantizedResidualX);
+                                       dim, std::move(quantizedResidualX));
         quantizedResidualY = transform(transpose(transformationY, dim),
-                                       dim, quantizedResidualY);
+                                       dim, std::move(quantizedResidualY));
 
         float quantizedDot{0.0F};
         for (std::size_t j = 0; j < dim; ++j) {
@@ -1061,9 +1061,9 @@ BOOST_AUTO_TEST_CASE(testPqIndex) {
     std::cout << "Created temporary file " << filename << std::endl;
 
     // Create a BigVector using a random generator.
-    std::size_t dim{4 * NUM_BOOKS};
+    std::size_t dim{2 * NUM_BOOKS};
     std::size_t bookDim{dim / NUM_BOOKS};
-    std::size_t numDocs{4 * COARSE_CLUSTERING_DOCS_PER_CLUSTER};
+    std::size_t numDocs{6 * COARSE_CLUSTERING_DOCS_PER_CLUSTER};
     std::minstd_rand rng{0};
     std::uniform_real_distribution<float> u01{0.0F, 1.0F};
     std::filesystem::path tmpFile{filename};
@@ -1072,17 +1072,39 @@ BOOST_AUTO_TEST_CASE(testPqIndex) {
     std::vector<float> clusterCentres;
     std::vector<cluster_t> docsClusters;
     coarseClustering(false, docs, clusterCentres, docsClusters);
+    std::cout << docsClusters[0] << std::endl;
 
     auto pqIndex = buildPqIndex(docs, false);
 
-    BOOST_REQUIRE_EQUAL(pqIndex.numClusters(), 4);
-    BOOST_REQUIRE_EQUAL(pqIndex.numCodebooksCentres(), 4 * NUM_BOOKS * BOOK_SIZE);
-    BOOST_REQUIRE_EQUAL(pqIndex.numTransformations(), 4);
+    BOOST_REQUIRE_EQUAL(pqIndex.numClusters(), 6);
+    BOOST_REQUIRE_EQUAL(pqIndex.numCodebooksCentres(), 6 * NUM_BOOKS * BOOK_SIZE);
+    BOOST_REQUIRE_EQUAL(pqIndex.numTransformations(), 6);
     BOOST_REQUIRE_EQUAL(pqIndex.numCodes(), numDocs * NUM_BOOKS);
 
     // Check the compression ratio which should a little less than 8.
-    std::cout << "Compression factor: " << pqIndex.compressionRatio() << std::endl;
+    std::cout << "Compression ratio: " << pqIndex.compressionRatio() << std::endl;
     BOOST_REQUIRE_GT(pqIndex.compressionRatio(), 7.0);
+
+    // Check the document codes.
+    for (std::size_t i = 0; i < 1; ++i) {
+        std::uniform_int_distribution<std::size_t> u0n{0, numDocs - 1};
+        std::size_t id{u0n(rng)};
+        std::size_t cluster{docsClusters[id]};
+        const auto& transformation = pqIndex.transformations(cluster);
+        const auto& codebookCentres = pqIndex.codebookCentres(cluster);
+        const auto* clusterCentre = &clusterCentres[cluster * dim];
+        std::vector<float> residual(dim);
+        for (std::size_t j = 0; j < dim; ++j) {
+            residual[j] = docs[id][j] - clusterCentre[j];
+        }
+
+        residual = transform(transformation, dim, std::move(residual));
+        std::vector<code_t> expectedDocCodes(NUM_BOOKS);
+        encode(residual, codebookCentres, expectedDocCodes.data());
+        const auto& docsCodes = pqIndex.codes(id);
+
+        BOOST_REQUIRE(docsCodes == expectedDocCodes);
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

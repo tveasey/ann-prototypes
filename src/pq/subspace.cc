@@ -207,16 +207,16 @@ std::vector<float> transform(const std::vector<float>& transformation,
     }
 
     std::size_t numDocs{docs.size() / dim};
-    std::vector<float> projected(dim, 0.0F);
+    std::vector<float> projectedDoc(dim, 0.0F);
     for (std::size_t i = 0; i < docs.size(); i += dim) {
-        projected.assign(dim, 0.0F);
+        projectedDoc.assign(dim, 0.0F);
         for (std::size_t j = 0; j < dim; ++j) {
             #pragma clang loop unroll_count(4) vectorize(assume_safety)
             for (std::size_t k = 0; k < dim; ++k) {
-                projected[j] += transformation[j * dim + k] * docs[i + k];
+                projectedDoc[j] += transformation[j * dim + k] * docs[i + k];
             }
         }
-        std::copy(projected.begin(), projected.end(), docs.begin() + i);
+        std::copy(projectedDoc.begin(), projectedDoc.end(), docs.begin() + i);
     }
     return std::move(docs);
 }
