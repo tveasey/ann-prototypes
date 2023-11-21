@@ -159,7 +159,7 @@ BOOST_AUTO_TEST_CASE(testSampleDocs) {
     BOOST_REQUIRE_EQUAL(sampledVectors.size(), docs.size());
     BOOST_REQUIRE_EQUAL_COLLECTIONS(sampledVectors.begin(), sampledVectors.end(),
                                     docs.begin(), docs.end());
-    
+
     sampledVectors = sampleDocs(dim, docs, 0.1, rng);
     BOOST_REQUIRE_EQUAL(sampledVectors.size() % dim, 0);
     BOOST_REQUIRE_EQUAL(sampledVectors.size(), docs.size() / 10);
@@ -242,7 +242,7 @@ BOOST_AUTO_TEST_CASE(testSearchBruteForce) {
         { 1.0F, 0.0F, 1.0F},
         { 0.0F, 1.0F, 0.0F},
         {-1.0F, 0.0F, -1.0F}};
-    
+
     std::vector<std::size_t> expected{0, 1, 2};
     for (std::size_t i = 0; i < queries.size(); ++i) {
         auto [ids, scores] = searchBruteForce(1, data, queries[i]);

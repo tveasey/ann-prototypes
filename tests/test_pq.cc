@@ -7,8 +7,8 @@
 #include "../src/pq/stats.h"
 #include "../src/pq/subspace.h"
 #include "../src/pq/utils.h"
-#include "../src/common/io.h" 
-#include "../src/common/utils.h" 
+#include "../src/common/io.h"
+#include "../src/common/utils.h"
 
 #include <boost/test/tools/old/interface.hpp>
 #include <boost/test/unit_test.hpp>
@@ -91,7 +91,7 @@ BOOST_AUTO_TEST_CASE(testClusteringInitializations) {
     // from the specified number of docs.
     std::minstd_rand rng;
     auto ids = initForgyForBookConstruction(1000, rng);
-    
+
     BOOST_REQUIRE_EQUAL(ids.size(), BOOK_SIZE);
 
     // Check that every id is within range.
@@ -118,7 +118,7 @@ BOOST_AUTO_TEST_CASE(testClusteringInitializations) {
         std::size_t dim{NUM_BOOKS};
         std::vector<float> docs(1000 * dim);
         std::iota(docs.begin(), docs.end(), 0.0F);
-        
+
         auto centres = initForgyForBookConstruction(dim, docs, rng);
         BOOST_REQUIRE_EQUAL(centres.size(), BOOK_SIZE * dim);
 
@@ -273,7 +273,7 @@ BOOST_AUTO_TEST_CASE(testClusteringStepLloyd) {
                 for (std::size_t j = 0; j < numClusters; ++j) {
                     float sd{0.0F};
                     for (std::size_t k = 0; k < subspaceDim; ++k) {
-                        float di{docs[i * dim + b * subspaceDim + k] - 
+                        float di{docs[i * dim + b * subspaceDim + k] -
                                  subspaceOldCentres[j * subspaceDim + k]};
                         sd += di * di;
                     }
@@ -337,7 +337,7 @@ BOOST_AUTO_TEST_CASE(testCoarseClustering) {
         ++counts[cluster];
     }
     for (std::size_t i = 0; i < 10; ++i) {
-        BOOST_REQUIRE_CLOSE(static_cast<double>(counts[i]) / 
+        BOOST_REQUIRE_CLOSE(static_cast<double>(counts[i]) /
                             static_cast<double>(numDocs), 0.1, 5.0);
     }
 
@@ -387,7 +387,7 @@ BOOST_AUTO_TEST_CASE(testEncode) {
 
     std::size_t dim{NUM_BOOKS};
     std::size_t numDocs{100};
-    
+
     // Create some random centres.
     std::vector<float> distinctCentres(BOOK_SIZE);
     std::minstd_rand rng{0};
@@ -696,7 +696,7 @@ BOOST_AUTO_TEST_CASE(testComputeOptimalPQSubspaces) {
     auto [eigVecs, eigValues] = pca(dim, docs);
 
     auto transformation = computeOptimalPQSubspaces(dim, eigVecs, eigValues);
-    
+
     // Check that the optimal PQ transformations are orthogonal.
     for (std::size_t i = 0; i < NUM_BOOKS; ++i) {
         for (std::size_t j = i + 1; j < NUM_BOOKS; ++j) {
@@ -740,7 +740,7 @@ BOOST_AUTO_TEST_CASE(testComputeOptimalPQSubspaces) {
 
     // Check that the range of subspace variances of the transformed data is
     // significantly smaller than the original data.
-    auto [originalMin, originalMax] = 
+    auto [originalMin, originalMax] =
         std::minmax_element(originalVariances.begin(), originalVariances.end());
     auto [transformedMin, transformedMax] =
         std::minmax_element(transformedVariance.begin(), transformedVariance.end());
@@ -1072,7 +1072,6 @@ BOOST_AUTO_TEST_CASE(testPqIndex) {
     std::vector<float> clusterCentres;
     std::vector<cluster_t> docsClusters;
     coarseClustering(false, docs, clusterCentres, docsClusters);
-    std::cout << docsClusters[0] << std::endl;
 
     auto pqIndex = buildPqIndex(docs, false);
 
@@ -1086,7 +1085,7 @@ BOOST_AUTO_TEST_CASE(testPqIndex) {
     BOOST_REQUIRE_GT(pqIndex.compressionRatio(), 7.0);
 
     // Check the document codes.
-    for (std::size_t i = 0; i < 1; ++i) {
+    for (std::size_t i = 0; i < 100; ++i) {
         std::uniform_int_distribution<std::size_t> u0n{0, numDocs - 1};
         std::size_t id{u0n(rng)};
         std::size_t cluster{docsClusters[id]};
@@ -1105,6 +1104,50 @@ BOOST_AUTO_TEST_CASE(testPqIndex) {
 
         BOOST_REQUIRE(docsCodes == expectedDocCodes);
     }
+
+    // Check decoding documents behaves as expected.
+    float avgRelativeError{0.0F};
+    for (std::size_t i = 0; i < 1000; ++i) {
+        std::uniform_int_distribution<std::size_t> u0n{0, numDocs - 1};
+        std::size_t id{u0n(rng)};
+        std::vector<float> doc(dim);
+        for (std::size_t j = 0; j < dim; ++j) {
+            doc[j] = docs[id][j];
+        }
+        auto quantizedDoc = pqIndex.decode(id);
+
+        float dot{0.0F};
+        float quantizedDot{0.0F};
+        for (std::size_t j = 0; j < dim; ++j) {
+            dot += doc[j] * quantizedDoc[j];
+            quantizedDot += quantizedDoc[j] * quantizedDoc[j];
+        }
+
+        avgRelativeError += std::fabsf(dot - quantizedDot) / std::fabsf(dot);
+    }
+    avgRelativeError /= 1000.0F;
+
+    std::cout << "Average relative error: " << avgRelativeError << std::endl;
+    BOOST_REQUIRE_LT(avgRelativeError, 0.01);
+
+    // Decode some vectors and check that the distance calculation matches
+    // the lookup table.
+    std::vector<float> query(dim);
+    std::generate_n(query.begin(), dim, [&] { return u01(rng); });
+    std::uniform_int_distribution<std::size_t> u0n{0, numDocs - 1};
+    for (std::size_t i = 0; i < 100; ++i) {
+        std::size_t id{u0n(rng)};
+        auto decodedDoc = pqIndex.decode(id);
+        float sim{0.0F};
+        for (std::size_t j = 0; j < dim; ++j) {
+            sim += decodedDoc[j] * query[j];
+        }
+        auto expectedDist = 1.0F - sim;
+        float dist = pqIndex.computeDist(query, id);
+
+        BOOST_REQUIRE_CLOSE(dist, expectedDist, 1e-4);
+    }
+
 }
 
 BOOST_AUTO_TEST_SUITE_END()

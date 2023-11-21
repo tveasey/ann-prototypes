@@ -1,6 +1,6 @@
 #pragma once
 
-#include "stats.h" 
+#include "stats.h"
 #include "../common/bigvector.h"
 #include "../common/types.h"
 

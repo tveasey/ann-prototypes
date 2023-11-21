@@ -49,7 +49,7 @@ std::vector<float> initCodebookCentres(std::size_t dim,
             minMseCodebookCentres = std::move(codebookCentres);
             minMse = mse;
         }
-    }    
+    }
 
     return minMseCodebookCentres;
 }
@@ -106,7 +106,7 @@ void anisotropicEncode(const std::vector<float>& doc,
                        const std::vector<float>& codebooksCentres,
                        float threshold,
                        code_t* codes) {
-    
+
     // For each book, find the closest centroid and append the corresponding
     // code for the book.
     //

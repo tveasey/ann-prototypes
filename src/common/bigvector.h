@@ -18,7 +18,7 @@
 // a random access const iterator over the vectors.
 //
 // Note this is not intended to be persistent and so the memory mapped file
-// is removed in the destructor. 
+// is removed in the destructor.
 class BigVector {
 public:
     // A reference to a vector in the memory mapped file.

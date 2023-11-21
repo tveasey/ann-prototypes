@@ -288,7 +288,7 @@ void coarseClustering(bool normalized,
 
     std::vector<Reader> clusterWriters;
     clusterWriters.reserve(NUM_READERS);
-    
+
     for (std::size_t i = 0; i < NUM_READERS; ++i) {
 
         clusterWriters.emplace_back([&, i](std::size_t pos, BigVector::VectorReference doc) {

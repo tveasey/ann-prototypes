@@ -34,12 +34,12 @@ void centre(std::size_t dim,
 void transform(std::size_t dim,
                const std::vector<float>& transformation,
                const float* doc,
-               float* projectedDoc) {
-    std::fill_n(projectedDoc, dim, 0.0F);
+               float* transformedDoc) {
+    std::fill_n(transformedDoc, dim, 0.0F);
     for (std::size_t i = 0; i < dim; ++i) {
         #pragma clang loop unroll_count(4) vectorize(assume_safety)
         for (std::size_t j = 0; j < dim; ++j) {
-            projectedDoc[i] += transformation[i * dim + j] * doc[j];
+            transformedDoc[i] += transformation[i * dim + j] * doc[j];
         }
     }
 }
@@ -192,10 +192,10 @@ std::vector<float> PqIndex::decode(std::size_t id) const {
     const auto* docCode = &docsCodes_[id * NUM_BOOKS];
     const auto* codebooks = &codebooksCentres_[docCluster][0];
     std::size_t bookDim{dim_ / NUM_BOOKS};
-    std::vector<float> projectedResult(dim_, 0.0F);
+    std::vector<float> transformedResult(dim_, 0.0F);
     for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
         const auto* centre = &codebooks[(b * BOOK_SIZE + docCode[b]) * bookDim];
-        std::copy(centre, centre + bookDim, &projectedResult[b * bookDim]);
+        std::copy(centre, centre + bookDim, &transformedResult[b * bookDim]);
     }
 
     // Transform back into the original coordinate system. We use the fact
@@ -205,7 +205,7 @@ std::vector<float> PqIndex::decode(std::size_t id) const {
     const auto& transformation = transformations_[docCluster];
     for (std::size_t i = 0; i < dim_; ++i) {
         for (std::size_t j = 0; j < dim_; ++j) {
-            result[i] += transformation[j * dim_ + i] * projectedResult[j];
+            result[i] += transformation[j * dim_ + i] * transformedResult[j];
         }
     }
 
@@ -289,14 +289,14 @@ void PqIndex::buildNormsTables() {
     normsTable_.resize(numClusters, std::vector<float>(2 * BOOK_SIZE * NUM_BOOKS));
 
     if (normalized_) {
-        std::vector<float> projectedCentre(dim_);
+        std::vector<float> transformedCentre(dim_);
         for (std::size_t cluster = 0; cluster < numClusters; ++cluster) {
             auto& normsTable = normsTable_[cluster];
             const auto& codebooksCentres = codebooksCentres_[cluster];
             const auto* clusterCentre = &clustersCentres_[cluster * dim_];
-            transform(dim_, transformations_[cluster], clusterCentre, projectedCentre.data());
+            transform(dim_, transformations_[cluster], clusterCentre, transformedCentre.data());
             for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
-                const auto* clusterCentreProj = &projectedCentre[b * bookDim];
+                const auto* clusterCentreProj = &transformedCentre[b * bookDim];
                 const auto* codebookCentres = &codebooksCentres[b * BOOK_SIZE * bookDim];
                 for (std::size_t i = 0; i < BOOK_SIZE; ++i) {
                     float sim{0.0F};
@@ -328,22 +328,22 @@ PqIndex::buildSimTable(std::size_t cluster,
     std::size_t bookDim{dim / NUM_BOOKS};
 
     // Transform the query vector into the codebook's coordinate system.
-    std::vector<float> projectedQuery(dim, 0.0F);
-    transform(dim, transformations_[cluster], query.data(), projectedQuery.data());
+    std::vector<float> transformedQuery(dim, 0.0F);
+    transform(dim, transformations_[cluster], query.data(), transformedQuery.data());
 
     // Compute the dot product distance from the query to each centre in the
     // codebook.
     std::vector<float> simTable(BOOK_SIZE * NUM_BOOKS);
     const auto& codebooksCentres = codebooksCentres_[cluster];
     for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
-        const auto* queryProj = &projectedQuery[b * bookDim];
+        const auto* queryProj = &transformedQuery[b * bookDim];
         const auto* codebookCentres = &codebooksCentres[b * BOOK_SIZE * bookDim];
         for (std::size_t i = 0; i < BOOK_SIZE; ++i) {
             float sim{0.0F};
             const auto* codebookCentre = codebookCentres + i * bookDim;
             #pragma clang loop unroll_count(4) vectorize(assume_safety)
             for (std::size_t j = 0; j < bookDim; ++j) {
-                sim += queryProj[j] * codebookCentres[j];
+                sim += queryProj[j] * codebookCentre[j];
             }
             simTable[BOOK_SIZE * b + i] = sim;
         }
@@ -351,9 +351,9 @@ PqIndex::buildSimTable(std::size_t cluster,
 
     // Compute the dot product distance from the query to cluster centre.
     float sim{0.0F};
-    const auto* clusterCentres = &clustersCentres_[cluster];
+    const auto* clusterCentre = &clustersCentres_[cluster * dim];
     for (std::size_t i = 0; i < dim; ++i) {
-        sim += query[i] * clusterCentres[i];
+        sim += query[i] * clusterCentre[i];
     }
 
     return {sim, std::move(simTable)};
@@ -523,7 +523,7 @@ PqIndex buildPqIndex(const BigVector& docs, bool normalized, float distanceThres
     auto beginDocsCodes = docsCodes.data();
     auto beginDocsClusters = docsClusters.begin();
     std::vector<float> centredDoc(dim);
-    std::vector<float> projectedDoc(dim);
+    std::vector<float> transformedDoc(dim);
     for (std::size_t i = 0; i < NUM_READERS; ++i) {
         encoders.emplace_back([=, &clustersCentres, &transformations](
                 std::size_t pos,
@@ -534,11 +534,11 @@ PqIndex buildPqIndex(const BigVector& docs, bool normalized, float distanceThres
             const auto& codebookCentres = codebooksCentres[docCluster];
             centredDoc.assign(doc.data(), doc.data() + dim);
             centre(dim, &clustersCentres[docCluster * dim], centredDoc.data());
-            transform(dim, transformation, centredDoc.data(), projectedDoc.data());
+            transform(dim, transformation, centredDoc.data(), transformedDoc.data());
             if (distanceThreshold > 0.0F) {
-                anisotropicEncode(projectedDoc, codebookCentres, distanceThreshold, docCodes);
+                anisotropicEncode(transformedDoc, codebookCentres, distanceThreshold, docCodes);
             } else {
-                encode(projectedDoc, codebookCentres, docCodes);
+                encode(transformedDoc, codebookCentres, docCodes);
             }
         });
     }

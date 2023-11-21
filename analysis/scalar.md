@@ -1,7 +1,7 @@
 ## Setup
 
 Run experiments merging linear quantisation parameters from the root directory.
-The functionality can be imported as follows: 
+The functionality can be imported as follows:
 ```
 >>> from src.linear_merge import *
 ```
@@ -104,7 +104,7 @@ and $`\vec{\epsilon}_d^{\:t}\vec{q}_q = \vec{\epsilon}_d^{\:t}(\vec{d}-\vec{l})`
 
 ### Randomly Distributed Vectors
 
-In the following we explore how best to merge segments which contain different 
+In the following we explore how best to merge segments which contain different
 quantisation parameters $\{(l_i, u_i)\}$. The basic requirements is to minimise the
 number of times we need to
 1. Recompute quantiles ($l$ and $u$)
@@ -113,7 +113,7 @@ number of times we need to
 Requantising vectors requires us to load every vector dequantise it using the old
 quantiles and then requantise using the new quantiles. In general, if segments
 contain random samples of the full dataset then, as per the discussion above, we
-expect their quantiles to be very similar. Specifically, $l_i \thickapprox l_j$ 
+expect their quantiles to be very similar. Specifically, $l_i \thickapprox l_j$
 and $u_i \thickapprox u_j$ for $i \neq j$. However, in adversarial cases, such as
 if different segments contain disjoint regions of vector space, we need to be able
 to detect we need to requantise. We explore two criteria to achieve this.

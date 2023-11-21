@@ -159,7 +159,7 @@ def cluster_partition(x: np.ndarray,
                       n_partitions: int) -> list[np.ndarray]:
     kmeans = KMeans(n_clusters=n_partitions, n_init=5, max_iter=20).fit(x)
     return [x[kmeans.labels_ == i] for i in range(n_partitions)]
-        
+
 
 def compute_quantisation_rmse(x: np.ndarray,
                               x_q: np.ndarray) -> np.ndarray:

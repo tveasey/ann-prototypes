@@ -127,7 +127,7 @@ void runPQBenchmark(const std::string& tag,
             diff += time([&] {topkPq[i] = index.search(query, m * k).first; });
         }
         std::cout << "PQ search took " << diff.count() << "s" << std::endl;
-    
+
         stats.pqQPS.push_back(std::round(static_cast<double>(numQueries) / diff.count()));
         stats.pqRecalls.push_back(computeRecalls(topkExact, topkPq));
         std::cout << "Average recall@" << k << "|" << m * k << " = "

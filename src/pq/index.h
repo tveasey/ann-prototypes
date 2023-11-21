@@ -119,7 +119,7 @@ private:
     // Build the table of dot product similarities between the query and
     // the codebooks centres.
     std::pair<float, std::vector<float>>
-    buildSimTable(std::size_t cluster, 
+    buildSimTable(std::size_t cluster,
                   const std::vector<float> &query) const;
 
     // Compute the distance between the query and the document with the given
