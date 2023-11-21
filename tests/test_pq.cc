@@ -1167,7 +1167,44 @@ BOOST_AUTO_TEST_CASE(testPqIndexNormed) {
     std::uniform_real_distribution<float> u01{0.0F, 1.0F};
     std::filesystem::path tmpFile{filename};
     BigVector docs{dim, numDocs, tmpFile, [&] { return u01(rng); }};
+    docs.normalize();
 
+    auto pqIndex = buildPqIndex(docs, true);
+
+    BOOST_REQUIRE_EQUAL(pqIndex.numClusters(), 6);
+    BOOST_REQUIRE_EQUAL(pqIndex.numCodebooksCentres(), 6 * NUM_BOOKS * BOOK_SIZE);
+    BOOST_REQUIRE_EQUAL(pqIndex.numTransformations(), 6);
+    BOOST_REQUIRE_EQUAL(pqIndex.numCodes(), numDocs * NUM_BOOKS);
+
+    // Check the compression ratio which should a little less than 8.
+    std::cout << "Compression ratio: " << pqIndex.compressionRatio() << std::endl;
+    BOOST_REQUIRE_GT(pqIndex.compressionRatio(), 7.0);
+
+    // Decode some vectors and check that the distance calculation matches
+    // the lookup table.
+    std::vector<float> query(dim);
+    std::generate_n(query.begin(), dim, [&] { return u01(rng); });
+    float queryNorm{0.0F};
+    for (std::size_t i = 0; i < dim; ++i) {
+        queryNorm += query[i] * query[i];
+    }
+    queryNorm = std::sqrtf(queryNorm);
+    for (std::size_t i = 0; i < dim; ++i) {
+        query[i] /= queryNorm;
+    }
+    std::uniform_int_distribution<std::size_t> u0n{0, numDocs - 1};
+    for (std::size_t i = 0; i < 100; ++i) {
+        std::size_t id{u0n(rng)};
+        auto decodedDoc = pqIndex.decode(id);
+        float sim{0.0F};
+        for (std::size_t j = 0; j < dim; ++j) {
+            sim += decodedDoc[j] * query[j];
+        }
+        auto expectedDist = 1.0F - sim;
+        float dist = pqIndex.computeDist(query, id);
+
+        BOOST_REQUIRE_CLOSE(dist, expectedDist, 1e-3);
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()
