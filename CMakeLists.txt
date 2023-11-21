@@ -42,4 +42,4 @@ include_directories(${Boost_INCLUDE_DIRS})
 target_link_libraries(run_tests ${Boost_LIBRARIES})
 target_link_libraries(common ${Boost_LIBRARIES})
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -march=native -O3")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp-simd -std=c++17 -march=native -O3")

@@ -38,7 +38,7 @@ searchBruteForce(std::size_t k,
     for (auto doc : docs) {
         float sim{0.0F};
         auto* data = doc.data();
-        #pragma clang loop unroll_count(8) vectorize(assume_safety)
+        #pragma omp simd reduction(+:sim)
         for (std::size_t j = 0; j < dim; ++j) {
             sim += query[j] * data[j];
         }
@@ -63,7 +63,7 @@ searchBruteForce(std::size_t k,
     std::priority_queue<std::pair<float, std::size_t>> topk;
     for (std::size_t i = 0, id = 0; i < docs.size(); i += dim, ++id) {
         float sim{0.0F};
-        #pragma clang loop unroll_count(8) vectorize(assume_safety)
+        #pragma omp simd reduction(+:sim)
         for (std::size_t j = 0; j < dim; ++j) {
             sim += query[j] * docs[i + j];
         }

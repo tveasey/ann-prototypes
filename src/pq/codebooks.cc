@@ -88,7 +88,7 @@ void encode(const std::vector<float>& doc,
         for (std::size_t i = 0; i < BOOK_SIZE; ++i) {
             float sd{0.0F};
             auto codebookCentre = codebookCentres + i * bookDim;
-            #pragma clang loop unroll_count(4) vectorize(assume_safety)
+            #pragma omp simd reduction(+:sd)
             for (std::size_t j = 0; j < bookDim; ++j) {
                 float dij{docProj[j] - codebookCentre[j]};
                 sd += dij * dij;
@@ -145,17 +145,17 @@ void anisotropicEncode(const std::vector<float>& doc,
         for (std::size_t i = 0; i < BOOK_SIZE; ++i) {
             float sd{0.0F};
             auto codebookCentre = codebookCentres + i * bookDim;
-            #pragma clang loop unroll_count(4) vectorize(assume_safety)
+            #pragma omp simd reduction(+:sd)
             for (std::size_t j = 0; j < bookDim; ++j) {
                 float dij{docProj[j] - codebookCentre[j]};
                 sd += dij * dij;
             }
-            float parallel{0.0F};
-            #pragma clang loop unroll_count(4) vectorize(assume_safety)
+            float pd{0.0F};
+            #pragma omp simd reduction(+:pd)
             for (std::size_t j = 0; j < bookDim; ++j) {
-                parallel += docProj[j] * (codebookCentre[j] - docProj[j]);
+                pd += docProj[j] * (codebookCentre[j] - docProj[j]);
             }
-            sd += (scale - 1.0F) * parallel * parallel / n2;
+            sd += (scale - 1.0F) * pd * pd / n2;
             if (sd < msd) {
                 iMsd = i;
                 msd = sd;

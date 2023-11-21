@@ -1150,6 +1150,26 @@ BOOST_AUTO_TEST_CASE(testPqIndex) {
     }
 }
 
+BOOST_AUTO_TEST_CASE(testPqIndexNormed) {
+
+    char filename[]{"/tmp/test_storage_XXXXXX"};
+    int ret{::mkstemp(filename)};
+    if (ret == -1) {
+        BOOST_FAIL("Couldn't create temporary file");
+    }
+    std::cout << "Created temporary file " << filename << std::endl;
+
+    // Create a BigVector using a random generator.
+    std::size_t dim{2 * NUM_BOOKS};
+    std::size_t bookDim{dim / NUM_BOOKS};
+    std::size_t numDocs{6 * COARSE_CLUSTERING_DOCS_PER_CLUSTER};
+    std::minstd_rand rng{0};
+    std::uniform_real_distribution<float> u01{0.0F, 1.0F};
+    std::filesystem::path tmpFile{filename};
+    BigVector docs{dim, numDocs, tmpFile, [&] { return u01(rng); }};
+
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 } // unnamed::

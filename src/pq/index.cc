@@ -25,7 +25,7 @@ namespace {
 void centre(std::size_t dim,
             const float* centre,
             float* doc) {
-    #pragma clang loop unroll_count(4) vectorize(assume_safety)
+    #pragma omp simd
     for (std::size_t i = 0; i < dim; ++i) {
         doc[i] -= centre[i];
     }
@@ -37,10 +37,12 @@ void transform(std::size_t dim,
                float* transformedDoc) {
     std::fill_n(transformedDoc, dim, 0.0F);
     for (std::size_t i = 0; i < dim; ++i) {
-        #pragma clang loop unroll_count(4) vectorize(assume_safety)
+        float sum{0.0F};
+        #pragma omp simd reduction(+:sum)
         for (std::size_t j = 0; j < dim; ++j) {
-            transformedDoc[i] += transformation[i * dim + j] * doc[j];
+            sum += transformation[i * dim + j] * doc[j];
         }
+        transformedDoc[i] = sum;
     }
 }
 
@@ -302,7 +304,7 @@ void PqIndex::buildNormsTables() {
                     float sim{0.0F};
                     float norm2{0.0F};
                     const auto* codebookCentre = codebookCentres + i * bookDim;
-                    #pragma clang loop unroll_count(4) vectorize(assume_safety)
+                    #pragma omp simd reduction(+:sim,norm2)
                     for (std::size_t j = 0; j < bookDim; ++j) {
                         float cij{codebookCentre[j]};
                         sim += clusterCentreProj[j] * cij;
@@ -341,7 +343,7 @@ PqIndex::buildSimTable(std::size_t cluster,
         for (std::size_t i = 0; i < BOOK_SIZE; ++i) {
             float sim{0.0F};
             const auto* codebookCentre = codebookCentres + i * bookDim;
-            #pragma clang loop unroll_count(4) vectorize(assume_safety)
+            #pragma omp simd reduction(+:sim)
             for (std::size_t j = 0; j < bookDim; ++j) {
                 sim += queryProj[j] * codebookCentre[j];
             }

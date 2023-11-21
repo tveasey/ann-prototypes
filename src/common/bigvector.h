@@ -156,6 +156,8 @@ public:
     BigVector(const BigVector&) = delete;
     BigVector& operator=(const BigVector&) = delete;
 
+    // Normalize the vectors in place.
+    void normalize();
     // The dimension of the vectors.
     std::size_t dim() const {
         return dim_;

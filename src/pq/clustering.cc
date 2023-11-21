@@ -77,7 +77,7 @@ std::vector<float> initKmeansPlusPlus(std::size_t dim,
             for (auto doc = docs.begin(); doc != docs.end(); doc += dim, ++msd) {
                 float sd{0.0F};
                 auto docProj = doc + b;
-                #pragma clang loop unroll_count(4) vectorize(assume_safety)
+                #pragma omp simd reduction(+:sd)
                 for (std::size_t j = 0; j < subspaceDim; ++j) {
                     float dij{docProj[j] - lastCentre[j]};
                     sd += dij * dij;
@@ -130,7 +130,7 @@ double stepLloyd(std::size_t dim,
             for (std::size_t i = 0; i < numClusters; ++i) {
                 float sd{0.0F};
                 auto centreProj = &centres[(b * numClusters + i) * subspaceDim];
-                #pragma clang loop unroll_count(4) vectorize(assume_safety)
+                #pragma omp simd reduction(+:sd)
                 for (std::size_t j = 0; j < subspaceDim; ++j) {
                     float dij{doc[j] - centreProj[j]};
                     sd += dij * dij;
@@ -297,7 +297,7 @@ void coarseClustering(bool normalized,
             float msd{std::numeric_limits<float>::max()};
             for (int i = 0; i < numClusters; ++i) {
                 float sd{0.0F};
-                #pragma clang loop unroll_count(4) vectorize(assume_safety)
+                #pragma omp simd reduction(+:sd)
                 for (std::size_t j = 0; j < dim; ++j) {
                     float dij{clusterCentres[i * dim + j] - doc[j]};
                     sd += dij * dij;
@@ -341,12 +341,12 @@ void coarseClustering(bool normalized,
     // the total document count.
     for (std::size_t i = 0; i < numClusters; ++i) {
         for (std::size_t j = 0; j < dim; ++j) {
-            clusterCentres[i * dim + j] = 0.0F;
-            #pragma clang loop unroll_count(4) vectorize(assume_safety)
+            float sum{0.0F};
+            #pragma omp simd reduction(+:sum)
             for (std::size_t k = 0; k < NUM_READERS; ++k) {
-                clusterCentres[i * dim + j] += newCentres[k][i * dim + j];
+                sum += newCentres[k][i * dim + j];
             }
-            clusterCentres[i * dim + j] /= static_cast<float>(clusterCounts[i]);
+            clusterCentres[i * dim + j] = sum / static_cast<float>(clusterCounts[i]);
         }
     }
     ifSphericalKMeansNormalize(clusterCentres);

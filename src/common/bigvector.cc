@@ -124,6 +124,23 @@ BigVector::~BigVector() {
     }
 }
 
+void BigVector::normalize() {
+    for (std::size_t i = 0; i < numVectors_; ++i) {
+        float* begin = data_ + i * dim_;
+        float* end = begin + dim_;
+        float norm{0.0F};
+        #pragma omp simd reduction(+:norm)
+        for (auto* x = begin; x != end; ++x) {
+            norm += *x * *x;
+        }
+        norm = std::sqrtf(norm);
+        #pragma omp simd
+        for (auto* x = begin; x != end; ++x) {
+            *x /= norm;
+        }
+    }
+}
+
 void BigVector::create_memory_mapped_file(std::size_t dim,
                                           std::size_t numVectors,
                                           const std::filesystem::path& storage) {

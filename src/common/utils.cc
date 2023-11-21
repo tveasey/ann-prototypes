@@ -56,12 +56,12 @@ std::vector<float> sampleDocs(std::size_t dim,
 void normalize(std::size_t dim, std::vector<float>& vectors) {
     for (std::size_t i = 0; i < vectors.size(); i += dim) {
         float norm{0.0F};
-        #pragma clang loop unroll_count(8) vectorize(assume_safety)
+        #pragma omp simd reduction(+:norm)
         for (std::size_t j = 0; j < dim; ++j) {
             norm += vectors[i + j] * vectors[i + j];
         }
         norm = std::sqrtf(norm);
-        #pragma clang loop unroll_count(8) vectorize(assume_safety)
+        #pragma omp simd
         for (std::size_t j = 0; j < dim; ++j) {
             vectors[i + j] /= norm;
         }
@@ -72,7 +72,7 @@ std::vector<float> norms2(std::size_t dim, const std::vector<float>& vectors) {
     std::vector<float> norms2(vectors.size() / dim);
     for (std::size_t i = 0, j = 0; i < vectors.size(); i += dim, ++j) {
         float norm2{0.0F};
-        #pragma clang loop unroll_count(8) vectorize(assume_safety)
+        #pragma omp simd reduction(+:norm2)
         for (std::size_t j = 0; j < dim; ++j) {
             norm2 += vectors[i + j] * vectors[i + j];
         }

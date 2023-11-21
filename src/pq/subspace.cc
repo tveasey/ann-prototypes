@@ -17,6 +17,7 @@
 
 std::vector<float> centreData(std::size_t dim,
                               std::vector<float> data) {
+
     std::vector<float> centroid(dim, 0.0F);
     std::size_t numDocs{data.size() / dim};
     for (std::size_t i = 0; i < data.size(); i += dim) {
@@ -50,15 +51,12 @@ std::vector<double> covarianceMatrix(std::size_t dim,
             }
         }
     }
-
     for (std::size_t j = 0; j < dim; ++j) {
         #pragma clang loop unroll_count(4) vectorize(assume_safety)
         for (std::size_t k = 0; k < dim; ++k) {
             cov[j * dim + k] /= static_cast<double>(numDocs);
         }
     }
-
-
     return cov;
 }
 
