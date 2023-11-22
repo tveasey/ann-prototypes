@@ -6,6 +6,7 @@
 #include "subspace.h"
 #include "../common/bigvector.h"
 #include "../common/progress_bar.h"
+#include "../common/types.h"
 #include "../common/utils.h"
 
 #include <algorithm>
@@ -220,12 +221,7 @@ std::vector<float> PqIndex::decode(std::size_t id) const {
 
     // If the vectors are normalized then we need to normalize the result.
     if (metric_ == Cosine) {
-        float norm{std::sqrtf(
-            std::accumulate(result.begin(), result.end(), 0.0F,
-                            [](auto& pnorm, auto& x) { return pnorm + x * x; } ))};
-        for (std::size_t i = 0; i < dim_; ++i) {
-            result[i] /= norm;
-        }
+        normalize(dim_, result);
     }
 
     return result;

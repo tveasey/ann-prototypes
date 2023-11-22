@@ -1252,7 +1252,7 @@ BOOST_AUTO_TEST_CASE(testPqIndexEuclidean) {
         }
         float dist{pqIndex.computeDist(query, id)};
 
-        BOOST_REQUIRE_CLOSE(dist, expectedDist, 1e-3);
+        BOOST_REQUIRE_CLOSE(dist, expectedDist, 1e-4);
     }
 }
 
