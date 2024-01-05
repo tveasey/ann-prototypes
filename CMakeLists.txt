@@ -31,6 +31,7 @@ add_executable(run_tests
     tests/test_common.cc
     tests/test_observer.cc
     tests/test_pq.cc
+    tests/test_scalar.cc
 )
 target_link_libraries(run_tests common pq scalar)
 

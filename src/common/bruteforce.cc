@@ -23,6 +23,15 @@ extractIdsAndScores(std::priority_queue<std::pair<float, std::size_t>> topk) {
 
 } // unnamed::
 
+float dotf(std::size_t dim, const float* x, const float* y) {
+    float xy{0.0F};
+    #pragma omp simd reduction(+:xy)
+    for (std::size_t i = 0; i < dim; ++i) {
+        xy += x[i] * y[i];
+    }
+    return xy;
+}
+
 std::pair<std::vector<std::size_t>, std::vector<float>>
 searchBruteForce(std::size_t k,
                  const BigVector& docs,

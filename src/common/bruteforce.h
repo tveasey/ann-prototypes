@@ -5,6 +5,8 @@
 #include <cstddef>
 #include <vector>
 
+float dotf(std::size_t dim, const float* x, const float* y);
+
 std::pair<std::vector<std::size_t>, std::vector<float>>
 searchBruteForce(std::size_t k,
                  const BigVector& docs,

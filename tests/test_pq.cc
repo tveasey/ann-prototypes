@@ -10,7 +10,6 @@
 #include "../src/common/io.h"
 #include "../src/common/utils.h"
 
-#include <boost/test/tools/old/interface.hpp>
 #include <boost/test/unit_test.hpp>
 
 #include <algorithm>
