@@ -36,8 +36,7 @@ void unpack4B(std::size_t dim,
 std::pair<float, float>
 quantiles(std::size_t dim, const std::vector<float>& vectors, float ci);
 
-std::pair<float, float>
-calibrateBinaryQuantisation(std::size_t dim, std::vector<float>& docs);
+std::pair<float, float> computeBuckets1B(std::size_t dim, std::vector<float>& docs);
 
 std::pair<std::vector<std::uint8_t>, std::vector<float>>
 scalarQuantise8B(const std::pair<float, float>& range,
@@ -47,6 +46,13 @@ scalarQuantise8B(const std::pair<float, float>& range,
 std::vector<float> scalarDequantise8B(const std::pair<float, float>& range,
                                       std::size_t dim,
                                       const std::vector<std::uint8_t>& quantised);
+
+void searchScalarQuantise8B(std::size_t k,
+                            const std::pair<float, float>& range,
+                            const std::vector<std::uint8_t>& docs,
+                            const std::vector<float>& p1,
+                            const std::vector<float>& query,
+                            std::priority_queue<std::pair<float, std::size_t>>& topk);
 
 std::pair<std::vector<std::uint8_t>, std::vector<float>>
 scalarQuantise4B(const std::pair<float, float>& range,

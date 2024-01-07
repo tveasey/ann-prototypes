@@ -4,6 +4,7 @@
 #include "../src/common/utils.h"
 #include "../src/scalar/scalar.h"
 
+#include <boost/test/tools/old/interface.hpp>
 #include <boost/test/unit_test.hpp>
 
 #include <algorithm>
@@ -14,6 +15,24 @@
 namespace {
 
 BOOST_AUTO_TEST_SUITE(scalar)
+
+BOOST_AUTO_TEST_CASE(testQuantiles) {
+
+    // Generate uniformly distributed vectors.
+    std::mt19937_64 rng;
+    std::uniform_real_distribution<float> u010{0.0F, 10.0F};
+    std::size_t dim{100};
+    std::vector<float> x(1000 * dim);
+    std::generate(x.begin(), x.end(), [&] { return u010(rng); });
+
+    // Check the quantiles are correct.
+    auto [q1p5, q2p5] = quantiles(dim, x, 0.5F);
+    BOOST_CHECK_CLOSE(q1p5, 2.5F, 1.0F);
+    BOOST_CHECK_CLOSE(q2p5, 7.5F, 1.0F);
+    auto [q1p9, q2p9] = quantiles(dim, x, 0.9F);
+    BOOST_CHECK_CLOSE(q1p9, 0.5F, 1.0F);
+    BOOST_CHECK_CLOSE(q2p9, 9.5F, 1.0F);
+}
 
 BOOST_AUTO_TEST_CASE(testDot1B) {
 
@@ -69,6 +88,18 @@ BOOST_AUTO_TEST_CASE(testScalarQuantise1B) {
             }
         }
     }
+}
+
+BOOST_AUTO_TEST_CASE(testComputeBuckets1B) {
+
+    std::mt19937_64 rng{std::random_device{}()};
+    std::uniform_real_distribution<float> u710{7.0F, 10.0F};
+    std::size_t dim{100};
+    std::vector<float> x(5000 * dim);
+    
+    std::generate(x.begin(), x.end(), [&] { return u710(rng); });
+
+    auto [q1, q2] = computeBuckets1B(dim, x);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
