@@ -465,7 +465,7 @@ computeQuantisationInterval(std::size_t dim,
     std::vector<float> queryNeighbours(numNeighbours * dim);
     float lBest{0.0F};
     float uBest{0.0F};
-    double maxCorr{0.0F};
+    double maxCorr{-std::numeric_limits<float>::max()};
     for (auto l : lowerCandidates) {
         for (auto u : upperCandidates) {
             OnlineMeanAndVariance corr;
@@ -706,14 +706,14 @@ scalarQuantise1B(const std::pair<float, float>& bucketCentres,
                  const std::vector<float>& dequantised) {
 
     auto [lower, upper] = bucketCentres;
+    std::size_t dimq{4 * ((dim + 31) / 32)};
     std:size_t numDocs{dequantised.size() / dim};
     float scale{1.0F / (upper - lower)};
     float invScale{upper - lower};
 
     std::vector<float> p1(numDocs, 0.0F);
-    std::vector<std::uint8_t> quantised(numDocs * ((dim + 31) / 32));
+    std::vector<std::uint8_t> quantised(numDocs * dimq, 0);
     auto* xq32 = reinterpret_cast<std::uint32_t*>(&quantised[0]);
-
     for (std::size_t i = 0, id = 0; i < dequantised.size(); i += dim, ++id) {
         for (std::size_t j = i; j < i + dim; ++xq32) {
             std::uint32_t xq{0};
@@ -738,10 +738,11 @@ std::vector<float> scalarDequantise1B(const std::pair<float, float>& bucketCentr
                                       const std::vector<std::uint8_t>& quantised) {
 
     auto [lower, upper] = bucketCentres;
-    std::size_t dimq{(dim + 31) / 32};
+    std::size_t dimq{4 * (dim + 31) / 32};
+    std::size_t numDocs{quantised.size() / dimq};
     float scale{upper - lower};
 
-    std::vector<float> dequantised(dim * quantised.size() / dimq);
+    std::vector<float> dequantised(dim * numDocs);
 
     const auto* xq32 = reinterpret_cast<const std::uint32_t*>(&quantised[0]);
     for (auto xd = dequantised.begin(); xd != dequantised.end(); /**/) {
@@ -765,29 +766,34 @@ void searchScalarQuantise1B(std::size_t k,
 
     auto [lower, upper] = bucketCentres;
     std::size_t dim{query.size()};
+    std::size_t dimq{4 * ((dim + 31) / 32)};
     float scale{1.0F / (upper - lower)};
     float invScale{upper - lower};
 
-    std::vector<std::uint32_t> qq((dim + 31) / 32, 0);
+    std::vector<std::uint8_t> qq(dimq, 0);
     float q1{0.0F};
     float p2{invScale * invScale};
-    for (std::size_t i = 0, iq = 0; i < dim; ++iq) {
-        std::uint32_t xq{0};
-        for (std::size_t j = 0; i < dim && j < 32; ++i, ++j) {
-            float x{query[i]};
-            float dx{x - lower};
-            float dxc{std::clamp(x, lower, upper) - lower};
-            float dxs{scale * dxc};
-            float dxq{invScale * std::round(dxs)};
-            q1 += lower * (x - lower / 2.0F) + (dx - dxq) * dxq;
-            xq |= static_cast<std::uint32_t>(std::round(dxs)) << j;
+    {
+        auto* qq32 = reinterpret_cast<std::uint32_t*>(&qq[0]);
+        for (std::size_t i = 0; i < dim; ++qq32) {
+            std::uint32_t xq{0};
+            for (std::size_t j = 0; i < dim && j < 32; ++i, ++j) {
+                float x{query[i]};
+                float dx{x - lower};
+                float dxc{std::clamp(x, lower, upper) - lower};
+                float dxs{scale * dxc};
+                float dxq{invScale * std::round(dxs)};
+                q1 += lower * (x - lower / 2.0F) + (dx - dxq) * dxq;
+                xq |= static_cast<std::uint32_t>(std::round(dxs)) << j;
+            }
+            *qq32 = xq;
         }
-        qq[iq] = xq;
     }
 
-    for (std::size_t i = 0, id = 0; i < docs.size(); i += dim, ++id) {
-        auto dq = reinterpret_cast<const std::uint32_t*>(&docs[i]);
-        std::uint32_t simi{dot1B(dim, &qq[0], dq)};
+    for (std::size_t i = 0, id = 0; i < docs.size(); i += dimq, ++id) {
+        auto qq32 = reinterpret_cast<const std::uint32_t*>(&qq[0]);
+        auto dq32 = reinterpret_cast<const std::uint32_t*>(&docs[i]);
+        std::uint32_t simi{dot1B(dim, qq32, dq32)};
         float sim{p1[id] + q1 + p2 * static_cast<float>(simi)};
         float dist{1.0F - sim};
         if (topk.size() < k) {
@@ -913,15 +919,15 @@ void runScalarBenchmark(const std::string& tag,
 
     start = std::chrono::steady_clock::now();
     auto range = [&] {
-        auto [lowerCandidates, upperCandidates] = candidateQuantizationIntervals(dim, docs, bits);
+        auto [l, u] = candidateQuantizationIntervals(dim, docs, bits);
         switch (bits) {
         case B1: 
-            return computeQuantisationInterval(dim, docs, lowerCandidates, upperCandidates, nearestNeighbours1B);
+            return computeQuantisationInterval(dim, docs, l, u, nearestNeighbours1B);
         case B4:
         case B4P:
-            return computeQuantisationInterval(dim, docs, lowerCandidates, upperCandidates, nearestNeighbours4B);
+            return computeQuantisationInterval(dim, docs, l, u, nearestNeighbours4B);
         case B8:
-            return computeQuantisationInterval(dim, docs, lowerCandidates, upperCandidates, nearestNeighbours8B);
+            return computeQuantisationInterval(dim, docs, l, u, nearestNeighbours8B);
         }
     }();
     auto [quantisedDocs, p1] = [&] {
@@ -940,10 +946,12 @@ void runScalarBenchmark(const std::string& tag,
     diff = std::chrono::duration<double>(end - start);
     std::cout << "Quantisation took " << diff.count() << "s" << std::endl;
 
+    // WARNING the term added to k must equal the last term value for "a" in the
+    // following loop.
     std::vector<std::vector<std::size_t>> nnSQ(
-        numQueries, std::vector<std::size_t>(k + 40, numDocs + 1));
+        numQueries, std::vector<std::size_t>(k + 90, numDocs + 1));
 
-    for (std::size_t a = 0; a <= 40; a += 10) {
+    for (std::size_t a : {0, 10, 20, 30, 40, 90}) {
         diff = std::chrono::duration<double>{0};
         for (std::size_t i = 0; i < queries.size(); i += dim) {
             std::copy(queries.begin() + i, queries.begin() + i + dim, query.begin());

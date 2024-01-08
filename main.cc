@@ -63,7 +63,7 @@ int main(int argc, char* argv[]) {
     desc.add_options()
         ("help,h", "Show this help")
         ("scalar,s", boost::program_options::value<std::string>(),
-            "Use 4, 4P or 8 bit scalar quantisation")
+            "Use 1, 4, 4P or 8 bit scalar quantisation (default none)")
         ("run,r", boost::program_options::value<std::string>(),
             "Run a test dataset")
         ("metric,m", boost::program_options::value<std::string>()->default_value("cosine"),
@@ -82,7 +82,9 @@ int main(int argc, char* argv[]) {
         }
         if (vm.count("scalar")) {
             auto s = vm["scalar"].as<std::string>();
-            if (s == "4") {
+            if (s == "1") {
+                scalar = B1;
+            } else if (s == "4") {
                 scalar = B4;
             } else if (s == "4P") {
                 scalar = B4P;
