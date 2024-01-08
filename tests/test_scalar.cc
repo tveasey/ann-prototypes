@@ -64,6 +64,114 @@ BOOST_AUTO_TEST_CASE(testDot1B) {
     }
 }
 
+BOOST_AUTO_TEST_CASE(testDot4B) {
+
+    std::minstd_rand rng{std::random_device{}()};
+    std::uniform_int_distribution<> u{0, 15};
+
+    for (std::size_t t = 0; t < 100; ++t) {
+        std::vector<std::uint8_t> x(64);
+        std::vector<std::uint8_t> y(x.size());
+        std::vector<std::uint8_t> yp(x.size() / 2);
+        std::generate_n(x.begin(), x.size(), [&] { return u(rng); });
+        std::generate_n(y.begin(), y.size(), [&] { return u(rng); });
+
+        std::uint32_t expectedDot{0};
+        for (std::size_t i = 0; i < x.size(); ++i) {
+            expectedDot += x[i] * y[i];
+        }
+
+        auto dot = dot4B(x.size(), x.data(), y.data());
+
+        for (std::size_t i = 0; i < y.size(); i += 64) {
+            pack4B(64, &y[i], &yp[i >> 1]);
+        }
+
+        auto dotp = dot4BP(x.size(), x.data(), yp.data());
+
+        BOOST_REQUIRE_EQUAL(expectedDot, dot);
+        BOOST_REQUIRE_EQUAL(expectedDot, dotp);
+    }
+
+    // Remainder.
+    for (std::size_t t = 0; t < 100; ++t) {
+        std::vector<std::uint8_t> x(79);
+        std::vector<std::uint8_t> y(x.size());
+        std::vector<std::uint8_t> yp((x.size() + 1) / 2);
+        std::generate_n(x.begin(), x.size(), [&] { return u(rng); });
+        std::generate_n(y.begin(), y.size(), [&] { return u(rng); });
+
+        std::uint32_t expectedDot{0};
+        for (std::size_t i = 0; i < x.size(); ++i) {
+            expectedDot += x[i] * y[i];
+        }
+
+        auto dot = dot4B(x.size(), x.data(), y.data());
+
+        std::size_t remainder{x.size() & 0x3F};
+        std::size_t n{x.size() - remainder};
+        for (std::size_t i = 0; i < n; i += 64) {
+            pack4B(64, &y[i], &yp[i >> 1]);
+        }
+        pack4B(remainder, &y[n], &yp[n >> 1]);
+
+        auto dotp = dot4BP(x.size(), x.data(), yp.data());
+
+        BOOST_REQUIRE_EQUAL(expectedDot, dot);
+        BOOST_REQUIRE_EQUAL(expectedDot, dotp);
+    }
+
+    // Long.
+    for (std::size_t t = 0; t < 100; ++t) {
+        std::vector<std::uint8_t> x(5030);
+        std::vector<std::uint8_t> y(x.size());
+        std::vector<std::uint8_t> yp((x.size() + 1) / 2);
+        std::generate_n(x.begin(), x.size(), [&] { return u(rng); });
+        std::generate_n(y.begin(), y.size(), [&] { return u(rng); });
+
+        std::uint32_t expectedDot{0};
+        for (std::size_t i = 0; i < x.size(); ++i) {
+            expectedDot += x[i] * y[i];
+        }
+
+        auto dot = dot4B(x.size(), x.data(), y.data());
+
+        std::size_t remainder{x.size() & 0x3F};
+        std::size_t n{x.size() - remainder};
+        for (std::size_t i = 0; i < n; i += 64) {
+            pack4B(64, &y[i], &yp[i >> 1]);
+        }
+        pack4B(remainder, &y[n], &yp[n >> 1]);
+
+        auto dotp = dot4BP(x.size(), x.data(), yp.data());
+
+        BOOST_REQUIRE_EQUAL(expectedDot, dot);
+        BOOST_REQUIRE_EQUAL(expectedDot, dotp);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(testDot8B) {
+
+    std::minstd_rand rng{std::random_device{}()};
+    std::uniform_int_distribution<> u{0, 15};
+
+    for (std::size_t t = 0; t < 100; ++t) {
+        std::vector<std::uint8_t> x(128);
+        std::vector<std::uint8_t> y(x.size());
+        std::generate_n(x.begin(), x.size(), [&] { return u(rng); });
+        std::generate_n(y.begin(), y.size(), [&] { return u(rng); });
+
+        std::uint32_t expectedDot{0};
+        for (std::size_t i = 0; i < x.size(); ++i) {
+            expectedDot += x[i] * y[i];
+        }
+
+        auto dot = dot8B(x.size(), x.data(), y.data());
+
+        BOOST_REQUIRE_EQUAL(expectedDot, dot);
+    }
+}
+
 BOOST_AUTO_TEST_CASE(testScalarQuantise1B) {
 
     std::mt19937_64 rng{std::random_device{}()};
@@ -89,6 +197,33 @@ BOOST_AUTO_TEST_CASE(testScalarQuantise1B) {
                 }
             }
         }
+    }
+}
+
+BOOST_AUTO_TEST_CASE(test4BPacking) {
+
+    std::minstd_rand rng{std::random_device{}()};
+    std::uniform_int_distribution<> u{0, 15};
+
+    for (std::size_t t = 0; t < 100; ++t) {
+        std::vector<std::uint8_t> x(77);
+        std::vector<std::uint8_t> xp((x.size() + 1) / 2);
+        std::generate_n(x.begin(), x.size(), [&] { return u(rng); });
+
+        std::size_t rem{x.size() & 0x1F};
+        std::size_t dim{x.size() - rem};
+        for (std::size_t i = 0; i < x.size(); i += 64) {
+            pack4B(64, &x[i], &xp[i >> 1]);
+        }
+        pack4B(rem, &x[dim], &xp[dim >> 1]);
+
+        std::vector<std::uint8_t> xu(x.size());
+        for (std::size_t i = 0; i < x.size(); i += 64) {
+            unpack4B(64, &xp[i >> 1], &xu[i]);
+        }
+        unpack4B(rem, &xp[dim >> 1], &xu[dim]);
+
+        BOOST_REQUIRE_EQUAL(x, xu);
     }
 }
 

@@ -284,7 +284,7 @@ void pack4B32(const std::uint8_t*__restrict block,
 void pack4BR(std::size_t dim,
              const std::uint8_t*__restrict remainder,
              std::uint8_t*__restrict packedRemainder) {
-    dim = dim & 0x1F;
+    dim = dim & 0x3F;
     std::size_t rem{dim & 0x1};
     dim -= rem;
     for (std::size_t i = 0; i < dim; i += 2) {
@@ -373,8 +373,9 @@ std::uint32_t dot1B(std::size_t dim,
 void pack4B(std::size_t dim,
             const std::uint8_t*__restrict raw,
             std::uint8_t*__restrict packed) {
-    if (dim == 32) {
+    if (dim == 64) {
         pack4B32(raw, packed);
+        pack4B32(raw + 32, packed + 16);
     } else {
         pack4BR(dim, raw, packed);
     }
@@ -383,8 +384,9 @@ void pack4B(std::size_t dim,
 void unpack4B(std::size_t dim,
               const std::uint8_t*__restrict packed,
               std::uint8_t*__restrict raw) {
-    if (dim == 32) {
+    if (dim == 64) {
         unpack4B32(packed, raw);
+        unpack4B32(packed + 16, raw + 32);
     } else {
         unpack4BR(dim, packed, raw);
     }
@@ -416,6 +418,7 @@ computeQuantisationInterval(std::size_t dim,
                             const std::vector<float>& lowerCandidates,
                             const std::vector<float>& upperCandidates,
                             quantised_nearest_neighbours_t quantisedNearestNeighbours) {
+
     // We use the following calibration procedure:
     //   1. Randomly sample 1000 documents
     //   2. For each document find the closest 10 documents.
@@ -600,10 +603,10 @@ scalarQuantise4B(const std::pair<float, float>& range,
 
     auto xd = dequantised.begin();
     auto xq = quantised.begin();
-    std::array<std::uint8_t, 32> block;
+    std::array<std::uint8_t, 64> block;
     for (std::size_t id = 0; id < numDocs; ++id, xq += dimq) {
          for (std::size_t j = 0, k = 0; j < dim; xd += k) {
-            for (k = 0; j < dim && k < 32; ++j, ++k) {
+            for (k = 0; j < dim && k < 64; ++j, ++k) {
                 float x{xd[k]};
                 float dx{x - lower};
                 float dxc{std::clamp(x, lower, upper) - lower};
@@ -634,11 +637,11 @@ std::vector<float> scalarDequantise4B(const std::pair<float, float>& range,
     std::vector<float> dequantised(quantised.size());
 
     const std::uint8_t* xq = &quantised[0];
-    std::array<std::uint8_t, 32> block;
+    std::array<std::uint8_t, 64> block;
     for (auto xd = dequantised.begin(); xd != dequantised.end(); /**/) {
         if (packed) {
-            for (std::size_t i = 0; i < dim; i += 32) {
-                std::size_t j{std::min(dim - i, 32UL)};
+            for (std::size_t i = 0; i < dim; i += 64) {
+                std::size_t j{std::min(dim - i, 64UL)};
                 unpack4B(j, xq, &block[0]);
                 for (std::size_t k = 0; k < j; ++k, ++xd) {
                     *xd = lower + scale * static_cast<float>(block[k]);
