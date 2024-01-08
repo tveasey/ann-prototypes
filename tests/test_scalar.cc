@@ -76,30 +76,20 @@ BOOST_AUTO_TEST_CASE(testScalarQuantise1B) {
 
         auto [xq, _] = scalarQuantise1B({2.5F, 7.5F}, dim, x);
 
+        const std::uint32_t* xq32{reinterpret_cast<const std::uint32_t*>(xq.data())};
+
         // Check each quantised component is rounding to the correct bucket centre.
         for (std::size_t i = 0; i < dim; /**/) {
             for (std::size_t j = 0; i < dim && j < 32; ++i, ++j) {
                 std::uint32_t mask(1 << j);
                 if (x[i] >= 5.0F) {
-                    BOOST_CHECK_EQUAL(xq[i / 32] & mask, mask);
+                    BOOST_CHECK_EQUAL(xq32[i / 32] & mask, mask);
                 } else {
-                    BOOST_CHECK_EQUAL(xq[i / 32] & mask, 0);
+                    BOOST_CHECK_EQUAL(xq32[i / 32] & mask, 0);
                 }
             }
         }
     }
-}
-
-BOOST_AUTO_TEST_CASE(testComputeBuckets1B) {
-
-    std::mt19937_64 rng{std::random_device{}()};
-    std::uniform_real_distribution<float> u710{7.0F, 10.0F};
-    std::size_t dim{100};
-    std::vector<float> x(5000 * dim);
-    
-    std::generate(x.begin(), x.end(), [&] { return u710(rng); });
-
-    auto [q1, q2] = computeBuckets1B(dim, x);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

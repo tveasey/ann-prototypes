@@ -3,11 +3,20 @@
 #include "../common/types.h"
 
 #include <cstdint>
+#include <cstddef>
+#include <functional>
 #include <queue>
 #include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
+
+using quantised_nearest_neighbours_t =
+    std::function<void (std::size_t,
+                        const std::vector<float>&,
+                        const std::vector<float>&,
+                        std::pair<float, float>,
+                        std::priority_queue<std::pair<float, std::size_t>>&)>;
 
 std::uint32_t dot8B(std::size_t dim,
                     const std::uint8_t*__restrict x,
@@ -36,7 +45,12 @@ void unpack4B(std::size_t dim,
 std::pair<float, float>
 quantiles(std::size_t dim, const std::vector<float>& vectors, float ci);
 
-std::pair<float, float> computeBuckets1B(std::size_t dim, std::vector<float>& docs);
+std::pair<float, float>
+computeQuantisationInterval(std::size_t dim,
+                            const std::vector<float>& docs,
+                            const std::vector<float>& lowerCandidates,
+                            const std::vector<float>& upperCandidates,
+                            quantised_nearest_neighbours_t quantisedNearestNeighbours);
 
 std::pair<std::vector<std::uint8_t>, std::vector<float>>
 scalarQuantise8B(const std::pair<float, float>& range,
@@ -73,18 +87,18 @@ void searchScalarQuantise4B(std::size_t k,
                             const std::vector<float>& query,
                             std::priority_queue<std::pair<float, std::size_t>>& topk);
 
-std::pair<std::vector<std::uint32_t>, std::vector<float>>
+std::pair<std::vector<std::uint8_t>, std::vector<float>>
 scalarQuantise1B(const std::pair<float, float>& bucketCentres,
                  std::size_t dim,
                  const std::vector<float>& dequantised);
 
 std::vector<float> scalarDequantise1B(const std::pair<float, float>& bucketCentres,
                                       std::size_t dim,
-                                      const std::vector<std::uint32_t>& quantised);
+                                      const std::vector<std::uint8_t>& quantised);
 
 void searchScalarQuantise1B(std::size_t k,
                             const std::pair<float, float>& bucketCentres,
-                            const std::vector<std::uint32_t>& docs,
+                            const std::vector<std::uint8_t>& docs,
                             const std::vector<float>& p1,
                             const std::vector<float>& query,
                             std::priority_queue<std::pair<float, std::size_t>>& topk);

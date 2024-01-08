@@ -43,7 +43,7 @@ private:
 
 #if defined(__ARM_NEON__)
 
-// Vectorized quantized dot product implementations.
+// Vectorized quantised dot product implementations.
 
 #include <arm_neon.h>
 
@@ -410,7 +410,12 @@ quantiles(std::size_t dim, const std::vector<float>& docs, float ci) {
     return {sampled[lower], sampled[upper]};
 }
 
-std::pair<float, float> computeBuckets1B(std::size_t dim, std::vector<float>& docs) {
+std::pair<float, float>
+computeQuantisationInterval(std::size_t dim,
+                            const std::vector<float>& docs,
+                            const std::vector<float>& lowerCandidates,
+                            const std::vector<float>& upperCandidates,
+                            quantised_nearest_neighbours_t quantisedNearestNeighbours) {
     // We use the following calibration procedure:
     //   1. Randomly sample 1000 documents
     //   2. For each document find the closest 10 documents.
@@ -453,17 +458,13 @@ std::pair<float, float> computeBuckets1B(std::size_t dim, std::vector<float>& do
     // Perform a grid search over the bucket centres for binary quantisation
     // maximizing the Pearson correlation between the quantised and float dot
     // product.
-    auto [al, bu] = quantiles(dim, docs, 0.8);
-    auto [au, bl] = quantiles(dim, docs, 0.2);
     std::vector<float> query(dim);
     std::vector<float> queryNeighbours(numNeighbours * dim);
     float lBest{0.0F};
     float uBest{0.0F};
     double maxCorr{0.0F};
-    for (float i = 0.0F; i <= 32.0F; i += 1.0F) {
-        for (float j = 0.0F; j <= 32.0F; j += 1.0F) {
-            float l{al + i * (au - al) / 32.0F};
-            float u{bl + j * (bu - bl) / 32.0F};
+    for (auto l : lowerCandidates) {
+        for (auto u : upperCandidates) {
             OnlineMeanAndVariance corr;
             for (std::size_t k = 0; k < sampledDocs.size(); k += dim) {
                 std::copy_n(sampledDocs.begin() + k, dim, query.begin());
@@ -476,10 +477,8 @@ std::pair<float, float> computeBuckets1B(std::size_t dim, std::vector<float>& do
                     std::copy_n(sampledDocs.begin() + n * dim, dim, queryNeighbour);
                     queryNeighbour += dim;
                 }
-                auto [nq, pn] = scalarQuantise1B({l, u}, dim, queryNeighbours);
-
                 std::priority_queue<std::pair<float, std::size_t>> topk;
-                searchScalarQuantise1B(queryNumNeighbours, {l, u}, nq, pn, query, topk);
+                quantisedNearestNeighbours(dim, queryNeighbours, query, {l, u}, topk);
 
                 OnlineMeanAndVariance scores;
                 OnlineMeanAndVariance errors;
@@ -499,6 +498,9 @@ std::pair<float, float> computeBuckets1B(std::size_t dim, std::vector<float>& do
             }
         }
     }
+
+    std::cout << "max correlation: " << maxCorr 
+              << ", interval = [" << lBest << ", " << uBest << "]" << std::endl;
 
     return {lBest, uBest};
 }
@@ -695,7 +697,7 @@ void searchScalarQuantise4B(std::size_t k,
     }
 }
 
-std::pair<std::vector<std::uint32_t>, std::vector<float>>
+std::pair<std::vector<std::uint8_t>, std::vector<float>>
 scalarQuantise1B(const std::pair<float, float>& bucketCentres,
                  std::size_t dim,
                  const std::vector<float>& dequantised) {
@@ -706,10 +708,11 @@ scalarQuantise1B(const std::pair<float, float>& bucketCentres,
     float invScale{upper - lower};
 
     std::vector<float> p1(numDocs, 0.0F);
-    std::vector<std::uint32_t> quantised(numDocs * ((dim + 31) / 32));
+    std::vector<std::uint8_t> quantised(numDocs * ((dim + 31) / 32));
+    auto* xq32 = reinterpret_cast<std::uint32_t*>(&quantised[0]);
 
-    for (std::size_t i = 0, id = 0, iq = 0; i < dequantised.size(); i += dim, ++id) {
-        for (std::size_t j = i; j < i + dim; ++iq) {
+    for (std::size_t i = 0, id = 0; i < dequantised.size(); i += dim, ++id) {
+        for (std::size_t j = i; j < i + dim; ++xq32) {
             std::uint32_t xq{0};
             for (std::size_t k = 0; j < i + dim && k < 32; ++j, ++k) {
                 float x{dequantised[j]};
@@ -720,7 +723,7 @@ scalarQuantise1B(const std::pair<float, float>& bucketCentres,
                 p1[id] += lower * (x - lower / 2.0F) + (dx - dxq) * dxq;
                 xq |= static_cast<std::uint32_t>(std::round(dxs)) << k;
             }
-            quantised[iq] = xq;
+            *xq32 = xq;
         }
     }
 
@@ -729,7 +732,7 @@ scalarQuantise1B(const std::pair<float, float>& bucketCentres,
 
 std::vector<float> scalarDequantise1B(const std::pair<float, float>& bucketCentres,
                                       std::size_t dim,
-                                      const std::vector<std::uint32_t>& quantised) {
+                                      const std::vector<std::uint8_t>& quantised) {
 
     auto [lower, upper] = bucketCentres;
     std::size_t dimq{(dim + 31) / 32};
@@ -737,12 +740,12 @@ std::vector<float> scalarDequantise1B(const std::pair<float, float>& bucketCentr
 
     std::vector<float> dequantised(dim * quantised.size() / dimq);
 
-    const std::uint32_t* xq = &quantised[0];
+    const auto* xq32 = reinterpret_cast<const std::uint32_t*>(&quantised[0]);
     for (auto xd = dequantised.begin(); xd != dequantised.end(); /**/) {
-        for (std::size_t i = 0; i < dim; i += 32, ++xq) {
+        for (std::size_t i = 0; i < dim; i += 32, ++xq32) {
             std::size_t j{std::min(dim - i, 32UL)};
             for (std::size_t k = 0; k < j; ++k, ++xd) {
-                *xd = lower + scale * static_cast<float>((*xq >> k) & 0x1);
+                *xd = lower + scale * static_cast<float>((*xq32 >> k) & 0x1);
             }
         }
     }
@@ -752,18 +755,17 @@ std::vector<float> scalarDequantise1B(const std::pair<float, float>& bucketCentr
 
 void searchScalarQuantise1B(std::size_t k,
                             const std::pair<float, float>& bucketCentres,
-                            const std::vector<std::uint32_t>& docs,
+                            const std::vector<std::uint8_t>& docs,
                             const std::vector<float>& p1,
                             const std::vector<float>& query,
                             std::priority_queue<std::pair<float, std::size_t>>& topk) {
 
     auto [lower, upper] = bucketCentres;
     std::size_t dim{query.size()};
-    std::size_t dimq{(dim + 31) / 32};
     float scale{1.0F / (upper - lower)};
     float invScale{upper - lower};
 
-    std::vector<std::uint32_t> qq(dimq, 0);
+    std::vector<std::uint32_t> qq((dim + 31) / 32, 0);
     float q1{0.0F};
     float p2{invScale * invScale};
     for (std::size_t i = 0, iq = 0; i < dim; ++iq) {
@@ -780,8 +782,9 @@ void searchScalarQuantise1B(std::size_t k,
         qq[iq] = xq;
     }
 
-    for (std::size_t i = 0, id = 0; i < docs.size(); i += dimq, ++id) {
-        std::uint32_t simi{dot1B(dim, &qq[0], &docs[i])};
+    for (std::size_t i = 0, id = 0; i < docs.size(); i += dim, ++id) {
+        auto dq = reinterpret_cast<const std::uint32_t*>(&docs[i]);
+        std::uint32_t simi{dot1B(dim, &qq[0], dq)};
         float sim{p1[id] + q1 + p2 * static_cast<float>(simi)};
         float dist{1.0F - sim};
         if (topk.size() < k) {
@@ -792,6 +795,74 @@ void searchScalarQuantise1B(std::size_t k,
         }
     }
 }
+
+namespace {
+
+std::pair<std::vector<float>, std::vector<float>>
+candidateQuantizationIntervals(std::size_t dim,
+                               const std::vector<float>& docs,
+                               ScalarBits bits) {
+    std::vector<float> lowerCandidates;
+    std::vector<float> upperCandidates;
+    switch (bits) {
+    case B1: {
+        auto [al, bu] = quantiles(dim, docs, 0.8);
+        auto [au, bl] = quantiles(dim, docs, 0.2);
+        for (float i = 0.0F; i <= 32.0F; i += 1.0F) {
+            float l{al + i * (au - al) / 32.0F};
+            float u{bl + i * (bu - bl) / 32.0F};
+            lowerCandidates.push_back(l);
+            upperCandidates.push_back(u);
+        }
+        break;
+    }
+    case B4:
+    case B4P:
+    case B8: {
+        float c{1.0F / static_cast<float>(dim + 1)};
+        auto [al, bu] = quantiles(dim, docs, 1.0F - 1.0F / static_cast<float>(dim + 1));
+        auto [au, bl] = quantiles(dim, docs, 1.0F - std::min(32UL, dim / 10) / static_cast<float>(dim + 1));
+        for (float i = 0.0F; i <= 32.0F; i += 1.0F) {
+            float l{al + i * (au - al) / 32.0F};
+            float u{bl + i * (bu - bl) / 32.0F};
+            lowerCandidates.push_back(l);
+            upperCandidates.push_back(u);
+        }
+        break;
+    }
+    }
+
+    return {std::move(lowerCandidates), std::move(upperCandidates)};
+}
+
+void nearestNeighbours1B(std::size_t dim,
+                         const std::vector<float>& docs,
+                         const std::vector<float>& query,
+                         const std::pair<float, float>& range,
+                         std::priority_queue<std::pair<float, std::size_t>>& topk) {
+    auto [nq, pn] = scalarQuantise1B(range, dim, docs);
+    searchScalarQuantise1B(docs.size() / dim, range, nq, pn, query, topk);
+}
+
+void nearestNeighbours4B(std::size_t dim,
+                         const std::vector<float>& docs,
+                         const std::vector<float>& query,
+                         const std::pair<float, float>& range,
+                         std::priority_queue<std::pair<float, std::size_t>>& topk) {
+    auto [nq, pn] = scalarQuantise4B(range, false, dim, docs);
+    searchScalarQuantise4B(docs.size() / dim, range, false, nq, pn, query, topk);
+}
+
+void nearestNeighbours8B(std::size_t dim,
+                         const std::vector<float>& docs,
+                         const std::vector<float>& query,
+                         const std::pair<float, float>& range,
+                         std::priority_queue<std::pair<float, std::size_t>>& topk) {
+    auto [nq, pn] = scalarQuantise8B(range, dim, docs);
+    searchScalarQuantise8B(docs.size() / dim, range, nq, pn, query, topk);
+}
+
+} // unnamed::
 
 void runScalarBenchmark(const std::string& tag,
                         Metric metric,
@@ -838,9 +909,22 @@ void runScalarBenchmark(const std::string& tag,
     std::cout << "Brute force took " << diff.count() << "s" << std::endl;
 
     start = std::chrono::steady_clock::now();
-    auto range = quantiles(dim, docs, 0.999);
+    auto range = [&] {
+        auto [lowerCandidates, upperCandidates] = candidateQuantizationIntervals(dim, docs, bits);
+        switch (bits) {
+        case B1: 
+            return computeQuantisationInterval(dim, docs, lowerCandidates, upperCandidates, nearestNeighbours1B);
+        case B4:
+        case B4P:
+            return computeQuantisationInterval(dim, docs, lowerCandidates, upperCandidates, nearestNeighbours4B);
+        case B8:
+            return computeQuantisationInterval(dim, docs, lowerCandidates, upperCandidates, nearestNeighbours8B);
+        }
+    }();
     auto [quantisedDocs, p1] = [&] {
         switch (bits) {
+        case B1:
+            return scalarQuantise1B(range, dim, docs);
         case B4:
             return scalarQuantise4B(range, false, dim, docs);
         case B4P:
@@ -851,7 +935,6 @@ void runScalarBenchmark(const std::string& tag,
     }();
     end = std::chrono::steady_clock::now();
     diff = std::chrono::duration<double>(end - start);
-    std::cout << "(lower, upper) = " << range << std::endl;
     std::cout << "Quantisation took " << diff.count() << "s" << std::endl;
 
     std::vector<std::vector<std::size_t>> nnSQ(
@@ -864,6 +947,9 @@ void runScalarBenchmark(const std::string& tag,
 
             start = std::chrono::steady_clock::now();
             switch (bits) {
+            case B1:
+                searchScalarQuantise1B(k + a, range, quantisedDocs, p1, query, topk);
+                break;
             case B4:
                 searchScalarQuantise4B(k + a, range, false, quantisedDocs, p1, query, topk);
                 break;
