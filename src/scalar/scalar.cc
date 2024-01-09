@@ -525,8 +525,9 @@ scalarQuantise8B(const std::pair<float, float>& range,
         #pragma clang unroll_count(2) vectorize(assume_safety)
         for (std::size_t j = i; j < i + dim; ++j) {
             float x{dequantised[j]};
-            float dx{std::clamp(x, lower, upper) - lower};
-            float dxs{scale * dx};
+            float dx{x - lower};
+            float dxc{std::clamp(x, lower, upper) - lower};
+            float dxs{scale * dxc};
             float dxq{invScale * std::round(dxs)};
             p1[id] += lower * (x - lower / 2.0F) + (dx - dxq) * dxq;
             quantised[j] = static_cast<std::uint8_t>(std::round(dxs));
@@ -566,8 +567,9 @@ void searchScalarQuantise8B(std::size_t k,
     float p2{invScale * invScale};
     for (std::size_t i = 0; i < dim; ++i) {
         float x{query[i]};
-        float dx{std::clamp(x, lower, upper) - lower};
-        float dxs{scale * dx};
+        float dx{x - lower};
+        float dxc{std::clamp(x, lower, upper) - lower};
+        float dxs{scale * dxc};
         float dxq{invScale * std::round(dxs)};
         q1 += lower * (x - lower / 2.0F) + (dx - dxq) * dxq;
         qq[i] = static_cast<std::uint8_t>(std::round(dxs));
