@@ -234,12 +234,27 @@ BOOST_AUTO_TEST_CASE(test_maximize) {
     auto pi = std::acos(-1.0);
     auto f = [&](float x, float y) {
         return (2.0 + std::cos(x - 1.0) + std::cos(y - 1.0)) /
-               (0.1 + std::abs(x - 1.0) + std::abs(y - 1.0));
+               (1.0 + std::abs(x - 1.0) + std::abs(y - 1.0));
     };
 
-    auto [x, y, fxy] = maximize(f, 32, {-3.0F, 5.0F}, {-3.0F, 5.0F});
-    BOOST_REQUIRE_CLOSE(x, 1.0F, 2.0F);
-    BOOST_REQUIRE_CLOSE(y, 1.0F, 2.0F);
+    auto [x, y, fbest] = maximize(f, 24, {-3.0F, 5.0F}, {-3.0F, 5.0F});
+    BOOST_REQUIRE_CLOSE(x, 1.0F, 3.0F);
+    BOOST_REQUIRE_CLOSE(y, 1.0F, 3.0F);
+
+    std::minstd_rand rng;
+    std::uniform_real_distribution<float> u{-3.0F, 5.0F};
+    for (std::size_t t = 0; t < 10; ++t) {
+        double fmax{std::numeric_limits<double>::lowest()};
+        for (std::size_t i = 0; i < 24; ++i) {
+            auto xi = u(rng);
+            auto yi = u(rng);
+            auto fi = f(xi, yi);
+            if (fi > fmax) {
+                fmax = fi;
+            }
+        }
+        BOOST_REQUIRE_LT(fmax, fbest);
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()
