@@ -3,11 +3,13 @@
 #include "../src/common/io.h"
 #include "../src/common/utils.h"
 #include "../src/scalar/scalar.h"
+#include "../src/scalar/utils.h"
 
 #include <boost/test/tools/old/interface.hpp>
 #include <boost/test/unit_test.hpp>
 
 #include <algorithm>
+#include <iostream>
 #include <numeric>
 #include <random>
 #include <vector>
@@ -225,6 +227,19 @@ BOOST_AUTO_TEST_CASE(test4BPacking) {
 
         BOOST_REQUIRE_EQUAL(x, xu);
     }
+}
+
+BOOST_AUTO_TEST_CASE(test_maximize) {
+
+    auto pi = std::acos(-1.0);
+    auto f = [&](float x, float y) {
+        return (2.0 + std::cos(x - 1.0) + std::cos(y - 1.0)) /
+               (0.1 + std::abs(x - 1.0) + std::abs(y - 1.0));
+    };
+
+    auto [x, y, fxy] = maximize(f, 32, {-3.0F, 5.0F}, {-3.0F, 5.0F});
+    BOOST_REQUIRE_CLOSE(x, 1.0F, 2.0F);
+    BOOST_REQUIRE_CLOSE(y, 1.0F, 2.0F);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

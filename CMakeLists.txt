@@ -23,6 +23,7 @@ target_link_libraries(pq common)
 
 add_library(scalar SHARED
     src/scalar/scalar.cc
+    src/scalar/utils.cc
 )
 target_link_libraries(scalar common)
 

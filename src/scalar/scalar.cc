@@ -1,5 +1,6 @@
 #include "scalar.h"
 
+#include "utils.h"
 #include "../common/bruteforce.h"
 #include "../common/evaluation.h"
 #include "../common/utils.h"
@@ -9,10 +10,13 @@
 #include <chrono>
 #include <cstddef>
 #include <iomanip>
+#include <ios>
 #include <iostream>
 #include <limits>
 #include <queue>
+#include <random>
 #include <tuple>
+#include <utility>
 
 namespace {
 
@@ -415,16 +419,15 @@ quantiles(std::size_t dim, const std::vector<float>& docs, float ci) {
 std::pair<float, float>
 computeQuantisationInterval(std::size_t dim,
                             const std::vector<float>& docs,
-                            const std::vector<float>& lowerCandidates,
-                            const std::vector<float>& upperCandidates,
+                            const std::pair<float, float>& lowerRange,
+                            const std::pair<float, float>& upperRange,
                             quantised_nearest_neighbours_t quantisedNearestNeighbours) {
 
     // We use the following calibration procedure:
     //   1. Randomly sample 1000 documents
     //   2. For each document find the closest 10 documents.
-    //   3. Perform a grid search over the truncation point and split point
-    //      for binary quantisation minimizing the average variance in the
-    //      dot product error.
+    //   3. Perform blackbox maximization of the correlation between the
+    //      float and quantized dot products.
 
     std::size_t numDocs{docs.size() / dim};
     std::size_t numSamples{std::min(numDocs, 1000UL)};
@@ -463,49 +466,49 @@ computeQuantisationInterval(std::size_t dim,
     // product.
     std::vector<float> query(dim);
     std::vector<float> queryNeighbours(numNeighbours * dim);
-    float lBest{0.0F};
-    float uBest{0.0F};
-    double maxCorr{-std::numeric_limits<float>::max()};
-    for (auto l : lowerCandidates) {
-        for (auto u : upperCandidates) {
-            OnlineMeanAndVariance corr;
-            for (std::size_t k = 0; k < sampledDocs.size(); k += dim) {
-                std::copy_n(sampledDocs.begin() + k, dim, query.begin());
+    auto correlation = [&] (float l, float u) {
+        OnlineMeanAndVariance corr;
+        for (std::size_t k = 0; k < sampledDocs.size(); k += dim) {
+            std::copy_n(sampledDocs.begin() + k, dim, query.begin());
 
-                std::size_t doc{k / dim};
-                std::size_t queryNumNeighbours{neighbours[doc].size()};
-                queryNeighbours.resize(queryNumNeighbours * dim);
-                auto queryNeighbour = queryNeighbours.begin();
-                for (auto n : neighbours[doc]) {
-                    std::copy_n(sampledDocs.begin() + n * dim, dim, queryNeighbour);
-                    queryNeighbour += dim;
-                }
-                std::priority_queue<std::pair<float, std::size_t>> topk;
-                quantisedNearestNeighbours(dim, queryNeighbours, query, {l, u}, topk);
+            std::size_t doc{k / dim};
+            std::size_t queryNumNeighbours{neighbours[doc].size()};
+            queryNeighbours.resize(queryNumNeighbours * dim);
+            auto queryNeighbour = queryNeighbours.begin();
+            for (auto n : neighbours[doc]) {
+                std::copy_n(sampledDocs.begin() + n * dim, dim, queryNeighbour);
+                queryNeighbour += dim;
+            }
+            std::priority_queue<std::pair<float, std::size_t>> topk;
+            quantisedNearestNeighbours(dim, queryNeighbours, query, {l, u}, topk);
 
-                OnlineMeanAndVariance scores;
-                OnlineMeanAndVariance errors;
-                while (!topk.empty()) {
-                    auto [oneMinusXyq, id] = topk.top();
-                    topk.pop();
-                    float xy{dotf(dim, &query[0], &queryNeighbours[id * dim])};
-                    scores.add(xy);
-                    errors.add((1.0F - oneMinusXyq) - xy);
-                }
-                corr.add(1.0 - errors.variance() / scores.variance());
+            OnlineMeanAndVariance scores;
+            OnlineMeanAndVariance errors;
+            while (!topk.empty()) {
+                auto [oneMinusXyq, id] = topk.top();
+                topk.pop();
+                float xy{dotf(dim, &query[0], &queryNeighbours[id * dim])};
+                scores.add(xy);
+                errors.add((1.0F - oneMinusXyq) - xy);
             }
-            if (corr.mean() > maxCorr) {
-                lBest = l;
-                uBest = u;
-                maxCorr = corr.mean();
-            }
+            corr.add(1.0 - errors.variance() / scores.variance());
         }
-    }
+        return corr.mean();
+    };
 
-    std::cout << "max correlation: " << maxCorr 
-              << ", interval = [" << lBest << ", " << uBest << "]" << std::endl;
+    auto [lmin, lmax] = lowerRange;
+    auto [umin, umax] = upperRange;
+    auto [lCoarse, uCoarse, corrMaxCoarse] = maximize(correlation, 32, {lmin, lmax}, {umin, umax});
+    std::cout << "Coarse max correlation: " << corrMaxCoarse 
+              << ", interval = [" << lCoarse << ", " << uCoarse << "]" << std::endl;
+    std::tie(lmin, lmax) = std::make_pair(lCoarse - (lmax - lmin) / 8.0F, lCoarse + (lmax - lmin) / 8.0F);
+    std::tie(umin, umax) = std::make_pair(uCoarse - (umax - umin) / 8.0F, uCoarse + (umax - umin) / 8.0F);
+    auto [lFine, uFine, corrMaxFine] = maximize(correlation, 16, {lmin, lmax}, {umin, umax});
+    std::cout << "Fine max correlation: " << corrMaxFine
+              << ", interval = [" << lFine << ", " << uFine << "]" << std::endl;
 
-    return {lBest, uBest};
+    return corrMaxFine < corrMaxCoarse ?
+           std::make_pair(lFine, uFine) : std::make_pair(lCoarse, uCoarse);
 }
 
 std::pair<std::vector<std::uint8_t>, std::vector<float>>
@@ -809,23 +812,15 @@ void searchScalarQuantise1B(std::size_t k,
 
 namespace {
 
-std::pair<std::vector<float>, std::vector<float>>
+std::pair<std::pair<float, float>, std::pair<float, float>>
 candidateQuantizationIntervals(std::size_t dim,
                                const std::vector<float>& docs,
                                ScalarBits bits) {
-    std::vector<float> lowerCandidates;
-    std::vector<float> upperCandidates;
     switch (bits) {
     case B1: {
         auto [al, bu] = quantiles(dim, docs, 0.8);
         auto [au, bl] = quantiles(dim, docs, 0.2);
-        for (float i = 0.0F; i <= 32.0F; i += 1.0F) {
-            float l{al + i * (au - al) / 32.0F};
-            float u{bl + i * (bu - bl) / 32.0F};
-            lowerCandidates.push_back(l);
-            upperCandidates.push_back(u);
-        }
-        break;
+        return {{al, au}, {bl, bu}};
     }
     case B4:
     case B4P:
@@ -833,17 +828,9 @@ candidateQuantizationIntervals(std::size_t dim,
         float c{1.0F / static_cast<float>(dim + 1)};
         auto [al, bu] = quantiles(dim, docs, 1.0F - 1.0F / static_cast<float>(dim + 1));
         auto [au, bl] = quantiles(dim, docs, 1.0F - std::min(32UL, dim / 10) / static_cast<float>(dim + 1));
-        for (float i = 0.0F; i <= 32.0F; i += 1.0F) {
-            float l{al + i * (au - al) / 32.0F};
-            float u{bl + i * (bu - bl) / 32.0F};
-            lowerCandidates.push_back(l);
-            upperCandidates.push_back(u);
-        }
-        break;
+        return {{al, au}, {bl, bu}};
     }
     }
-
-    return {std::move(lowerCandidates), std::move(upperCandidates)};
 }
 
 void nearestNeighbours1B(std::size_t dim,
