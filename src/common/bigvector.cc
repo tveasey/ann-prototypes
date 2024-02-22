@@ -141,9 +141,9 @@ void BigVector::normalize() {
     }
 }
 
-void BigVector::create_memory_mapped_file(std::size_t dim,
-                                          std::size_t numVectors,
-                                          const std::filesystem::path& storage) {
+void BigVector::createMemoryMappedFile(std::size_t dim,
+                                       std::size_t numVectors,
+                                       const std::filesystem::path& storage) {
     // Create a file which is large enough to hold the vectors.
     std::size_t fileSize{dim * numVectors * sizeof(float)};
     boost::iostreams::mapped_file_params  params;

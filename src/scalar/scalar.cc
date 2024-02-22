@@ -51,6 +51,8 @@ private:
 
 #include <arm_neon.h>
 
+// Implements dot product for the first 64 * floor(dim / 64) components
+// of a vector.
 std::uint32_t dot8B32(std::size_t dim,
                       const std::uint8_t*__restrict x,
                       const std::uint8_t*__restrict y) {
@@ -87,7 +89,7 @@ std::uint32_t dot8B32(std::size_t dim,
                                 vaddq_u32(xysum32, xysum48)));
 }
 
-// Implements dot product for the first 16 * floor(dim / 16) components
+// Implements dot product for the first 64 * floor(dim / 64) components
 // of a vector. If dim > 4096 the vector must be blocked.
 std::uint32_t dot4B64(std::size_t dim,
                       const std::uint8_t*__restrict x,
@@ -132,7 +134,7 @@ std::uint32_t dot4B64(std::size_t dim,
            vaddlvq_u16(vaddq_u16(xysum32, xysum48));
 }
 
-// Implements dot product for the first 16 * floor(dim / 32) components
+// Implements dot product for the first 64 * floor(dim / 64) components
 // of a vector. If dim > 4096 the vector must be blocked. Requires that
 // the y vector has been packed.
 std::uint32_t dot4BP64(std::size_t dim,
@@ -501,8 +503,8 @@ computeQuantisationInterval(std::size_t dim,
     auto [lCoarse, uCoarse, corrMaxCoarse] = maximize(correlation, 32, {lmin, lmax}, {umin, umax});
     std::cout << "Coarse max correlation: " << corrMaxCoarse 
               << ", interval = [" << lCoarse << ", " << uCoarse << "]" << std::endl;
-    std::tie(lmin, lmax) = std::make_pair(lCoarse - (lmax - lmin) / 8.0F, lCoarse + (lmax - lmin) / 8.0F);
-    std::tie(umin, umax) = std::make_pair(uCoarse - (umax - umin) / 8.0F, uCoarse + (umax - umin) / 8.0F);
+    std::tie(lmin, lmax) = std::make_pair(lCoarse - (lmax - lmin) / 12.0F, lCoarse + (lmax - lmin) / 12.0F);
+    std::tie(umin, umax) = std::make_pair(uCoarse - (umax - umin) / 12.0F, uCoarse + (umax - umin) / 12.0F);
     auto [lFine, uFine, corrMaxFine] = maximize(correlation, 16, {lmin, lmax}, {umin, umax});
     std::cout << "Fine max correlation: " << corrMaxFine
               << ", interval = [" << lFine << ", " << uFine << "]" << std::endl;
