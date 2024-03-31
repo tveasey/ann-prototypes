@@ -184,9 +184,9 @@ public:
     }
 
 private:
-    void createMemoryMappedFile(std::size_t dim,
-                                std::size_t numVectors,
-                                const std::filesystem::path& path);
+    void create_memory_mapped_file(std::size_t dim,
+                                   std::size_t numVectors,
+                                   const std::filesystem::path& path);
 
     std::size_t dim_;
     std::size_t numVectors_;

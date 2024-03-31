@@ -18,6 +18,8 @@ std::tuple<float, float, double> maximize(std::function<double (float, float)> f
                                           const std::pair<float, float>& xrange,
                                           const std::pair<float, float>& yrange) {
 
+    // Heavily based on https://arxiv.org/pdf/1703.02628.pdf.
+
     auto [xmin, xmax] = xrange;
     auto [ymin, ymax] = yrange;
 

@@ -427,9 +427,9 @@ computeQuantisationInterval(std::size_t dim,
 
     // We use the following calibration procedure:
     //   1. Randomly sample 1000 documents
-    //   2. For each document find the closest 10 documents.
-    //   3. Perform blackbox maximization of the correlation between the
-    //      float and quantized dot products.
+    //   2. For each document find the closest 10 documents in the sample set.
+    //   3. Perform blackbox maximization of the coefficient of determination
+    //      for the quantized vs the float dot products.
 
     std::size_t numDocs{docs.size() / dim};
     std::size_t numSamples{std::min(numDocs, 1000UL)};
@@ -464,12 +464,12 @@ computeQuantisationInterval(std::size_t dim,
     }
 
     // Perform a grid search over the bucket centres for binary quantisation
-    // maximizing the Pearson correlation between the quantised and float dot
-    // product.
+    // maximizing the coefficient of determination between the quantised and
+    // float dot product computed for the top-10 nearest matches.
     std::vector<float> query(dim);
     std::vector<float> queryNeighbours(numNeighbours * dim);
     auto correlation = [&] (float l, float u) {
-        OnlineMeanAndVariance corr;
+        OnlineMeanAndVariance cod;
         for (std::size_t k = 0; k < sampledDocs.size(); k += dim) {
             std::copy_n(sampledDocs.begin() + k, dim, query.begin());
 
@@ -493,9 +493,9 @@ computeQuantisationInterval(std::size_t dim,
                 scores.add(xy);
                 errors.add((1.0F - oneMinusXyq) - xy);
             }
-            corr.add(1.0 - errors.variance() / scores.variance());
+            cod.add(1.0 - errors.variance() / scores.variance());
         }
-        return corr.mean();
+        return cod.mean();
     };
 
     auto [lmin, lmax] = lowerRange;
