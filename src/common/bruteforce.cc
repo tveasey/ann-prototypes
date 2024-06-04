@@ -7,21 +7,27 @@
 #include <utility>
 #include <vector>
 
-namespace {
+TopK::TopK(std::size_t k) : k_{k} {}
 
-std::pair<std::vector<std::size_t>, std::vector<float>>
-extractIdsAndScores(std::priority_queue<std::pair<float, std::size_t>> topk) {
-    std::vector<std::size_t> topkIds(topk.size());
-    std::vector<float> topkScores(topk.size());
-    for (std::size_t i = topk.size(); !topk.empty(); --i) {
-        topkIds[i - 1] = topk.top().second;
-        topkScores[i - 1] = topk.top().first;
-        topk.pop();
+void TopK::add(std::size_t id, float dist) {
+    if (topk_.size() < k_) {
+        topk_.push(std::make_pair(dist, id));
+    } else if (topk_.top().first > dist) {
+        topk_.pop();
+        topk_.push(std::make_pair(dist, id));
+    }
+}
+
+std::pair<std::vector<std::size_t>, std::vector<float>> TopK::unpack() {
+    std::vector<std::size_t> topkIds(topk_.size());
+    std::vector<float> topkScores(topk_.size());
+    for (std::size_t i = topk_.size(); i > 0; --i) {
+        topkIds[i - 1] = topk_.top().second;
+        topkScores[i - 1] = topk_.top().first;
+        topk_.pop();
     }
     return {std::move(topkIds), std::move(topkScores)};
 }
-
-} // unnamed::
 
 float dotf(std::size_t dim, const float* x, const float* y) {
     float xy{0.0F};
@@ -42,7 +48,8 @@ searchBruteForce(std::size_t k,
         throw std::invalid_argument("query and docs have different dimensions");
     }
 
-    std::priority_queue<std::pair<float, std::size_t>> topk;
+    TopK topk{k};
+
     std::size_t id{0};
     for (auto doc : docs) {
         float sim{0.0F};
@@ -52,24 +59,24 @@ searchBruteForce(std::size_t k,
             sim += query[j] * data[j];
         }
         float dist{1.0F - sim};
-        if (topk.size() < k) {
-            topk.push(std::make_pair(dist, id));
-        } else if (topk.top().first > dist) {
-            topk.pop();
-            topk.push(std::make_pair(dist, id));
-        }
-        ++id;
+        topk.add(id++, dist);
     }
 
-    return extractIdsAndScores(std::move(topk));
+    return topk.unpack();
 }
 
 std::pair<std::vector<std::size_t>, std::vector<float>>
 searchBruteForce(std::size_t k,
                  const std::vector<float>& docs,
                  const std::vector<float>& query) {
+
     std::size_t dim{query.size()};
-    std::priority_queue<std::pair<float, std::size_t>> topk;
+    if (dim != docs.size()) {
+        throw std::invalid_argument("query and docs have different dimensions");
+    }
+
+    TopK topk{k};
+
     for (std::size_t i = 0, id = 0; i < docs.size(); i += dim, ++id) {
         float sim{0.0F};
         #pragma omp simd reduction(+:sim)
@@ -77,13 +84,8 @@ searchBruteForce(std::size_t k,
             sim += query[j] * docs[i + j];
         }
         float dist{1.0F - sim};
-        if (topk.size() < k) {
-            topk.push(std::make_pair(dist, id));
-        } else if (topk.top().first > dist) {
-            topk.pop();
-            topk.push(std::make_pair(dist, id));
-        }
+        topk.add(id++, dist);
     }
 
-    return extractIdsAndScores(std::move(topk));
+    return topk.unpack();
 }

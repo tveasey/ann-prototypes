@@ -5,6 +5,7 @@
 #include "constants.h"
 #include "subspace.h"
 #include "../common/bigvector.h"
+#include "../common/bruteforce.h"
 #include "../common/progress_bar.h"
 #include "../common/types.h"
 #include "../common/utils.h"
@@ -142,8 +143,6 @@ PqIndex::search(const std::vector<float>& query, std::size_t k) const {
             std::to_string(query.size()) + " != " + std::to_string(dim_)};
     }
 
-    std::priority_queue<std::pair<float, std::size_t>> topk;
-
     std::size_t numClusters{clustersCentres_.size() / dim_};
     std::size_t bookDim{dim_ / NUM_BOOKS};
 
@@ -155,6 +154,7 @@ PqIndex::search(const std::vector<float>& query, std::size_t k) const {
         clusterSims[cluster] = clusterSim;
     }
 
+    TopK topk{k};
     for (std::size_t id = 0; id < docsClusters_.size(); ++id) {
         std::size_t cluster{docsClusters_[id]};
         const auto* docCode = &docsCodes_[id * NUM_BOOKS];
@@ -162,24 +162,10 @@ PqIndex::search(const std::vector<float>& query, std::size_t k) const {
                                      simTables[cluster],
                                      normsTable_[cluster],
                                      docCode)};
-        if (topk.size() < k) {
-            topk.push(std::make_pair(dist, id));
-        } else if (dist < topk.top().first) {
-            topk.pop();
-            topk.push(std::make_pair(dist, id));
-        }
+        topk.add(id, dist);
     }
 
-    // Unpack the top-k and the distances into separate vectors.
-    std::vector<std::size_t> topkIds(k);
-    std::vector<float> topkDists(k);
-    for (std::size_t i = k; i > 0; --i) {
-        topkDists[i - 1] = topk.top().first;
-        topkIds[i - 1] = topk.top().second;
-        topk.pop();
-    }
-
-    return {std::move(topkIds), std::move(topkDists)};
+    return topk.unpack();
 }
 
 std::vector<float> PqIndex::decode(std::size_t id) const {
@@ -241,6 +227,11 @@ float PqIndex::computeDist(const std::vector<float>& query, std::size_t id) cons
     const auto* docCode = &docsCodes_[id * NUM_BOOKS];
     auto [clusterSim, simTable] = this->buildSimTable(cluster, query);
     return this->computeDist(clusterSim, simTable, normsTable_[cluster], docCode);
+}
+
+double PqIndex::vectorCompressionRatio() const {
+    return static_cast<double>(dim_ * sizeof(float)) /
+           static_cast<double>(NUM_BOOKS * sizeof(code_t));
 }
 
 double PqIndex::compressionRatio() const {

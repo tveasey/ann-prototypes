@@ -20,6 +20,7 @@ struct PQStats {
     double bfQPS;
     // PQ build stats
     double pqCodeBookBuildTime;
+    double pqVectorCompressionRatio;
     double pqCompressionRatio;
     double pqMse;
     // PQ query stats

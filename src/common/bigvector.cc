@@ -171,9 +171,10 @@ void parallelRead(const BigVector& docs, std::vector<Reader>& readers) {
         threads.emplace_back([i, blocksize, &readers, &docs]() {
             std::size_t blockBegin{i * blocksize};
             std::size_t blockEnd{std::min((i + 1) * blocksize, docs.numVectors())};
+            auto beginDocs = docs.begin() + blockBegin;
             auto endDocs = docs.begin() + blockEnd;
             std::size_t id{blockBegin};
-            for (auto doc = docs.begin() + blockBegin; doc != endDocs; ++id, ++doc) {
+            for (auto doc = beginDocs; doc != endDocs; ++id, ++doc) {
                 readers[i](id, *doc);
             }
         });

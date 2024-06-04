@@ -93,6 +93,7 @@ void runPQBenchmark(const std::string& tag,
 
     PQStats stats{tag, toString(metric), numQueries, numDocs, dim, k};
     stats.pqCodeBookBuildTime = diff.count();
+    stats.pqVectorCompressionRatio = index.vectorCompressionRatio();
     stats.pqCompressionRatio = index.compressionRatio();
 
     std::cout << std::setprecision(5)
@@ -104,7 +105,9 @@ void runPQBenchmark(const std::string& tag,
               << ", top-k = " << k
               << ", normalized = " << (metric == Cosine)
               << ", book count = " << NUM_BOOKS
-              << ", book size = " << BOOK_SIZE << std::endl;
+              << ", book size = " << BOOK_SIZE
+              << ", vector compression ratio = " << stats.pqVectorCompressionRatio
+              << ", compression ratio = " << stats.pqCompressionRatio << std::endl;
 
     std::vector<float> query(docs.dim());
     std::vector<std::vector<std::size_t>> topkExact(numQueries);
@@ -129,9 +132,9 @@ void runPQBenchmark(const std::string& tag,
 
         diff = std::chrono::duration<double>{0};
         progress = std::make_unique<ProgressBar>("PQ search...", numQueries);
-        for (std::size_t i = 0, j; i < queries.size(); i += dim, ++j) {
+        for (std::size_t i = 0, j = 0; i < queries.size(); i += dim, ++j) {
             std::copy(queries.begin() + i, queries.begin() + i + dim, query.begin());
-            diff += time([&] {topkPq[j] = index.search(query, m * k).first; });
+            diff += time([&] { topkPq[j] = index.search(query, m * k).first; });
             progress->update();
         }
         progress.reset();
@@ -141,6 +144,11 @@ void runPQBenchmark(const std::string& tag,
         stats.pqRecalls.push_back(computeRecalls(topkExact, topkPq));
         std::cout << "Average recall@" << k << "|" << m * k << " = "
                   << stats.pqRecalls.back()[AVG_RECALL] << std::endl;
+    }
+    for (std::size_t i = 0; i < EXPANSIONS.size(); ++i) {
+        std::size_t m{EXPANSIONS[i]};
+        std::cout << "Recall@" << k << "|" << m * k << " = "
+                  << stats.pqRecalls[i][AVG_RECALL] << std::endl;
     }
 
     writeStats(stats);

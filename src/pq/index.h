@@ -107,6 +107,9 @@ public:
     // document vector with the given id.
     float computeDist(const std::vector<float>& query, std::size_t id) const;
 
+    // Compression ratio of the vector codes alone.
+    double vectorCompressionRatio() const;
+
     // Compression ratio of the PQ index.
     double compressionRatio() const;
 
