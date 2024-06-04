@@ -937,12 +937,11 @@ void runScalarBenchmark(const std::string& tag,
     diff = std::chrono::duration<double>(end - start);
     std::cout << "Quantisation took " << diff.count() << "s" << std::endl;
 
-    // WARNING the term added to k must equal the last term value for "a" in the
-    // following loop.
+    int last{90};
     std::vector<std::vector<std::size_t>> nnSQ(
-        numQueries, std::vector<std::size_t>(k + 90, numDocs + 1));
+        numQueries, std::vector<std::size_t>(k + last, numDocs + 1));
 
-    for (std::size_t a : {0, 10, 20, 30, 40, 90}) {
+    for (std::size_t a : {0, 10, 20, 30, 40, last}) {
         diff = std::chrono::duration<double>{0};
         for (std::size_t i = 0; i < queries.size(); i += dim) {
             std::copy(queries.begin() + i, queries.begin() + i + dim, query.begin());

@@ -19,18 +19,21 @@ void loadAndRunPQBenchmark(const std::string& dataset, Metric metric, float dist
 
     auto root = std::filesystem::path(__FILE__).parent_path();
 
-    std::cout << "Loading queries" << std::endl;
+    std::cout << "Loading queries from "
+              << (root / "data" / ("queries-" + dataset + ".fvec")) << std::endl;
     auto [queries, qdim] = readFvecs(root / "data" / ("queries-" + dataset + ".fvec"));
+    std::cout << "Loaded " << queries.size() / qdim << " queries of dimension " << qdim << std::endl;
 
-    std::cout << "Loading corpus" << std::endl;
+    std::cout << "Loading corpus from "
+              << (root / "data" / ("corpus-" + dataset + ".fvec")) << std::endl;
     BigVector docs{loadAndPrepareData(
         root / "data" / ("corpus-" + dataset + ".fvec"), metric == Cosine)};
-
+    std::cout << "Loaded " << docs.numVectors() << " vectors of dimension " << docs.dim() << std::endl;
 
     if (qdim != docs.dim()) {
         throw std::runtime_error("Dimension mismatch");
     }
-    if (docs.numVectors() || queries.empty()) {
+    if (docs.numVectors() == 0 || queries.empty()) {
         return;
     }
 
@@ -63,13 +66,13 @@ int main(int argc, char* argv[]) {
     desc.add_options()
         ("help,h", "Show this help")
         ("scalar,s", boost::program_options::value<std::string>(),
-            "Use 1, 4, 4P or 8 bit scalar quantisation (default none)")
+            "Use 1, 4, 4P or 8 bit scalar quantisation. If not supplied then run PQ")
         ("run,r", boost::program_options::value<std::string>(),
             "Run a test dataset")
         ("metric,m", boost::program_options::value<std::string>()->default_value("cosine"),
-            "The metric, must be cosine, dot or euclidean with which to compare vectors (default cosine)")
+            "The metric, must be cosine, dot or euclidean with which to compare vectors")
         ("distance,d", boost::program_options::value<float>()->default_value(0.0F),
-            "The ScaNN threshold used for computing the parallel distance cost multiplier (default 0.0)");
+            "The ScaNN threshold used for computing the parallel distance cost multiplier");
 
     try {
         boost::program_options::variables_map vm;

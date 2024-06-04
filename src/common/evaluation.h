@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <vector>
 
-constexpr std::array<std::size_t, 8> EXPANSIONS{1, 2, 4, 8, 10, 20, 40, 100};
+constexpr std::array<std::size_t, 5> EXPANSIONS{1, 2, 4, 8, 10};
 constexpr std::size_t MIN_RECALL{0};
 constexpr std::size_t MAX_RECALL{1};
 constexpr std::size_t AVG_RECALL{2};

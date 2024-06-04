@@ -118,12 +118,15 @@ Run `./build/run_tests --help` for more information.
 
 You can run help on this and you to see the options:
 ```
->>> ./build/run_quantisation -h
-run_quantisation [-h,--help] [-u,--unit] [-s,--scalar] [--scann] [-r,--run DATASET] [-m, --metric METRIC]
-	--help		Show this help
-	--unit		Run the unit tests (default false)
-	--scalar N	Use 4 or 8 bit scalar quantisation (default None)
-	--scann		Use anisotrpoic loss when building code books (default false)
-	--run DATASET	Run a test dataset
-	--metric METRIC	The metric, must be cosine or dot, with which to compare vectors (default cosine)
+>>> ./build/run_benchmark -h
+Usage: run_benchmark
+Options:
+  -h [ --help ]                 Show this help
+  -s [ --scalar ] arg           Use 1, 4, 4P or 8 bit scalar quantisation. If
+                                not supplied then run PQ
+  -r [ --run ] arg              Run a test dataset
+  -m [ --metric ] arg (=cosine) The metric, must be cosine, dot or euclidean
+                                with which to compare vectors
+  -d [ --distance ] arg (=0)    The ScaNN threshold used for computing the
+                                parallel distance cost multiplier
 ```
