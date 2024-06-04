@@ -501,7 +501,7 @@ buildCodebooksForPqIndex(const BigVector& docs,
     // We store 128 * BOOK_SIZE samples per cluster. For 768 d vectors
     // this amounts to 128 * 256 * 768 * 4 = 96 MB per cluster. So our
     // peak memory usage is 96 MB * 32 = 3 GB.
-    ProgressBar progress{numClusters};
+    ProgressBar progress{"Clustering...", numClusters};
     for (std::size_t i = 0; i < numClusters; i += 32) {
 
         std::size_t beginClusters{i};

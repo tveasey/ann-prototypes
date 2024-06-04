@@ -906,7 +906,7 @@ void runScalarBenchmark(const std::string& tag,
         end = std::chrono::steady_clock::now();
         diff += std::chrono::duration<double>(end - start);
     }
-    std::cout << "Brute force took " << diff.count() << "s" << std::endl;
+    std::cout << "Brute force took " << diff.count() << " s" << std::endl;
 
     start = std::chrono::steady_clock::now();
     auto range = [&] {
@@ -935,7 +935,7 @@ void runScalarBenchmark(const std::string& tag,
     }();
     end = std::chrono::steady_clock::now();
     diff = std::chrono::duration<double>(end - start);
-    std::cout << "Quantisation took " << diff.count() << "s" << std::endl;
+    std::cout << "Quantisation took " << diff.count() << " s" << std::endl;
 
     int last{90};
     std::vector<std::vector<std::size_t>> nnSQ(
@@ -971,7 +971,7 @@ void runScalarBenchmark(const std::string& tag,
         }
 
         auto recalls = computeRecalls(nnExact, nnSQ);
-        std::cout << "Quantised search took " << diff.count() << "s, "
+        std::cout << "Quantised search took " << diff.count() << " s, "
                   << "average recall@" << k << "|" << k + a << " = "
                   << recalls[AVG_RECALL] << std::endl;
     }

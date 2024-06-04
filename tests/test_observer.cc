@@ -20,5 +20,5 @@ void TestObserver::test_unit_finish(const boost::unit_test::test_unit& test,
         // This gets called for suites as well as test cases - ignore these
         return;
     }
-    std::cout << "Unit test timing - " << unitName << " took " << (elapsed / 1000) << "ms" << std::endl;
+    std::cout << "Unit test timing - " << unitName << " took " << (elapsed / 1000) << " ms" << std::endl;
 }

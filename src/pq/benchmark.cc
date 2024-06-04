@@ -6,6 +6,7 @@
 #include "types.h"
 #include "utils.h"
 #include "../common/bruteforce.h"
+#include "../common/progress_bar.h"
 #include "../common/types.h"
 #include "../common/utils.h"
 
@@ -16,6 +17,7 @@
 #include <limits>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <queue>
 #include <vector>
 
@@ -39,7 +41,7 @@ public:
         end = std::chrono::steady_clock::now();
         duration_ = end - start_;
         if (!operation_.empty()) {
-            std::cout << operation_ << " took " << duration_.count() << "s" << std::endl;
+            std::cout << operation_ << " took " << duration_.count() << " s" << std::endl;
         }
     }
 
@@ -87,6 +89,7 @@ void runPQBenchmark(const std::string& tag,
         Timer timer{"Building PQ index", diff};
         return buildPqIndex(docs, metric, distanceThreshold);
     }()};
+    std::cout << "PQ index built in " << diff.count() << " s" << std::endl;
 
     PQStats stats{tag, toString(metric), numQueries, numDocs, dim, k};
     stats.pqCodeBookBuildTime = diff.count();
@@ -107,11 +110,15 @@ void runPQBenchmark(const std::string& tag,
     std::vector<std::vector<std::size_t>> topkExact(numQueries);
 
     diff = std::chrono::duration<double>{0};
-    for (std::size_t i = 0; i < queries.size(); i += dim) {
+    std::unique_ptr<ProgressBar> progress{
+        std::make_unique<ProgressBar>("Bruteforce...", numQueries)};
+    for (std::size_t i = 0, j = 0; i < queries.size(); i += dim, ++j) {
         std::copy(queries.begin() + i, queries.begin() + i + dim, query.begin());
-        diff += time([&] { topkExact[i] = searchBruteForce(k, docs, query).first; });
+        diff += time([&] { topkExact[j] = searchBruteForce(k, docs, query).first; });
+        progress->update();
     }
-    std::cout << "Brute force took " << diff.count() << "s" << std::endl;
+    progress.reset();
+    std::cout << "Brute force took " << diff.count() << " s" << std::endl;
 
     stats.normalize = (metric == Cosine);
     stats.bfQPS = std::round(static_cast<double>(numQueries) / diff.count());
@@ -121,11 +128,14 @@ void runPQBenchmark(const std::string& tag,
         std::vector<std::vector<std::size_t>> topkPq(numQueries);
 
         diff = std::chrono::duration<double>{0};
-        for (std::size_t i = 0; i < queries.size(); i += dim) {
+        progress = std::make_unique<ProgressBar>("PQ search...", numQueries);
+        for (std::size_t i = 0, j; i < queries.size(); i += dim, ++j) {
             std::copy(queries.begin() + i, queries.begin() + i + dim, query.begin());
-            diff += time([&] {topkPq[i] = index.search(query, m * k).first; });
+            diff += time([&] {topkPq[j] = index.search(query, m * k).first; });
+            progress->update();
         }
-        std::cout << "PQ search took " << diff.count() << "s" << std::endl;
+        progress.reset();
+        std::cout << "PQ search took " << diff.count() << " s" << std::endl;
 
         stats.pqQPS.push_back(std::round(static_cast<double>(numQueries) / diff.count()));
         stats.pqRecalls.push_back(computeRecalls(topkExact, topkPq));
