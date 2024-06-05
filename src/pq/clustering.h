@@ -2,6 +2,7 @@
 
 #include "types.h"
 #include "../common/bigvector.h"
+#include "../pq/constants.h"
 
 #include <cstdint>
 #include <random>
@@ -18,6 +19,7 @@ std::set<std::size_t> initForgyForBookConstruction(std::size_t numDocs,
 //
 // This is Forgy's method.
 std::vector<float> initForgyForBookConstruction(std::size_t dim,
+                                                std::size_t numBooks,
                                                 const std::vector<float>& docs,
                                                 std::minstd_rand& rng);
 
@@ -34,11 +36,13 @@ std::vector<float> initForgyForTest(std::size_t dim,
 // remaining centres with probability proportional to the squared distance
 // to the closest selected centre.
 std::vector<float> initKmeansPlusPlusForBookConstruction(std::size_t dim,
+                                                         std::size_t numBooks,
                                                          const std::vector<float>& docs,
                                                          std::minstd_rand& rng);
 
 // Update the codebooks centres using with one iteration of Lloyd algorihm.
 double stepLloydForBookConstruction(std::size_t dim,
+                                    std::size_t numBooks,
                                     const std::vector<float>& docs,
                                     std::vector<float>& centres,
                                     std::vector<code_t>& docsCodes);
@@ -58,4 +62,5 @@ double stepLloydForTest(std::size_t dim,
 void coarseClustering(bool normalized,
                       const BigVector& docs,
                       std::vector<float>& clusterCentres,
-                      std::vector<cluster_t>& docsClusters);
+                      std::vector<cluster_t>& docsClusters,
+                      std::size_t docsPerCluster = COARSE_CLUSTERING_DOCS_PER_CLUSTER);

@@ -51,10 +51,10 @@ BOOST_AUTO_TEST_CASE(testLoadAndPrepareDocs) {
 
     auto [vectors, dim] = readFvecs(file);
 
-    dim = zeroPad(dim, vectors);
+    dim = zeroPad(dim, NUM_BOOKS, vectors);
 
     {
-        BigVector vector{loadAndPrepareData(file, false)};
+        BigVector vector{loadAndPrepareData(file, NUM_BOOKS, false)};
 
         BOOST_REQUIRE_EQUAL(vector.dim(), dim);
         BOOST_REQUIRE_EQUAL(vector.numVectors(), vectors.size() / dim);
@@ -72,7 +72,7 @@ BOOST_AUTO_TEST_CASE(testLoadAndPrepareDocs) {
 
     {
         // Load again normalizing.
-        BigVector vector{loadAndPrepareData(file, true)};
+        BigVector vector{loadAndPrepareData(file, NUM_BOOKS, true)};
 
         std::size_t i{0};
         for (auto vec : vector) {
@@ -119,10 +119,10 @@ BOOST_AUTO_TEST_CASE(testClusteringInitializations) {
         std::vector<float> docs(1000 * dim);
         std::iota(docs.begin(), docs.end(), 0.0F);
 
-        auto centres = initForgyForBookConstruction(dim, docs, rng);
+        auto centres = initForgyForBookConstruction(dim, NUM_BOOKS, docs, rng);
         BOOST_REQUIRE_EQUAL(centres.size(), BOOK_SIZE * dim);
 
-        centres = initKmeansPlusPlusForBookConstruction(dim, docs, rng);
+        centres = initKmeansPlusPlusForBookConstruction(dim, NUM_BOOKS, docs, rng);
         BOOST_REQUIRE_EQUAL(centres.size(), BOOK_SIZE * dim);
     }
 
@@ -142,14 +142,14 @@ BOOST_AUTO_TEST_CASE(testClusteringInitializations) {
             }
         }
 
-        auto centres = initForgyForBookConstruction(dim, docs, rng);
+        auto centres = initForgyForBookConstruction(dim, NUM_BOOKS, docs, rng);
         for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
             for (std::size_t i = 0; i < 2 * BOOK_SIZE; ++i) {
                 BOOST_REQUIRE_GE(centres[2 * b * BOOK_SIZE + i], 10.0 * b);
                 BOOST_REQUIRE_LT(centres[2 * b * BOOK_SIZE + i], 10.0 * (b + 1));
             }
         }
-        centres = initKmeansPlusPlusForBookConstruction(dim, docs, rng);
+        centres = initKmeansPlusPlusForBookConstruction(dim, NUM_BOOKS, docs, rng);
         for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
             for (std::size_t i = 0; i < 2 * BOOK_SIZE; ++i) {
                 BOOST_REQUIRE_GE(centres[2 * b * BOOK_SIZE + i], 10.0 * b);
@@ -163,7 +163,7 @@ BOOST_AUTO_TEST_CASE(testClusteringInitializations) {
         std::size_t dim{NUM_BOOKS};
         std::vector<float> docs(1000 * dim);
         std::fill(docs.begin(), docs.end(), 0.0F);
-        auto centres = initKmeansPlusPlusForBookConstruction(dim, docs, rng);
+        auto centres = initKmeansPlusPlusForBookConstruction(dim, NUM_BOOKS, docs, rng);
         BOOST_REQUIRE_EQUAL(centres.size(), BOOK_SIZE * dim);
     }
 
@@ -191,7 +191,7 @@ BOOST_AUTO_TEST_CASE(testClusteringInitializations) {
             }
         }
 
-        auto clusterCentres = initKmeansPlusPlusForBookConstruction(dim, docs, rng);
+        auto clusterCentres = initKmeansPlusPlusForBookConstruction(dim, NUM_BOOKS, docs, rng);
         for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
             for (std::size_t i = 0; i < numClusters; ++i) {
                 for (std::size_t j = 0; j < BOOK_SIZE; ++j) {
@@ -419,7 +419,7 @@ BOOST_AUTO_TEST_CASE(testEncode) {
     std::vector<float> doc(dim);
     for (std::size_t i = 0; i < numDocs; ++i) {
         std::copy(&docs[i * dim], &docs[(i + 1) * dim], doc.data());
-        encode(doc, codebooksCentres, &docsCodes[i * NUM_BOOKS]);
+        encode(doc, codebooksCentres, NUM_BOOKS, &docsCodes[i * NUM_BOOKS]);
     }
 
     for (std::size_t i = 0; i < numDocs; ++i) {
@@ -443,16 +443,16 @@ BOOST_AUTO_TEST_CASE(testAnisotropicEncode) {
     }
 
     auto [eigVecs, eigVals] = pca(dim, docs);
-    auto transformation = computeOptimalPQSubspaces(dim, eigVecs, eigVals);
+    auto transformation = computeOptimalPQSubspaces(dim, NUM_BOOKS, eigVecs, eigVals);
     docs = transform(transformation, dim, std::move(docs));
-    auto [centres, docsCodes] = buildCodebook(dim, docs);
+    auto [centres, docsCodes] = buildCodebook(dim, NUM_BOOKS, docs);
 
     // Compute the anisotropic codes for each document.
     std::vector<code_t> anisotropicDocsCodes(numDocs * NUM_BOOKS);
     std::vector<float> doc(dim);
     for (std::size_t i = 0; i < numDocs; ++i) {
         std::copy(&docs[i * dim], &docs[(i + 1) * dim], doc.data());
-        anisotropicEncode(doc, centres, 0.6F, &anisotropicDocsCodes[i * NUM_BOOKS]);
+        anisotropicEncode(doc, centres, NUM_BOOKS, 0.6F, &anisotropicDocsCodes[i * NUM_BOOKS]);
     }
 
     // Compute the dot product between the original and anisotropic encoded
@@ -512,7 +512,7 @@ BOOST_AUTO_TEST_CASE(testBuildCodebook) {
         docs[i] = u01(rng);
     }
 
-    auto [centres, docsCodes] = buildCodebook(dim, docs);
+    auto [centres, docsCodes] = buildCodebook(dim, NUM_BOOKS, docs);
 
     // Check that the codebook has the expected size.
     BOOST_REQUIRE_EQUAL(centres.size(), dim * BOOK_SIZE);
@@ -530,7 +530,7 @@ BOOST_AUTO_TEST_CASE(testBuildCodebook) {
         std::vector<float> doc(dim);
         for (std::size_t i = 0; i < numDocs; ++i) {
             std::copy(&docs[i * dim], &docs[(i + 1) * dim], doc.data());
-            encode(doc, randomCentres, &docsCodes[i * NUM_BOOKS]);
+            encode(doc, randomCentres, NUM_BOOKS, &docsCodes[i * NUM_BOOKS]);
         }
     }
 
@@ -695,7 +695,7 @@ BOOST_AUTO_TEST_CASE(testComputeOptimalPQSubspaces) {
 
     auto [eigVecs, eigValues] = pca(dim, docs);
 
-    auto transformation = computeOptimalPQSubspaces(dim, eigVecs, eigValues);
+    auto transformation = computeOptimalPQSubspaces(dim, NUM_BOOKS, eigVecs, eigValues);
 
     // Check that the optimal PQ transformations are orthogonal.
     for (std::size_t i = 0; i < NUM_BOOKS; ++i) {
@@ -763,7 +763,7 @@ BOOST_AUTO_TEST_CASE(testOptimalCodebooks) {
     }
 
     // Compute the resconstruction error using the original data.
-    auto [centres, docsCodes] = buildCodebook(dim, docs);
+    auto [centres, docsCodes] = buildCodebook(dim, NUM_BOOKS, docs);
 
     double avgMse{0.0};
     std::size_t bookDim{dim / NUM_BOOKS};
@@ -785,9 +785,9 @@ BOOST_AUTO_TEST_CASE(testOptimalCodebooks) {
     // Compute the rectruction error using the transformed data.
 
     auto [eigVecs, eigVals] = pca(dim, docs);
-    auto transformation = computeOptimalPQSubspaces(dim, eigVecs, eigVals);
+    auto transformation = computeOptimalPQSubspaces(dim, NUM_BOOKS, eigVecs, eigVals);
     docs = transform(transformation, dim, std::move(docs));
-    std::tie(centres, docsCodes) = buildCodebook(dim, docs);
+    std::tie(centres, docsCodes) = buildCodebook(dim, NUM_BOOKS, docs);
 
     double avgTransformedMse{0.0};
     for (std::size_t i = 0; i < numDocs; ++i) {
@@ -908,7 +908,7 @@ BOOST_AUTO_TEST_CASE(testSampleDocs) {
 
 BOOST_AUTO_TEST_CASE(testZeroPad) {
     std::vector<float> vectors(2 * NUM_BOOKS - 2, 1.0F);
-    zeroPad(NUM_BOOKS - 1, vectors);
+    zeroPad(NUM_BOOKS - 1, NUM_BOOKS, vectors);
 
     BOOST_REQUIRE_EQUAL(vectors.size(), 2 * NUM_BOOKS);
 
@@ -948,7 +948,7 @@ BOOST_AUTO_TEST_CASE(testBuildCodebooksForPqIndex) {
     BOOST_REQUIRE_EQUAL(docsClusters.size(), numDocs);
 
     auto [transformations, codebooksCentres] =
-        buildCodebooksForPqIndex(docs, clusterCentres, docsClusters);
+        buildCodebooksForPqIndex(docs, clusterCentres, docsClusters, NUM_BOOKS);
 
     // We should have a transformation and codebook for each cluster.
     BOOST_REQUIRE_EQUAL(transformations.size(), 6);
@@ -1010,8 +1010,8 @@ BOOST_AUTO_TEST_CASE(testBuildCodebooksForPqIndex) {
         }
         residualX = transform(transformationX, dim, std::move(residualX));
         residualY = transform(transformationY, dim, std::move(residualY));
-        encode(residualX, codebooksCentresX, docsCodesX.data());
-        encode(residualY, codebooksCentresY, docsCodesY.data());
+        encode(residualX, codebooksCentresX, NUM_BOOKS, docsCodesX.data());
+        encode(residualY, codebooksCentresY, NUM_BOOKS, docsCodesY.data());
 
         // Compute the dot product between the documents from the coarse cluster
         // centres and the corresponding codebooks approximations. This is given
@@ -1073,7 +1073,7 @@ BOOST_AUTO_TEST_CASE(testPqIndexDot) {
     std::vector<cluster_t> docsClusters;
     coarseClustering(false, docs, clusterCentres, docsClusters);
 
-    auto pqIndex = buildPqIndex(docs, Dot);
+    auto pqIndex = buildPqIndex(docs, Dot, COARSE_CLUSTER_DOCS_PER_CLUSTER, NUM_BOOKS);
 
     BOOST_REQUIRE_EQUAL(pqIndex.numClusters(), 6);
     BOOST_REQUIRE_EQUAL(pqIndex.numCodebooksCentres(), 6 * NUM_BOOKS * BOOK_SIZE);
@@ -1099,7 +1099,7 @@ BOOST_AUTO_TEST_CASE(testPqIndexDot) {
 
         residual = transform(transformation, dim, std::move(residual));
         std::vector<code_t> expectedDocCodes(NUM_BOOKS);
-        encode(residual, codebookCentres, expectedDocCodes.data());
+        encode(residual, codebookCentres, NUM_BOOKS, expectedDocCodes.data());
         const auto& docsCodes = pqIndex.codes(id);
 
         BOOST_REQUIRE(docsCodes == expectedDocCodes);
@@ -1168,7 +1168,7 @@ BOOST_AUTO_TEST_CASE(testPqIndexCosine) {
     BigVector docs{dim, numDocs, tmpFile, [&] { return u01(rng); }};
     docs.normalize();
 
-    auto pqIndex = buildPqIndex(docs, Cosine);
+    auto pqIndex = buildPqIndex(docs, Cosine, COARSE_CLUSTER_DOCS_PER_CLUSTER, NUM_BOOKS);
 
     BOOST_REQUIRE_EQUAL(pqIndex.numClusters(), 6);
     BOOST_REQUIRE_EQUAL(pqIndex.numCodebooksCentres(), 6 * NUM_BOOKS * BOOK_SIZE);
@@ -1225,7 +1225,7 @@ BOOST_AUTO_TEST_CASE(testPqIndexEuclidean) {
     BigVector docs{dim, numDocs, tmpFile, [&] { return u01(rng); }};
     docs.normalize();
 
-    auto pqIndex = buildPqIndex(docs, Euclidean);
+    auto pqIndex = buildPqIndex(docs, Euclidean, COARSE_CLUSTER_DOCS_PER_CLUSTER, NUM_BOOKS);
 
     BOOST_REQUIRE_EQUAL(pqIndex.numClusters(), 6);
     BOOST_REQUIRE_EQUAL(pqIndex.numCodebooksCentres(), 6 * NUM_BOOKS * BOOK_SIZE);

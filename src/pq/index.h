@@ -37,11 +37,11 @@ class BigVector;
 //   1. The cluster centres use dim * sizeof(float) bytes per cluster.
 //   2. The transformations use dim * dim * sizeof(float) bytes per cluster.
 //   3. The cluster identifiers use sizeof(cluster_t) bytes per document.
-//   4. The codebooks use NUM_BOOKS * sizeof(code_t) bytes per document.
+//   4. The codebooks use "num books" * sizeof(code_t) bytes per document.
 //   5. The codebooks centres use BOOK_SIZE * dim * sizeof(float) bytes
 //      per cluster.
-//   6. The norms table uses 2 * NUM_BOOKS * BOOK_SIZE * sizeof(float) bytes
-//      and per cluster.
+//   6. The norms table uses 2 * "num books" * BOOK_SIZE * sizeof(float)
+//      bytes and per cluster.
 //
 // For example, suppose sizeof(cluster_t) equals 2 bytes and sizeof(code_t),
 // we use 512 * 1024 = 524288 vectors per cluster, and 24 codebooks with 256
@@ -59,6 +59,7 @@ class PqIndex {
 public:
     PqIndex(Metric metric,
             std::size_t dim,
+            std::size_t numBooks,
             std::vector<float> clustersCentres,
             std::vector<std::vector<float>> transformations,
             std::vector<std::vector<float>> codebooksCentres,
@@ -136,6 +137,7 @@ private:
 private:
     Metric metric_;
     std::size_t dim_;
+    std::size_t numBooks_;
     std::vector<float> clustersCentres_;
     std::vector<std::vector<float>> transformations_;
     std::vector<std::vector<float>> codebooksCentres_;
@@ -147,8 +149,11 @@ private:
 std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>>
 buildCodebooksForPqIndex(const BigVector& docs,
                          const std::vector<float>& centres,
-                         const std::vector<cluster_t>& docsCentres);
+                         const std::vector<cluster_t>& docsCentres,
+                         std::size_t numBooks);
 
 PqIndex buildPqIndex(const BigVector& docs,
                      Metric metric,
+                     std::size_t docsPerCoarseCluster,
+                     std::size_t numBooks,
                      float distanceThreshold = 0.0F);

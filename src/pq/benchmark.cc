@@ -66,6 +66,8 @@ std::chrono::duration<double> time(std::function<void()> f,
 void runPQBenchmark(const std::string& tag,
                     Metric metric,
                     float distanceThreshold,
+                    std::size_t docsPerCoarseCluster,
+                    std::size_t numBooks,
                     std::size_t k,
                     const BigVector& docs,
                     std::vector<float>& queries,
@@ -87,11 +89,11 @@ void runPQBenchmark(const std::string& tag,
     std::cout << "Building PQ index..." << std::endl;
     PqIndex index{[&] {
         Timer timer{"Building PQ index", diff};
-        return buildPqIndex(docs, metric, distanceThreshold);
+        return buildPqIndex(docs, metric, docsPerCoarseCluster, numBooks, distanceThreshold);
     }()};
     std::cout << "PQ index built in " << diff.count() << " s" << std::endl;
 
-    PQStats stats{tag, toString(metric), numQueries, numDocs, dim, k};
+    PQStats stats{tag, toString(metric), numQueries, numDocs, dim, numBooks, k};
     stats.pqCodeBookBuildTime = diff.count();
     stats.pqVectorCompressionRatio = index.vectorCompressionRatio();
     stats.pqCompressionRatio = index.compressionRatio();
@@ -104,7 +106,7 @@ void runPQBenchmark(const std::string& tag,
               << "metric = " << toString(metric)
               << ", top-k = " << k
               << ", normalized = " << (metric == Cosine)
-              << ", book count = " << NUM_BOOKS
+              << ", book count = " << numBooks
               << ", book size = " << BOOK_SIZE
               << ", vector compression ratio = " << stats.pqVectorCompressionRatio
               << ", compression ratio = " << stats.pqCompressionRatio << std::endl;

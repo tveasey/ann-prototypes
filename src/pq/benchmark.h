@@ -14,6 +14,8 @@
 void runPQBenchmark(const std::string& tag,
                     Metric metric,
                     float distanceThreshold,
+                    std::size_t docsPerCoarseCluster,
+                    std::size_t numBooks,
                     std::size_t k,
                     const BigVector& docs,
                     std::vector<float>& queries,

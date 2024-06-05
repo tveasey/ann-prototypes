@@ -37,7 +37,7 @@ void writePQStats(const PQStats& stats) {
 
     std::ofstream writer(statsFile, std::ios_base::app);
     writer << stats.tag << "," << stats.metric << "," << stats.numQueries << ","
-           << stats.numDocs << "," << stats.dim << "," << NUM_BOOKS << ","
+           << stats.numDocs << "," << stats.dim << "," << stats.numBooks << ","
            << BOOK_SIZE << "," << stats.k << "," << stats.bfQPS << ","
            << stats.pqCodeBookBuildTime << "," << BOOK_CONSTRUCTION_K_MEANS_ITR << ","
            << stats.pqCompressionRatio << "," << stats.pqMse << ","

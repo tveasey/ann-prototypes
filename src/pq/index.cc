@@ -102,12 +102,13 @@ initializeSampleReaders(std::size_t dim,
 
 PqIndex::PqIndex(Metric metric,
                  std::size_t dim,
+                 std::size_t numBooks,
                  std::vector<float> clustersCentres,
                  std::vector<std::vector<float>> transformations,
                  std::vector<std::vector<float>> codebooksCentres,
                  std::vector<cluster_t> docsClusters,
                  std::vector<code_t> docsCodes)
-    : metric_{metric}, dim_{dim},
+    : metric_{metric}, dim_{dim}, numBooks_{numBooks},
       clustersCentres_(std::move(clustersCentres)),
       transformations_(std::move(transformations)),
       codebooksCentres_(std::move(codebooksCentres)),
@@ -118,7 +119,7 @@ PqIndex::PqIndex(Metric metric,
 }
 
 std::size_t PqIndex::numCodebooksCentres() const {
-    std::size_t bookDim{dim_ / NUM_BOOKS};
+    std::size_t bookDim{dim_ / numBooks_};
     return std::accumulate(codebooksCentres_.begin(),
                            codebooksCentres_.end(), 0,
                            [](std::size_t sum, const auto& codebook) {
@@ -127,8 +128,8 @@ std::size_t PqIndex::numCodebooksCentres() const {
 }
 
 std::vector<code_t> PqIndex::codes(std::size_t id) const {
-    return {docsCodes_.begin() + id * NUM_BOOKS,
-            docsCodes_.begin() + (id + 1) * NUM_BOOKS};
+    return {docsCodes_.begin() + id * numBooks_,
+            docsCodes_.begin() + (id + 1) * numBooks_};
 }
 
 std::pair<std::vector<std::size_t>, std::vector<float>>
@@ -144,7 +145,7 @@ PqIndex::search(const std::vector<float>& query, std::size_t k) const {
     }
 
     std::size_t numClusters{clustersCentres_.size() / dim_};
-    std::size_t bookDim{dim_ / NUM_BOOKS};
+    std::size_t bookDim{dim_ / numBooks_};
 
     std::vector<std::vector<float>> simTables(numClusters);
     std::vector<float> clusterSims(numClusters);
@@ -157,7 +158,7 @@ PqIndex::search(const std::vector<float>& query, std::size_t k) const {
     TopK topk{k};
     for (std::size_t id = 0; id < docsClusters_.size(); ++id) {
         std::size_t cluster{docsClusters_[id]};
-        const auto* docCode = &docsCodes_[id * NUM_BOOKS];
+        const auto* docCode = &docsCodes_[id * numBooks_];
         float dist{this->computeDist(clusterSims[cluster],
                                      simTables[cluster],
                                      normsTable_[cluster],
@@ -179,11 +180,11 @@ std::vector<float> PqIndex::decode(std::size_t id) const {
 
     // Read the nearest centre to the document from each codebook.
     auto docCluster = docsClusters_[id];
-    const auto* docCode = &docsCodes_[id * NUM_BOOKS];
+    const auto* docCode = &docsCodes_[id * numBooks_];
     const auto* codebooks = &codebooksCentres_[docCluster][0];
-    std::size_t bookDim{dim_ / NUM_BOOKS};
+    std::size_t bookDim{dim_ / numBooks_};
     std::vector<float> transformedResult(dim_, 0.0F);
-    for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+    for (std::size_t b = 0; b < numBooks_; ++b) {
         const auto* centre = &codebooks[(b * BOOK_SIZE + docCode[b]) * bookDim];
         std::copy(centre, centre + bookDim, &transformedResult[b * bookDim]);
     }
@@ -224,14 +225,14 @@ float PqIndex::computeDist(const std::vector<float>& query, std::size_t id) cons
     }
 
     std::size_t cluster{docsClusters_[id]};
-    const auto* docCode = &docsCodes_[id * NUM_BOOKS];
+    const auto* docCode = &docsCodes_[id * numBooks_];
     auto [clusterSim, simTable] = this->buildSimTable(cluster, query);
     return this->computeDist(clusterSim, simTable, normsTable_[cluster], docCode);
 }
 
 double PqIndex::vectorCompressionRatio() const {
     return static_cast<double>(dim_ * sizeof(float)) /
-           static_cast<double>(NUM_BOOKS * sizeof(code_t));
+           static_cast<double>(numBooks_ * sizeof(code_t));
 }
 
 double PqIndex::compressionRatio() const {
@@ -274,20 +275,20 @@ void PqIndex::buildNormsTables() {
     // of each cluster centre with each codebook centre.
 
     std::size_t numClusters{clustersCentres_.size() / dim_};
-    std::size_t bookDim{dim_ / NUM_BOOKS};
+    std::size_t bookDim{dim_ / numBooks_};
 
     normsTable_.resize(numClusters);
 
     if (metric_ == Cosine) {
         std::fill_n(normsTable_.begin(), numClusters,
-                    std::vector<float>(2 * NUM_BOOKS * BOOK_SIZE));
+                    std::vector<float>(2 * numBooks_ * BOOK_SIZE));
         std::vector<float> transformedCentre(dim_);
         for (std::size_t cluster = 0; cluster < numClusters; ++cluster) {
             auto& normsTable = normsTable_[cluster];
             const auto& codebooksCentres = codebooksCentres_[cluster];
             const auto* clusterCentre = &clustersCentres_[cluster * dim_];
             transform(dim_, transformations_[cluster], clusterCentre, transformedCentre.data());
-            for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+            for (std::size_t b = 0; b < numBooks_; ++b) {
                 const auto* clusterCentreProj = &transformedCentre[b * bookDim];
                 const auto* codebookCentres = &codebooksCentres[b * BOOK_SIZE * bookDim];
                 for (std::size_t i = 0; i < BOOK_SIZE; ++i) {
@@ -317,12 +318,12 @@ PqIndex::buildSimTable(std::size_t cluster,
     // in the codebook.
 
     std::size_t dim{query.size()};
-    std::size_t bookDim{dim / NUM_BOOKS};
+    std::size_t bookDim{dim / numBooks_};
 
     // Compute the dot product distance from the query to each centre in
     // the codebook.
     float sim{0.0F};
-    std::vector<float> simTable(BOOK_SIZE * NUM_BOOKS);
+    std::vector<float> simTable(BOOK_SIZE * numBooks_);
     switch (metric_) {
     case Cosine:
     case Dot: {
@@ -337,7 +338,7 @@ PqIndex::buildSimTable(std::size_t cluster,
         transform(dim, transformations_[cluster], query.data(), transformedQuery.data());
 
         const auto& codebooksCentres = codebooksCentres_[cluster];
-        for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+        for (std::size_t b = 0; b < numBooks_; ++b) {
             const auto* queryProj = &transformedQuery[b * bookDim];
             const auto* codebookCentres = &codebooksCentres[b * BOOK_SIZE * bookDim];
             for (std::size_t i = 0; i < BOOK_SIZE; ++i) {
@@ -372,7 +373,7 @@ PqIndex::buildSimTable(std::size_t cluster,
         sim = 1.0;
 
         const auto& codebooksCentres = codebooksCentres_[cluster];
-        for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+        for (std::size_t b = 0; b < numBooks_; ++b) {
             const auto* queryProj = &transformedQuery[b * bookDim];
             const auto* codebookCentres = &codebooksCentres[b * BOOK_SIZE * bookDim];
             for (std::size_t i = 0; i < BOOK_SIZE; ++i) {
@@ -407,7 +408,7 @@ float PqIndex::computeDist(float centreSim,
     // in the simTable.
     float sim{centreSim};
     #pragma clang loop unroll_count(8)
-    for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+    for (std::size_t b = 0; b < numBooks_; ++b) {
         sim += simTable[BOOK_SIZE * b + docCodes[b]];
     }
 
@@ -420,7 +421,7 @@ float PqIndex::computeDist(float centreSim,
     if (metric_ == Cosine) {
         float cdotr{0.0F};
         float rnorm2{0.0F};
-        for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+        for (std::size_t b = 0; b < numBooks_; ++b) {
             const auto* t = &normsTable[2 * (BOOK_SIZE * b + docCodes[b])];
             cdotr += t[0];
             rnorm2 += t[1];
@@ -434,7 +435,8 @@ float PqIndex::computeDist(float centreSim,
 std::pair<std::vector<std::vector<float>>, std::vector<std::vector<float>>>
 buildCodebooksForPqIndex(const BigVector& docs,
                          const std::vector<float>& clustersCentres,
-                         const std::vector<cluster_t>& docsClusters) {
+                         const std::vector<cluster_t>& docsClusters,
+                         std::size_t numBooks) {
 
     std::size_t dim{docs.dim()};
     std::size_t numDocs{docs.numVectors()};
@@ -480,7 +482,7 @@ buildCodebooksForPqIndex(const BigVector& docs,
         for (std::size_t i = beginClusters; i < endClusters; ++i) {
             auto [eigVecs, eigVals] = pca(dim, std::move(samples[i]));
             transformations.emplace_back(
-                computeOptimalPQSubspaces(dim, eigVecs, eigVals));
+                computeOptimalPQSubspaces(dim, numBooks, eigVecs, eigVals));
         }
     }
 
@@ -526,7 +528,7 @@ buildCodebooksForPqIndex(const BigVector& docs,
         }
 
         for (std::size_t j = beginClusters; j < endClusters; ++j) {
-            codebooksCentres[j] = buildCodebook(dim, samples[j]).first;
+            codebooksCentres[j] = buildCodebook(dim, numBooks, samples[j]).first;
             progress.update();
         }
     }
@@ -534,26 +536,30 @@ buildCodebooksForPqIndex(const BigVector& docs,
     return {std::move(transformations), std::move(codebooksCentres)};
 }
 
-PqIndex buildPqIndex(const BigVector& docs, Metric metric, float distanceThreshold) {
+PqIndex buildPqIndex(const BigVector& docs,
+                     Metric metric,
+                     std::size_t docsPerCoarseCluster,
+                     std::size_t numBooks,
+                     float distanceThreshold) {
 
     std::size_t dim{docs.dim()};
     std::size_t numDocs{docs.numVectors()};
 
     std::vector<float> clustersCentres;
     std::vector<cluster_t> docsClusters;
-    coarseClustering(metric == Cosine, docs, clustersCentres, docsClusters);
+    coarseClustering(metric == Cosine, docs, clustersCentres, docsClusters, docsPerCoarseCluster);
 
     std::vector<std::vector<float>> transformations;
     std::vector<std::vector<float>> codebooksCentres;
     std::tie(transformations, codebooksCentres) =
-        buildCodebooksForPqIndex(docs, clustersCentres, docsClusters);
+        buildCodebooksForPqIndex(docs, clustersCentres, docsClusters, numBooks);
 
     // Compute the codes for each doc.
 
     std::vector<Reader> encoders;
     encoders.reserve(NUM_READERS);
 
-    std::vector<code_t> docsCodes(numDocs * NUM_BOOKS);
+    std::vector<code_t> docsCodes(numDocs * numBooks);
     auto beginDocsCodes = docsCodes.data();
     auto beginDocsClusters = docsClusters.begin();
     std::vector<float> centredDoc(dim);
@@ -562,7 +568,7 @@ PqIndex buildPqIndex(const BigVector& docs, Metric metric, float distanceThresho
         encoders.emplace_back([=, &clustersCentres, &transformations](
                 std::size_t pos,
                 BigVector::VectorReference doc) mutable {
-            auto docCodes = beginDocsCodes + NUM_BOOKS * pos;
+            auto docCodes = beginDocsCodes + numBooks * pos;
             auto docCluster = *(beginDocsClusters + pos);
             const auto& transformation = transformations[docCluster];
             const auto& codebookCentres = codebooksCentres[docCluster];
@@ -570,15 +576,15 @@ PqIndex buildPqIndex(const BigVector& docs, Metric metric, float distanceThresho
             centre(dim, &clustersCentres[docCluster * dim], centredDoc.data());
             transform(dim, transformation, centredDoc.data(), transformedDoc.data());
             if (distanceThreshold > 0.0F) {
-                anisotropicEncode(transformedDoc, codebookCentres, distanceThreshold, docCodes);
+                anisotropicEncode(transformedDoc, codebookCentres, numBooks, distanceThreshold, docCodes);
             } else {
-                encode(transformedDoc, codebookCentres, docCodes);
+                encode(transformedDoc, codebookCentres, numBooks, docCodes);
             }
         });
     }
 
     parallelRead(docs, encoders);
 
-    return {metric, dim, std::move(clustersCentres), std::move(transformations),
+    return {metric, dim, numBooks, std::move(clustersCentres), std::move(transformations),
             std::move(codebooksCentres), std::move(docsClusters), std::move(docsCodes)};
 }

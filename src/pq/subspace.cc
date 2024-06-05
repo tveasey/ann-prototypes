@@ -106,6 +106,7 @@ pca(std::size_t dim, std::vector<float> docs) {
 
 std::vector<float>
 computeOptimalPQSubspaces(std::size_t dim,
+                          std::size_t numSubspaces,
                           const std::vector<double>& eigVecs,
                           const std::vector<double>& eigVals) {
 
@@ -139,11 +140,13 @@ computeOptimalPQSubspaces(std::size_t dim,
     // We assume without loss of generality that numSubspaces divides dim
     // because we can always zero-pad the document vectors to make this the
     // case.
-    if (dim % NUM_BOOKS != 0) {
-        throw std::invalid_argument("dim % numSubspaces != 0");
+    if (dim % numSubspaces != 0) {
+        throw std::invalid_argument("dim % numSubspaces != 0 (dim = " +
+                                    std::to_string(dim) + " numSubspaces = " +
+                                    std::to_string(numSubspaces) + ")");
     }
 
-    std::size_t subspaceDim{dim / NUM_BOOKS};
+    std::size_t subspaceDim{dim / numSubspaces};
 
     // We rescale eigenvalues so that the smallest is 1.0. This means that
     // each time we add an eigenvector to a subspace we increase its product
@@ -152,11 +155,11 @@ computeOptimalPQSubspaces(std::size_t dim,
     double logMinEigVal{std::log(std::max(eigVals.back(), 1e-8 * maxEigVal))};
 
     // Assign the first numSubspaces eigenvectors (one to each book).
-    std::vector<std::vector<std::size_t>> assignments(NUM_BOOKS);
+    std::vector<std::vector<std::size_t>> assignments(numSubspaces);
     std::priority_queue<std::pair<double, std::size_t>,
                         std::vector<std::pair<double, std::size_t>>,
                         std::greater<std::pair<double, std::size_t>>> logProdEigVals;
-    for (std::size_t i = 0; i < NUM_BOOKS; ++i) {
+    for (std::size_t i = 0; i < numSubspaces; ++i) {
         assignments[i].push_back(i * dim);
         double eigValAdj{std::max(eigVals[i], logMinEigVal)};
         logProdEigVals.push(std::make_pair(std::log(eigValAdj) - logMinEigVal, i));
@@ -165,7 +168,7 @@ computeOptimalPQSubspaces(std::size_t dim,
     // Use a greedy bin packing algorithm heuristic where at each step the
     // eigenvector of the largest remaining eigenvalue is assigned to the
     // subspace with the minimum product of eigenvalues.
-    for (std::size_t i = NUM_BOOKS; i < dim; ++i) {
+    for (std::size_t i = numSubspaces; i < dim; ++i) {
         while (!logProdEigVals.empty()) {
             auto [minLogProdEigVals, j] = logProdEigVals.top();
             logProdEigVals.pop();

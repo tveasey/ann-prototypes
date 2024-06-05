@@ -18,6 +18,7 @@
 namespace {
 
 std::vector<float> initCodebookCentres(std::size_t dim,
+                                       std::size_t numBooks,
                                        const std::vector<float>& docs) {
 
     // Random restarts with aggressive downsample.
@@ -32,18 +33,18 @@ std::vector<float> initCodebookCentres(std::size_t dim,
     double p{std::min(32 * BOOK_SIZE / static_cast<double>(numDocs), 1.0)};
     auto sampledDocs = sampleDocs(dim, docs, p, rng);
 
-    std::vector<code_t> docsCodes(NUM_BOOKS * numDocs);
+    std::vector<code_t> docsCodes(numBooks * numDocs);
     for (std::size_t restart = 0;
          restart < BOOK_CONSTRUCTION_K_MEANS_RESTARTS;
          ++restart) {
         std::vector<float> codebookCentres{
-            initKmeansPlusPlusForBookConstruction(dim, sampledDocs, rng)};
+            initKmeansPlusPlusForBookConstruction(dim, numBooks, sampledDocs, rng)};
         // K-means converges pretty quickly so we use half the number
         // of iterations we do for final clustering to select the best
         // initialization.
         double mse;
         for (std::size_t i = 0; 2 * i < BOOK_CONSTRUCTION_K_MEANS_ITR; ++i) {
-            mse = stepLloydForBookConstruction(dim, sampledDocs, codebookCentres, docsCodes);
+            mse = stepLloydForBookConstruction(dim, numBooks, sampledDocs, codebookCentres, docsCodes);
         }
         if (mse < minMse) {
             minMseCodebookCentres = std::move(codebookCentres);
@@ -57,13 +58,13 @@ std::vector<float> initCodebookCentres(std::size_t dim,
 } // unnamed::
 
 std::pair<std::vector<float>, std::vector<code_t>>
-buildCodebook(std::size_t dim, const std::vector<float>& docs) {
-    std::size_t bookDim{dim / NUM_BOOKS};
-    std::vector<float> codebookCentres{initCodebookCentres(dim, docs)};
+buildCodebook(std::size_t dim, std::size_t numBooks, const std::vector<float>& docs) {
+    std::size_t bookDim{dim / numBooks};
+    std::vector<float> codebookCentres{initCodebookCentres(dim, numBooks, docs)};
     std::vector<code_t> docsCodes(docs.size() / bookDim);
     double lastMse{std::numeric_limits<double>::max()};
     for (std::size_t i = 0; i < BOOK_CONSTRUCTION_K_MEANS_ITR; ++i) {
-        double mse{stepLloydForBookConstruction(dim, docs, codebookCentres, docsCodes)};
+        double mse{stepLloydForBookConstruction(dim, numBooks, docs, codebookCentres, docsCodes)};
         if (std::abs(lastMse - mse) < 1e-4 * mse) {
             break;
         }
@@ -74,13 +75,14 @@ buildCodebook(std::size_t dim, const std::vector<float>& docs) {
 
 void encode(const std::vector<float>& doc,
             const std::vector<float>& codebooksCentres,
+            std::size_t numBooks,
             code_t* codes) {
 
     // For each book, find the closest centroid and append the corresponding
     // code for the book.
     std::size_t dim{doc.size()};
-    std::size_t bookDim{dim / NUM_BOOKS};
-    for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+    std::size_t bookDim{dim / numBooks};
+    for (std::size_t b = 0; b < numBooks; ++b) {
         std::size_t iMsd{0};
         float msd{std::numeric_limits<float>::max()};
         auto docProj = doc.begin() + b * bookDim;
@@ -104,6 +106,7 @@ void encode(const std::vector<float>& doc,
 
 void anisotropicEncode(const std::vector<float>& doc,
                        const std::vector<float>& codebooksCentres,
+                       std::size_t numBooks,
                        float threshold,
                        code_t* codes) {
 
@@ -133,11 +136,11 @@ void anisotropicEncode(const std::vector<float>& doc,
     // Here, n is parallelScale.
 
     std::size_t dim{doc.size()};
-    std::size_t bookDim{dim / NUM_BOOKS};
+    std::size_t bookDim{dim / numBooks};
     float n2{norms2(dim, doc)[0]};
     float scale{threshold * threshold / (1.0F - threshold * threshold) * (dim - 1.0F)};
 
-    for (std::size_t b = 0; b < NUM_BOOKS; ++b) {
+    for (std::size_t b = 0; b < numBooks; ++b) {
         std::size_t iMsd{0};
         float msd{std::numeric_limits<float>::max()};
         auto docProj = doc.begin() + b * bookDim;

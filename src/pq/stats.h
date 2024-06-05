@@ -15,6 +15,7 @@ struct PQStats {
     std::size_t numQueries;
     std::size_t numDocs;
     std::size_t dim;
+    std::size_t numBooks;
     std::size_t k;
     // Brute force stats
     double bfQPS;

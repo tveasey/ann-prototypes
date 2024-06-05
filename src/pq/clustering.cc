@@ -175,9 +175,10 @@ std::set<size_t> initForgyForBookConstruction(std::size_t numDocs,
 }
 
 std::vector<float> initForgyForBookConstruction(std::size_t dim,
+                                                std::size_t numBooks,
                                                 const std::vector<float>& docs,
                                                 std::minstd_rand& rng) {
-    return initForgy(dim, NUM_BOOKS, BOOK_SIZE, docs, rng);
+    return initForgy(dim, numBooks, BOOK_SIZE, docs, rng);
 }
 
 std::vector<float> initForgyForTest(std::size_t dim,
@@ -189,16 +190,18 @@ std::vector<float> initForgyForTest(std::size_t dim,
 }
 
 std::vector<float> initKmeansPlusPlusForBookConstruction(std::size_t dim,
+                                                         std::size_t numBooks,
                                                          const std::vector<float>& docs,
                                                          std::minstd_rand& rng) {
-    return initKmeansPlusPlus(dim, NUM_BOOKS, BOOK_SIZE, docs, rng);
+    return initKmeansPlusPlus(dim, numBooks, BOOK_SIZE, docs, rng);
 }
 
 double stepLloydForBookConstruction(std::size_t dim,
+                                    std::size_t numBooks,
                                     const std::vector<float>& docs,
                                     std::vector<float>& centres,
                                     std::vector<code_t>& docsCodes) {
-    return stepLloyd(dim, NUM_BOOKS, BOOK_SIZE, docs, centres, docsCodes);
+    return stepLloyd(dim, numBooks, BOOK_SIZE, docs, centres, docsCodes);
 }
 
 double stepLloydForTest(std::size_t dim,
@@ -213,7 +216,8 @@ double stepLloydForTest(std::size_t dim,
 void coarseClustering(bool normalized,
                       const BigVector& docs,
                       std::vector<float>& clusterCentres,
-                      std::vector<cluster_t>& docsClusters) {
+                      std::vector<cluster_t>& docsClusters,
+                      std::size_t docsPerCluster) {
 
     // Use k-means to compute a coarse clustering of the data. We will use
     // one codebook per cluster.
@@ -226,7 +230,7 @@ void coarseClustering(bool normalized,
     std::size_t sampleSize{std::min(COARSE_CLUSTERING_SAMPLE_SIZE, numDocs)};
     std::vector<float> sampledDocs{sampleDocs(docs, sampleSize, rng)};
 
-    std::size_t numClusters{std::max(1UL, numDocs / COARSE_CLUSTERING_DOCS_PER_CLUSTER)};
+    std::size_t numClusters{std::max(1UL, numDocs / docsPerCluster)};
 
     auto ifSphericalKMeansNormalize = [dim, normalized](std::vector<float>& vectors) {
         if (normalized) {
