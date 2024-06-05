@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <iostream>
 
 namespace {
 const std::array<std::string, 3> METRICS{"cosine", "dot", "euclidean"};
@@ -79,4 +81,30 @@ std::vector<float> norms2(std::size_t dim, const std::vector<float>& vectors) {
         norms2[j] = norm2;
     }
     return norms2;
+}
+
+Timer::Timer(const std::string& operation,
+             std::chrono::duration<double>& duration) :
+    operation_{operation},
+    duration_{duration},
+    start_{std::chrono::steady_clock::now()} {
+}
+
+Timer::~Timer() {
+    std::chrono::steady_clock::time_point end;
+    end = std::chrono::steady_clock::now();
+    duration_ = end - start_;
+    if (!operation_.empty()) {
+        std::cout << operation_ << " took " << duration_.count() << " s" << std::endl;
+    }
+}
+
+std::chrono::duration<double> time(std::function<void()> f,
+                                   const std::string& operation) {
+    std::chrono::duration<double> diff{0};
+    {
+        Timer timer{operation, diff};
+        f();
+    }
+    return diff;
 }

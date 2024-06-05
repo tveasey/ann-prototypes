@@ -453,15 +453,14 @@ buildCodebooksForPqIndex(const BigVector& docs,
     // We store 64 * dim samples per cluster. For 768 d vectors this amounts
     // to 768 * 64 * 768 * 4 = 144 MB per cluster. So our peak memory usage
     // is 144 MB * 32 = 4.6 GB.
-    std::cout << "Computing optimal transforms" << std::endl;
     for (std::size_t i = 0; i < numClusters; i += 32) {
 
         std::size_t beginClusters{i};
         std::size_t endClusters{i + std::min(NUM_READERS, numClusters - i)};
         std::size_t numSamplesPerCluster{64 * dim};
-        std::cout << "Sampling clusters in range "
+        std::cout << "Sampling clusters "
                   << "[" << beginClusters << "," << endClusters << ") "
-                  << "docs per cluster = " << numSamplesPerCluster << std::endl;
+                  << "(docs per cluster = " << numSamplesPerCluster << ")" << std::endl;
 
         std::vector<float> initialSamples(numSamplesPerCluster * dim,
                                           std::numeric_limits<float>::quiet_NaN());
@@ -479,22 +478,23 @@ buildCodebooksForPqIndex(const BigVector& docs,
         removeNans(samples);
 
         // Compute optimal transformations for each coarse cluster.
+        ProgressBar progress{"Computing optimal transforms...", endClusters - beginClusters};
         for (std::size_t i = beginClusters; i < endClusters; ++i) {
             auto [eigVecs, eigVals] = pca(dim, std::move(samples[i]));
             transformations.emplace_back(
                 computeOptimalPQSubspaces(dim, numBooks, eigVecs, eigVals));
+            progress.update();
         }
     }
 
     // Compute the codebook centres for each coarse cluster.
     std::vector<std::vector<float>> codebooksCentres(numClusters);
-    std::cout << "Computing codebooks" << std::endl;
 
     // We sample in chunks of 32 clusters to reduce the peak memory usage.
     // We store 128 * BOOK_SIZE samples per cluster. For 768 d vectors
     // this amounts to 128 * 256 * 768 * 4 = 96 MB per cluster. So our
     // peak memory usage is 96 MB * 32 = 3 GB.
-    ProgressBar progress{"Clustering...", numClusters};
+    ProgressBar progress{"Building codebooks...", numClusters};
     for (std::size_t i = 0; i < numClusters; i += 32) {
 
         std::size_t beginClusters{i};
@@ -547,7 +547,9 @@ PqIndex buildPqIndex(const BigVector& docs,
 
     std::vector<float> clustersCentres;
     std::vector<cluster_t> docsClusters;
-    coarseClustering(metric == Cosine, docs, clustersCentres, docsClusters, docsPerCoarseCluster);
+    time([&] {
+        coarseClustering(metric == Cosine, docs, clustersCentres, docsClusters, docsPerCoarseCluster);
+    }, "Coarse clustering");
 
     std::vector<std::vector<float>> transformations;
     std::vector<std::vector<float>> codebooksCentres;

@@ -21,48 +21,6 @@
 #include <queue>
 #include <vector>
 
-namespace {
-
-// RAII timer
-class Timer {
-public:
-    Timer(const std::string& operation,
-          std::chrono::duration<double>& duration) :
-        operation_{operation},
-        duration_{duration},
-        start_{std::chrono::steady_clock::now()} {
-    }
-
-    Timer(const Timer&) = delete;
-    Timer& operator=(const Timer&) = delete;
-
-    ~Timer() {
-        std::chrono::steady_clock::time_point end;
-        end = std::chrono::steady_clock::now();
-        duration_ = end - start_;
-        if (!operation_.empty()) {
-            std::cout << operation_ << " took " << duration_.count() << " s" << std::endl;
-        }
-    }
-
-private:
-    const std::string& operation_;
-    std::chrono::duration<double>& duration_;
-    std::chrono::steady_clock::time_point start_;
-};
-
-std::chrono::duration<double> time(std::function<void()> f,
-                                   const std::string& operation = "") {
-    std::chrono::duration<double> diff{0};
-    {
-        Timer timer{operation, diff};
-        f();
-    }
-    return diff;
-}
-
-} // unnamed::
-
 void runPQBenchmark(const std::string& tag,
                     Metric metric,
                     float distanceThreshold,
@@ -80,6 +38,9 @@ void runPQBenchmark(const std::string& tag,
 
     if (queries.size() % dim != 0) {
         throw std::invalid_argument("Invalid query size");
+    }
+    if (metric == Cosine) {
+        normalize(dim, queries);
     }
 
     std::size_t numQueries{queries.size() / dim};

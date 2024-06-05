@@ -1073,7 +1073,7 @@ BOOST_AUTO_TEST_CASE(testPqIndexDot) {
     std::vector<cluster_t> docsClusters;
     coarseClustering(false, docs, clusterCentres, docsClusters);
 
-    auto pqIndex = buildPqIndex(docs, Dot, COARSE_CLUSTER_DOCS_PER_CLUSTER, NUM_BOOKS);
+    auto pqIndex = buildPqIndex(docs, Dot, COARSE_CLUSTERING_DOCS_PER_CLUSTER, NUM_BOOKS);
 
     BOOST_REQUIRE_EQUAL(pqIndex.numClusters(), 6);
     BOOST_REQUIRE_EQUAL(pqIndex.numCodebooksCentres(), 6 * NUM_BOOKS * BOOK_SIZE);
@@ -1168,7 +1168,7 @@ BOOST_AUTO_TEST_CASE(testPqIndexCosine) {
     BigVector docs{dim, numDocs, tmpFile, [&] { return u01(rng); }};
     docs.normalize();
 
-    auto pqIndex = buildPqIndex(docs, Cosine, COARSE_CLUSTER_DOCS_PER_CLUSTER, NUM_BOOKS);
+    auto pqIndex = buildPqIndex(docs, Cosine, COARSE_CLUSTERING_DOCS_PER_CLUSTER, NUM_BOOKS);
 
     BOOST_REQUIRE_EQUAL(pqIndex.numClusters(), 6);
     BOOST_REQUIRE_EQUAL(pqIndex.numCodebooksCentres(), 6 * NUM_BOOKS * BOOK_SIZE);
@@ -1225,7 +1225,7 @@ BOOST_AUTO_TEST_CASE(testPqIndexEuclidean) {
     BigVector docs{dim, numDocs, tmpFile, [&] { return u01(rng); }};
     docs.normalize();
 
-    auto pqIndex = buildPqIndex(docs, Euclidean, COARSE_CLUSTER_DOCS_PER_CLUSTER, NUM_BOOKS);
+    auto pqIndex = buildPqIndex(docs, Euclidean, COARSE_CLUSTERING_DOCS_PER_CLUSTER, NUM_BOOKS);
 
     BOOST_REQUIRE_EQUAL(pqIndex.numClusters(), 6);
     BOOST_REQUIRE_EQUAL(pqIndex.numCodebooksCentres(), 6 * NUM_BOOKS * BOOK_SIZE);

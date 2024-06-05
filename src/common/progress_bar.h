@@ -27,8 +27,8 @@ public:
     ~ProgressBar() {
         std::cout << '\r' << name_ << " [" << std::string(width_, '=') << "] 100%" << std::endl;
         auto end = std::chrono::steady_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start_);
-        std::cout << "Elapsed time: " << duration.count() << " ms" << std::endl;
+        auto duration = std::chrono::duration_cast<std::chrono::duration<double>>(end - start_);
+        std::cout << "Elapsed time: " << duration.count() << " s" << std::endl;
     }
 
 private:

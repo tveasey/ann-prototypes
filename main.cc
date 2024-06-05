@@ -28,7 +28,7 @@ void loadAndRunPQBenchmark(const std::string& dataset,
               << (root / "data" / ("queries-" + dataset + ".fvec")) << std::endl;
     auto [queries, qdim] = readFvecs(root / "data" / ("queries-" + dataset + ".fvec"));
     std::cout << "Loaded " << queries.size() / qdim << " queries of dimension " << qdim << std::endl;
-    
+
     // We pad to a multiple of the number of books so round up.
     std::size_t numBooks{(qdim + dimensionsPerCode - 1) / dimensionsPerCode};
 

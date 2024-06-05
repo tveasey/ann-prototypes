@@ -2,5 +2,5 @@
 /corpus-quora-E5-small.fvec
 /queries-wiki-cohere.fvec
 /queries-quora-E5-small.fvec
-/corpus-ann-gist-1M.fvecs
-/queries-ann-gist-1M.fvecs
+/corpus-ann-gist-1M.fvec
+/queries-ann-gist-1M.fvec

@@ -230,7 +230,7 @@ void coarseClustering(bool normalized,
     std::size_t sampleSize{std::min(COARSE_CLUSTERING_SAMPLE_SIZE, numDocs)};
     std::vector<float> sampledDocs{sampleDocs(docs, sampleSize, rng)};
 
-    std::size_t numClusters{std::max(1UL, numDocs / docsPerCluster)};
+    std::size_t numClusters{std::max(1UL, (numDocs + docsPerCluster - 1) / docsPerCluster)};
 
     auto ifSphericalKMeansNormalize = [dim, normalized](std::vector<float>& vectors) {
         if (normalized) {
@@ -255,8 +255,6 @@ void coarseClustering(bool normalized,
         return;
     }
 
-    std::chrono::steady_clock::time_point start{std::chrono::steady_clock::now()};
-
     // A few restarts with Forgy initialisation is good enough.
     double msd{std::numeric_limits<double>::max()};
     for (std::size_t restarts = 0;
@@ -276,11 +274,6 @@ void coarseClustering(bool normalized,
         }
     }
     std::cout << "Coarse clustering MSE = " << msd << std::endl;
-
-    std::chrono::steady_clock::time_point end{std::chrono::steady_clock::now()};
-    std::cout << "Coarse clustering took "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
-              << " ms" << std::endl;
 
     // Assign each document to the nearest centroid and update the centres.
 
@@ -327,14 +320,7 @@ void coarseClustering(bool normalized,
         });
     }
 
-    start = std::chrono::steady_clock::now();
-
     parallelRead(docs, clusterWriters);
-
-    end = std::chrono::steady_clock::now();
-    std::cout << "Assigning documents to clusters took "
-              << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count()
-              << " ms" << std::endl;
 
     std::vector<std::size_t> clusterCounts(numClusters, 0);
     for (std::size_t i = 0; i < numDocs; ++i) {

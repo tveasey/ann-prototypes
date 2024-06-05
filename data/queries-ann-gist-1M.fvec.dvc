@@ -2,4 +2,4 @@ outs:
 - md5: 40eb28362d9bc77a07408b82329806da
   size: 3844000
   hash: md5
-  path: queries-ann-gist-1M.fvecs
+  path: queries-ann-gist-1M.fvec
