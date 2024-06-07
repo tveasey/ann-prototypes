@@ -19,4 +19,4 @@ void runPQBenchmark(const std::string& tag,
                     std::size_t k,
                     const BigVector& docs,
                     std::vector<float>& queries,
-                    const std::function<void(const PQStats&)>& writeStats);
+                    const std::function<void(const PqStats&)>& writeStats);

@@ -66,6 +66,9 @@ public:
             std::vector<cluster_t> docsClusters,
             std::vector<code_t> docsCodes);
 
+    // Return the metric used to compute the distance.
+    Metric metric() const { return metric_; }
+
     // Return the number of clusters.
     std::size_t numClusters() const { return clustersCentres_.size() / dim_; }
 
@@ -171,14 +174,13 @@ refreshCodebooksForPqIndex(const BigVector& docs,
                            const std::vector<std::vector<float>> &transformations,
                            std::vector<std::vector<float>> codebooksCentres);
 
-PqIndex mergePqIndices(const std::pair<PqIndex, PqIndex>& index,
-                       const std::pair<BigVector, BigVector>& docs,
-                       Metric metric,
-                       std::size_t docsPerCoarseCluster,
-                       float distanceThreshold);
-
 PqIndex buildPqIndex(const BigVector& docs,
                      Metric metric,
+                     float distanceThreshold,
                      std::size_t docsPerCoarseCluster,
-                     std::size_t numBooks,
-                     float distanceThreshold = 0.0F);
+                     std::size_t numBooks);
+
+PqIndex mergePqIndices(const BigVector& docs,
+                       float distanceThreshold,
+                       std::size_t docsPerCoarseCluster,
+                       const std::pair<PqIndex, PqIndex>& index);

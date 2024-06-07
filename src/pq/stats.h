@@ -8,7 +8,7 @@
 #include <vector>
 
 // PQ stats
-struct PQStats {
+struct PqStats {
     // Test stats
     std::string tag;
     std::string metric;
@@ -23,11 +23,12 @@ struct PQStats {
     double pqCodeBookBuildTime;
     double pqVectorCompressionRatio;
     double pqCompressionRatio;
-    double pqMse;
+    // PQ merge stats
+    double pqMergeTime;
     // PQ query stats
     bool normalize;
     std::vector<double> pqQPS;
     std::vector<recalls_t> pqRecalls;
 };
 
-void writePQStats(const PQStats& stats);
+void writePqStats(const PqStats& stats);

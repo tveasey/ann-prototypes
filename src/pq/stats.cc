@@ -10,7 +10,7 @@
 #include <fstream>
 
 
-void writePQStats(const PQStats& stats) {
+void writePqStats(const PqStats& stats) {
     auto fileExists = [](const auto& file) {
         std::ifstream test(file);
         return test.good();
@@ -40,8 +40,7 @@ void writePQStats(const PQStats& stats) {
            << stats.numDocs << "," << stats.dim << "," << stats.numBooks << ","
            << BOOK_SIZE << "," << stats.k << "," << stats.bfQPS << ","
            << stats.pqCodeBookBuildTime << "," << BOOK_CONSTRUCTION_K_MEANS_ITR << ","
-           << stats.pqCompressionRatio << "," << stats.pqMse << ","
-           << stats.normalize;
+           << stats.pqCompressionRatio << "," << stats.normalize;
     for (const auto& qps : stats.pqQPS) {
         writer << "," << qps;
     }

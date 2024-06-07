@@ -21,43 +21,18 @@
 #include <queue>
 #include <vector>
 
-void runPQBenchmark(const std::string& tag,
-                    Metric metric,
-                    float distanceThreshold,
-                    std::size_t docsPerCoarseCluster,
-                    std::size_t numBooks,
-                    std::size_t k,
-                    const BigVector& docs,
-                    std::vector<float>& queries,
-                    const std::function<void(const PQStats&)>& writeStats) {
+namespace {
 
-    static_assert(BOOK_SIZE - 1 <= std::numeric_limits<code_t>::max(),
-                  "You need to increase code_t size");
-
-    std::size_t dim{docs.dim()};
-
-    if (queries.size() % dim != 0) {
-        throw std::invalid_argument("Invalid query size");
-    }
-    if (metric == Cosine) {
-        normalize(dim, queries);
-    }
-
-    std::size_t numQueries{queries.size() / dim};
-    std::size_t numDocs{docs.size() / dim};
-    std::chrono::duration<double> diff{0};
-
-    std::cout << "Building PQ index..." << std::endl;
-    PqIndex index{[&] {
-        Timer timer{"Building PQ index", diff};
-        return buildPqIndex(docs, metric, docsPerCoarseCluster, numBooks, distanceThreshold);
-    }()};
-    std::cout << "PQ index built in " << diff.count() << " s" << std::endl;
-
-    PQStats stats{tag, toString(metric), numQueries, numDocs, dim, numBooks, k};
-    stats.pqCodeBookBuildTime = diff.count();
-    stats.pqVectorCompressionRatio = index.vectorCompressionRatio();
-    stats.pqCompressionRatio = index.compressionRatio();
+PqStats runQueries(std::size_t numQueries,
+                   std::size_t numDocs,
+                   std::size_t dim,
+                   Metric metric,
+                   std::size_t numBooks,
+                   std::size_t k,
+                   const BigVector& docs,
+                   std::vector<float>& queries,
+                   const PqIndex& index,
+                   PqStats stats) {
 
     std::cout << std::setprecision(5)
               << "query count = " << numQueries
@@ -75,7 +50,7 @@ void runPQBenchmark(const std::string& tag,
     std::vector<float> query(docs.dim());
     std::vector<std::vector<std::size_t>> topkExact(numQueries);
 
-    diff = std::chrono::duration<double>{0};
+    auto diff = std::chrono::duration<double>{0};
     std::unique_ptr<ProgressBar> progress{
         std::make_unique<ProgressBar>("Bruteforce...", numQueries)};
     for (std::size_t i = 0, j = 0; i < queries.size(); i += dim, ++j) {
@@ -86,7 +61,6 @@ void runPQBenchmark(const std::string& tag,
     progress.reset();
     std::cout << "Brute force took " << diff.count() << " s" << std::endl;
 
-    stats.normalize = (metric == Cosine);
     stats.bfQPS = std::round(static_cast<double>(numQueries) / diff.count());
 
     for (std::size_t m : EXPANSIONS) {
@@ -113,6 +87,114 @@ void runPQBenchmark(const std::string& tag,
         std::cout << "Recall@" << k << "|" << m * k << " = "
                   << stats.pqRecalls[i][AVG_RECALL] << std::endl;
     }
+
+    return stats;
+}
+
+} // unnamed::
+
+void runPQBenchmark(const std::string& tag,
+                    Metric metric,
+                    float distanceThreshold,
+                    std::size_t docsPerCoarseCluster,
+                    std::size_t numBooks,
+                    std::size_t k,
+                    const BigVector& docs,
+                    std::vector<float>& queries,
+                    const std::function<void(const PqStats&)>& writeStats) {
+
+    static_assert(BOOK_SIZE - 1 <= std::numeric_limits<code_t>::max(),
+                  "You need to increase code_t size");
+
+    std::size_t dim{docs.dim()};
+
+    if (queries.size() % dim != 0) {
+        throw std::invalid_argument("Invalid query size");
+    }
+    if (metric == Cosine) {
+        normalize(dim, queries);
+    }
+
+    std::size_t numQueries{queries.size() / dim};
+    std::size_t numDocs{docs.numVectors()};
+    std::chrono::duration<double> diff{0};
+
+    std::cout << "Building PQ index..." << std::endl;
+    PqIndex index{[&] {
+        Timer timer{"Building PQ index", diff};
+        return buildPqIndex(docs, metric, distanceThreshold, docsPerCoarseCluster, numBooks);
+    }()};
+    std::cout << "PQ index built in " << diff.count() << " s" << std::endl;
+
+    PqStats stats{tag, toString(metric), numQueries, numDocs, dim, numBooks, k};
+    stats.pqCodeBookBuildTime = diff.count();
+    stats.pqVectorCompressionRatio = index.vectorCompressionRatio();
+    stats.pqCompressionRatio = index.compressionRatio();
+    stats.pqMergeTime = 0.0;
+    stats.normalize = (metric == Cosine);
+
+    stats = runQueries(numQueries, numDocs, dim, metric, numBooks, k, docs, queries, index, stats);
+
+    writeStats(stats);
+}
+
+void runPQMergeBenchmark(const std::string& tag,
+                         Metric metric,
+                         float distanceThreshold,
+                         std::size_t docsPerCoarseCluster,
+                         std::size_t numBooks,
+                         std::size_t k,
+                         const BigVector& docs1,
+                         const BigVector& docs2,
+                         std::vector<float>& queries,
+                         const std::function<void(const PqStats&)>& writeStats) {
+    
+    static_assert(BOOK_SIZE - 1 <= std::numeric_limits<code_t>::max(),
+                  "You need to increase code_t size");
+
+    std::size_t dim{docs1.dim()};
+
+    if (queries.size() % dim != 0) {
+        throw std::invalid_argument("Invalid query size");
+    }
+    if (metric == Cosine) {
+        normalize(dim, queries);
+    }
+
+    std::size_t numQueries{queries.size() / dim};
+    std::size_t numDocs{docs1.numVectors() + docs2.numVectors()};
+    std::chrono::duration<double> diff1{0};
+    std::chrono::duration<double> diff2{0};
+    std::chrono::duration<double> diffm{0};
+
+    auto docs = merge(docs1, docs2, createTemporaryFile());
+
+    std::cout << "Building PQ index..." << std::endl;
+    PqIndex index1{[&] {
+        Timer timer{"Building PQ index", diff1};
+        return buildPqIndex(docs1, metric, distanceThreshold, docsPerCoarseCluster, numBooks);
+    }()};
+    PqIndex index2{[&] {
+        Timer timer{"Building PQ index", diff2};
+        return buildPqIndex(docs2, metric, distanceThreshold, docsPerCoarseCluster, numBooks);
+    }()};
+    std::cout << "PQ index built in " << (diff1 + diff2).count() << " s" << std::endl;
+
+    PqStats stats{tag, toString(metric), numQueries, numDocs, dim, numBooks, k};
+    stats.pqCodeBookBuildTime = (diff1 + diff2).count();
+
+    PqIndex index{[&] {
+        Timer timer{"Merging PQ indices", diffm};
+        return mergePqIndices(docs, distanceThreshold, docsPerCoarseCluster,
+                              {std::move(index1), std::move(index2)});
+    }()};
+
+    stats.pqVectorCompressionRatio = index1.vectorCompressionRatio();
+    stats.pqCompressionRatio = index.compressionRatio();
+    stats.pqMergeTime = diffm.count();
+    stats.normalize = (metric == Cosine);
+
+    stats = runQueries(numQueries, numDocs, dim, metric, numBooks, k, docs, queries, index, stats);
 
     writeStats(stats);
 }

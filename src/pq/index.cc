@@ -655,12 +655,44 @@ std::vector<code_t> encodeAll(const BigVector& docs,
 
 } // unnamed::
 
-PqIndex mergePqIndices(const std::pair<PqIndex, PqIndex>& index,
-                       const std::pair<BigVector, BigVector>& docs_,
-                       Metric metric,
-                       std::size_t docsPerCoarseCluster,
-                       float distanceThreshold) {
+PqIndex buildPqIndex(const BigVector& docs,
+                     Metric metric,
+                     float distanceThreshold,
+                     std::size_t docsPerCoarseCluster,
+                     std::size_t numBooks) {
 
+    std::size_t dim{docs.dim()};
+    std::size_t numDocs{docs.numVectors()};
+
+    std::vector<float> clustersCentres;
+    std::vector<cluster_t> docsClusters;
+    time([&] {
+        coarseClustering(metric == Cosine, docs, clustersCentres, docsClusters, docsPerCoarseCluster);
+    }, "Coarse clustering");
+
+    std::vector<std::vector<float>> transformations;
+    std::vector<std::vector<float>> codebooksCentres;
+    std::tie(transformations, codebooksCentres) =
+        buildCodebooksForPqIndex(docs, clustersCentres, docsClusters, numBooks);
+
+    auto docsCodes = encodeAll(docs, clustersCentres, docsClusters, numBooks,
+                              distanceThreshold, transformations, codebooksCentres);
+
+    return {metric, dim, numBooks, std::move(clustersCentres), std::move(transformations),
+            std::move(codebooksCentres), std::move(docsClusters), std::move(docsCodes)};
+}
+
+PqIndex mergePqIndices(const BigVector& docs,
+                       float distanceThreshold,
+                       std::size_t docsPerCoarseCluster,
+                       const std::pair<PqIndex, PqIndex>& index) {
+
+    if (index.first.metric() != index.second.metric()) {
+        throw std::runtime_error{
+            "Indices have different metrics " +
+            std::to_string(index.first.metric()) + " != " +
+            std::to_string(index.second.metric())};
+    }
     if (index.first.numCodebooks() != index.second.numCodebooks()) {
         throw std::runtime_error{
             "Indices have different number of codebooks " +
@@ -674,8 +706,7 @@ PqIndex mergePqIndices(const std::pair<PqIndex, PqIndex>& index,
             std::to_string(index.second.numCodebooksCentres())};
     }
 
-    auto docs = merge(docs_.first, docs_.second, createTemporaryFile());
-
+    auto metric = index.first.metric();
     std::size_t dim{docs.dim()};
     std::size_t numDocs{docs.numVectors()};
     std::size_t numBooks{index.first.numCodebooks()};
@@ -724,33 +755,6 @@ PqIndex mergePqIndices(const std::pair<PqIndex, PqIndex>& index,
     
     auto docsCodes = encodeAll(docs, clustersCentres, docsClusters, numBooks,
                                distanceThreshold, transformations, codebooksCentres);
-
-    return {metric, dim, numBooks, std::move(clustersCentres), std::move(transformations),
-            std::move(codebooksCentres), std::move(docsClusters), std::move(docsCodes)};
-}
-
-PqIndex buildPqIndex(const BigVector& docs,
-                     Metric metric,
-                     std::size_t docsPerCoarseCluster,
-                     std::size_t numBooks,
-                     float distanceThreshold) {
-
-    std::size_t dim{docs.dim()};
-    std::size_t numDocs{docs.numVectors()};
-
-    std::vector<float> clustersCentres;
-    std::vector<cluster_t> docsClusters;
-    time([&] {
-        coarseClustering(metric == Cosine, docs, clustersCentres, docsClusters, docsPerCoarseCluster);
-    }, "Coarse clustering");
-
-    std::vector<std::vector<float>> transformations;
-    std::vector<std::vector<float>> codebooksCentres;
-    std::tie(transformations, codebooksCentres) =
-        buildCodebooksForPqIndex(docs, clustersCentres, docsClusters, numBooks);
-
-    auto docsCodes = encodeAll(docs, clustersCentres, docsClusters, numBooks,
-                              distanceThreshold, transformations, codebooksCentres);
 
     return {metric, dim, numBooks, std::move(clustersCentres), std::move(transformations),
             std::move(codebooksCentres), std::move(docsClusters), std::move(docsCodes)};

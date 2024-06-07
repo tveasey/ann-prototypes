@@ -48,7 +48,7 @@ void loadAndRunPQBenchmark(const std::string& dataset,
     }
 
     runPQBenchmark(dataset, metric, distanceThreshold, docsPerCoarseCluster,
-                   numBooks, 10, docs, queries, writePQStats);
+                   numBooks, 10, docs, queries, writePqStats);
 }
 
 void loadAndRunScalarBenchmark(const std::string& dataset, Metric metric, ScalarBits bits) {
