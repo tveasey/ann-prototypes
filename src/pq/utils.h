@@ -12,6 +12,9 @@ std::size_t zeroPad(std::size_t dim,
                     std::size_t numBooks,
                     std::vector<float>& vectors);
 
+// Create a temporary file for storing raw vector data.
+std::filesystem::path createTemporaryFile();
+
 // Load vector data from source zero pad and normalize if necessary.
 BigVector loadAndPrepareData(const std::filesystem::path& source,
                              std::size_t numBooks,

@@ -13,6 +13,72 @@
 #include <set>
 #include <vector>
 
+std::pair<std::vector<float>, std::vector<int>>
+initKmeansPlusPlus(std::size_t dim,
+                   std::size_t numSubspaces,
+                   std::size_t numClusters,
+                   const std::vector<float>& docs,
+                   std::minstd_rand& rng) {
+
+    // TODO try migrating to quantized vectors.
+
+    // Use k-means++ initialisation for each subspace independently.
+    std::size_t subspaceDim{dim / numSubspaces};
+    std::size_t numDocs{docs.size() / dim};
+    std::vector<float> centres(numClusters * dim);
+    std::vector<int> selectedDocs(numClusters);
+    std::vector<float> msds;
+
+    auto selected = selectedDocs.begin();
+    auto centre = centres.begin();
+    for (std::size_t b = 0; b < dim; b += subspaceDim) {
+        // Choose the first centroid uniformly at random.
+        std::uniform_int_distribution<> u0n{0, static_cast<int>(numDocs) - 1};
+        std::size_t selectedDoc{static_cast<std::size_t>(u0n(rng))};
+        *selected = selectedDoc;
+        ++selected;
+        auto begin = docs.begin() + selectedDoc * dim + b;
+        std::copy(begin, begin + subspaceDim, centre);
+        centre += subspaceDim;
+
+        msds.assign(numDocs, std::numeric_limits<float>::max());
+        for (std::size_t i = 1; i < numClusters; ++i) {
+            // Update the squared distance from each document to the nearest
+            // centroid.
+            auto msd = msds.begin();
+            auto lastCentre = centre - subspaceDim;
+            for (auto doc = docs.begin(); doc != docs.end(); doc += dim, ++msd) {
+                float sd{0.0F};
+                auto docProj = doc + b;
+                #pragma omp simd reduction(+:sd)
+                for (std::size_t j = 0; j < subspaceDim; ++j) {
+                    float dij{docProj[j] - lastCentre[j]};
+                    sd += dij * dij;
+                }
+                *msd = std::min(*msd, sd);
+            }
+
+            if (std::all_of(msds.begin(), msds.end(),
+                            [](float msd) { return msd == 0.0F; })) {
+                // If all msds are zero then pick a random document.
+                selectedDoc = static_cast<std::size_t>(u0n(rng));
+            } else {
+                // Sample with probability proportional to the squared distance.
+                std::discrete_distribution<std::size_t> discrete{msds.begin(), msds.end()};
+                selectedDoc = discrete(rng);
+            }
+
+            *selected = selectedDoc;
+            ++selected;
+            begin = docs.begin() + selectedDoc * dim + b;
+            std::copy(begin, begin + subspaceDim, centre);
+            centre += subspaceDim;
+        }
+    }
+
+    return {std::move(centres), std::move(selectedDocs)};
+}
+
 namespace {
 
 std::set<std::size_t> initForgy(std::size_t numDocs,
@@ -47,61 +113,6 @@ std::vector<float> initForgy(std::size_t dim,
     return centres;
 }
 
-std::vector<float> initKmeansPlusPlus(std::size_t dim,
-                                      std::size_t numSubspaces,
-                                      std::size_t numClusters,
-                                      const std::vector<float>& docs,
-                                      std::minstd_rand& rng) {
-
-    // Use k-means++ initialisation for each subspace independently.
-    std::size_t subspaceDim{dim / numSubspaces};
-    std::size_t numDocs{docs.size() / dim};
-    std::vector<float> centres(numClusters * dim);
-    std::vector<float> msds;
-
-    auto centre = centres.begin();
-    for (std::size_t b = 0; b < dim; b += subspaceDim) {
-        // Choose the first centroid uniformly at random.
-        std::uniform_int_distribution<> u0n{0, static_cast<int>(numDocs) - 1};
-        std::size_t selectedDoc{static_cast<std::size_t>(u0n(rng))};
-        auto begin = docs.begin() + selectedDoc * dim + b;
-        std::copy(begin, begin + subspaceDim, centre);
-        centre += subspaceDim;
-
-        msds.assign(numDocs, std::numeric_limits<float>::max());
-        for (std::size_t i = 1; i < numClusters; ++i) {
-            // Update the squared distance from each document to the nearest
-            // centroid.
-            auto msd = msds.begin();
-            auto lastCentre = centre - subspaceDim;
-            for (auto doc = docs.begin(); doc != docs.end(); doc += dim, ++msd) {
-                float sd{0.0F};
-                auto docProj = doc + b;
-                #pragma omp simd reduction(+:sd)
-                for (std::size_t j = 0; j < subspaceDim; ++j) {
-                    float dij{docProj[j] - lastCentre[j]};
-                    sd += dij * dij;
-                }
-                *msd = std::min(*msd, sd);
-            }
-
-            if (std::all_of(msds.begin(), msds.end(),
-                            [](float msd) { return msd == 0.0F; })) {
-                // If all msds are zero then pick a random document.
-                selectedDoc = static_cast<std::size_t>(u0n(rng));
-            } else {
-                // Sample with probability proportional to the squared distance.
-                std::discrete_distribution<std::size_t> discrete{msds.begin(), msds.end()};
-                selectedDoc = discrete(rng);
-            }
-            begin = docs.begin() + selectedDoc * dim + b;
-            std::copy(begin, begin + subspaceDim, centre);
-            centre += subspaceDim;
-        }
-    }
-
-    return centres;
-}
 
 template<typename CODE>
 double stepLloyd(std::size_t dim,
@@ -110,6 +121,8 @@ double stepLloyd(std::size_t dim,
                  const std::vector<float>& docs,
                  std::vector<float>& centres,
                  std::vector<CODE>& docsCodes) {
+
+    // TODO try migrating to quantized vectors.
 
     // Since we sum up non-negative losses from each book we can compute
     // the optimal codebooks independently.
@@ -193,7 +206,7 @@ std::vector<float> initKmeansPlusPlusForBookConstruction(std::size_t dim,
                                                          std::size_t numBooks,
                                                          const std::vector<float>& docs,
                                                          std::minstd_rand& rng) {
-    return initKmeansPlusPlus(dim, numBooks, BOOK_SIZE, docs, rng);
+    return initKmeansPlusPlus(dim, numBooks, BOOK_SIZE, docs, rng).first;
 }
 
 double stepLloydForBookConstruction(std::size_t dim,

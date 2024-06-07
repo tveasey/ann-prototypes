@@ -16,6 +16,13 @@
 std::pair<std::vector<float>, std::vector<code_t>>
 buildCodebook(std::size_t dim, std::size_t numBooks, const std::vector<float>& docs);
 
+// Update the codebook for the docs vectors.
+std::pair<std::vector<float>, std::vector<code_t>>
+updateCodebook(std::size_t dim,
+               std::size_t numBooks,
+               const std::vector<float>& docs,
+               std::vector<float> codebookCentres);
+
 // Write the encoding of a single document to the codes array.
 void encode(const std::vector<float>& doc,
             const std::vector<float>& codebooks,

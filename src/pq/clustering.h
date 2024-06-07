@@ -9,6 +9,14 @@
 #include <set>
 #include <vector>
 
+// Initialize subspace cluster centres using the kmeans++ method.
+std::pair<std::vector<float>, std::vector<int>>
+initKmeansPlusPlus(std::size_t dim,
+                   std::size_t numSubspaces,
+                   std::size_t numClusters,
+                   const std::vector<float>& docs,
+                   std::minstd_rand& rng);
+
 // Select the documents ids uniformly at random for the initial codebooks centres.
 //
 // This is Forgy's method.
@@ -70,6 +78,6 @@ void coarseClustering(bool normalized,
 // All vectors are assigned to the closest centre and separate codebooks
 // are constructed for each cluster.
 void assignDocsToCoarseClusters(bool normalized,
-                                const BigVector& docsToMerge,
+                                const BigVector& docs,
                                 std::vector<float>& clusterCentres,
                                 std::vector<cluster_t>& docsClusters);

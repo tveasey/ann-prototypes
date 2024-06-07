@@ -29,6 +29,17 @@ std::size_t zeroPad(std::size_t dim,
     return dim;
 }
 
+std::filesystem::path createTemporaryFile() {
+    // Create a temporary file.
+    char filename[] = "/tmp/big_vector_storage_XXXXXX";
+    int ret{::mkstemp(filename)};
+    if (ret == -1) {
+        throw std::runtime_error("Couldn't create temporary file.");
+    }
+    std::cout << "Created temporary file " << filename << std::endl;
+    return std::filesystem::path{filename};
+}
+
 BigVector loadAndPrepareData(const std::filesystem::path& source,
                              std::size_t numBooks,
                              bool normalized) {
@@ -41,7 +52,7 @@ BigVector loadAndPrepareData(const std::filesystem::path& source,
     }
     std::cout << "Created temporary file " << filename << std::endl;
 
-    return {source, filename,
+    return {source, createTemporaryFile(),
             [numBooks, normalized](std::size_t dim_, std::vector<float>& docs) {
                 if (normalized) {
                     normalize(dim_, docs);

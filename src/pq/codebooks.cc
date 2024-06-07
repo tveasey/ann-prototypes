@@ -55,15 +55,16 @@ std::vector<float> initCodebookCentres(std::size_t dim,
     return minMseCodebookCentres;
 }
 
-} // unnamed::
-
 std::pair<std::vector<float>, std::vector<code_t>>
-buildCodebook(std::size_t dim, std::size_t numBooks, const std::vector<float>& docs) {
+updateCodebook(std::size_t dim,
+               std::size_t numBooks,
+               std::size_t numIterations,
+               const std::vector<float>& docs,
+               std::vector<float> codebookCentres) {
     std::size_t bookDim{dim / numBooks};
-    std::vector<float> codebookCentres{initCodebookCentres(dim, numBooks, docs)};
     std::vector<code_t> docsCodes(docs.size() / bookDim);
     double lastMse{std::numeric_limits<double>::max()};
-    for (std::size_t i = 0; i < BOOK_CONSTRUCTION_K_MEANS_ITR; ++i) {
+    for (std::size_t i = 0; i < numIterations; ++i) {
         double mse{stepLloydForBookConstruction(dim, numBooks, docs, codebookCentres, docsCodes)};
         if (std::abs(lastMse - mse) < 1e-4 * mse) {
             break;
@@ -73,22 +74,22 @@ buildCodebook(std::size_t dim, std::size_t numBooks, const std::vector<float>& d
     return std::make_pair(std::move(codebookCentres), std::move(docsCodes));
 }
 
+} // unnamed::
+
+std::pair<std::vector<float>, std::vector<code_t>>
+buildCodebook(std::size_t dim, std::size_t numBooks, const std::vector<float>& docs) {
+    std::size_t bookDim{dim / numBooks};
+    std::vector<float> codebookCentres{initCodebookCentres(dim, numBooks, docs)};
+    return updateCodebook(dim, numBooks, BOOK_CONSTRUCTION_K_MEANS_ITR, docs, codebookCentres);
+}
+
 std::pair<std::vector<float>, std::vector<code_t>>
 updateCodebook(std::size_t dim,
                std::size_t numBooks,
-               std::vector<float> codebookCentres,
-               const std::vector<float>& docs) {
+               const std::vector<float>& docs,
+               std::vector<float> codebookCentres) {
     std::size_t bookDim{dim / numBooks};
-    std::vector<code_t> docsCodes(docs.size() / bookDim);
-    double lastMse{std::numeric_limits<double>::max()};
-    for (std::size_t i = 0; i < BOOK_CONSTRUCTION_K_MEANS_ITR; ++i) {
-        double mse{stepLloydForBookConstruction(dim, numBooks, docs, codebookCentres, docsCodes)};
-        if (std::abs(lastMse - mse) < 1e-4 * mse) {
-            break;
-        }
-        lastMse = mse;
-    }
-    return std::make_pair(std::move(codebookCentres), std::move(docsCodes));
+    return updateCodebook(dim, numBooks, BOOK_UPDATE_K_MEANS_ITR, docs, codebookCentres);
 }
 
 void encode(const std::vector<float>& doc,

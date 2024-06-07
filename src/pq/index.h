@@ -72,8 +72,14 @@ public:
     // Return the clusters.
     const std::vector<float>& clustersCentres() const { return clustersCentres_; }
 
+    // Return the cluster sizes.
+    std::vector<std::size_t> clusterSizes() const;
+
     // Return the cluster of the document vector with give id.
     cluster_t cluster(std::size_t id) const { return docsClusters_[id]; }
+
+    // Return the number of codebooks.
+    std::size_t numCodebooks() const { return numBooks_; }
 
     // Return the number of centres.
     std::size_t numCodebooksCentres() const;
@@ -89,6 +95,11 @@ public:
     // Return the transformations for the given cluster.
     const std::vector<float>& transformations(cluster_t cluster) const {
         return transformations_[cluster];
+    }
+
+    // Return the codebook centres for the given cluster.
+    const std::vector<float>& codebooksCentres(cluster_t cluster) const {
+        return codebooksCentres_[cluster];
     }
 
     // Return the number of codes.
@@ -151,6 +162,20 @@ buildCodebooksForPqIndex(const BigVector& docs,
                          const std::vector<float>& centres,
                          const std::vector<cluster_t>& docsCentres,
                          std::size_t numBooks);
+
+std::vector<std::vector<float>>
+refreshCodebooksForPqIndex(const BigVector& docs,
+                           const std::vector<float>& clustersCentres,
+                           const std::vector<cluster_t>& docsClusters,
+                           std::size_t numBooks,
+                           const std::vector<std::vector<float>> &transformations,
+                           std::vector<std::vector<float>> codebooksCentres);
+
+PqIndex mergePqIndices(const std::pair<PqIndex, PqIndex>& index,
+                       const std::pair<BigVector, BigVector>& docs,
+                       Metric metric,
+                       std::size_t docsPerCoarseCluster,
+                       float distanceThreshold);
 
 PqIndex buildPqIndex(const BigVector& docs,
                      Metric metric,

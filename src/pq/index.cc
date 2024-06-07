@@ -4,6 +4,7 @@
 #include "codebooks.h"
 #include "constants.h"
 #include "subspace.h"
+#include "utils.h"
 #include "../common/bigvector.h"
 #include "../common/bruteforce.h"
 #include "../common/progress_bar.h"
@@ -116,6 +117,14 @@ PqIndex::PqIndex(Metric metric,
       docsCodes_(std::move(docsCodes)) {
 
     this->buildNormsTables();
+}
+
+std::vector<std::size_t> PqIndex::clusterSizes() const {
+    std::vector<std::size_t> sizes(this->numClusters(), 0);
+    for (auto cluster : docsClusters_) {
+        ++sizes[cluster];
+    }
+    return sizes;
 }
 
 std::size_t PqIndex::numCodebooksCentres() const {
@@ -536,27 +545,81 @@ buildCodebooksForPqIndex(const BigVector& docs,
     return {std::move(transformations), std::move(codebooksCentres)};
 }
 
-PqIndex buildPqIndex(const BigVector& docs,
-                     Metric metric,
-                     std::size_t docsPerCoarseCluster,
-                     std::size_t numBooks,
-                     float distanceThreshold) {
+std::vector<std::vector<float>>
+refreshCodebooksForPqIndex(const BigVector& docs,
+                           const std::vector<float>& clustersCentres,
+                           const std::vector<cluster_t>& docsClusters,
+                           std::size_t numBooks,
+                           const std::vector<std::vector<float>> &transformations,
+                           std::vector<std::vector<float>> codebooksCentres) {
+
+    std::size_t dim{docs.dim()};
+    std::size_t numClusters{clustersCentres.size() / dim};
+    std::minstd_rand rng;
+    std::uniform_int_distribution<std::uint_fast32_t> seedDist(
+        0, std::numeric_limits<std::uint_fast32_t>::max());
+
+    // We sample in chunks of 32 clusters to reduce the peak memory usage.
+    // We store 128 * BOOK_SIZE samples per cluster. For 768 d vectors
+    // this amounts to 128 * 256 * 768 * 4 = 96 MB per cluster. So our
+    // peak memory usage is 96 MB * 32 = 3 GB.
+    ProgressBar progress{"Building codebooks...", numClusters};
+    for (std::size_t i = 0; i < numClusters; i += 32) {
+
+        std::size_t beginClusters{i};
+        std::size_t endClusters{i + std::min(NUM_READERS, numClusters - i)};
+        std::size_t numSamplesPerCluster{128 * BOOK_SIZE};
+
+        std::vector<float> initialSamples(numSamplesPerCluster * dim,
+                                          std::numeric_limits<float>::quiet_NaN());
+        std::vector<std::vector<float>> samples(numClusters);
+        std::fill(samples.begin() + beginClusters,
+                  samples.begin() + endClusters, initialSamples);
+
+        std::vector<std::vector<ReservoirSampler>> samplers(
+            NUM_READERS, std::vector<ReservoirSampler>(numClusters));
+        auto sampleReaders = initializeSampleReaders(dim, beginClusters, endClusters,
+                                                     numSamplesPerCluster, docsClusters,
+                                                     std::minstd_rand{seedDist(rng)},
+                                                     samples, samplers);
+        parallelRead(docs, sampleReaders);
+        removeNans(samples);
+
+        // Compute the residuals from the coarse cluster centres and transform
+        // them to align with the optimal subspaces.
+        for (std::size_t j = beginClusters; j < endClusters; ++j) {
+            auto& transformation = transformations[j];
+            auto& sample = samples[j];
+            for (std::size_t k = 0; k < sample.size(); k += dim) {
+                centre(dim, &clustersCentres[j * dim], &sample[k]);
+            }
+            sample = transform(transformation, dim, std::move(sample));
+        }
+
+        for (std::size_t j = beginClusters; j < endClusters; ++j) {
+            codebooksCentres[j] = updateCodebook(dim, numBooks, samples[j],
+                                                 std::move(codebooksCentres[j])).first;
+            progress.update();
+        }
+    }
+
+    return codebooksCentres;
+}
+
+namespace {
+
+std::vector<code_t> encodeAll(const BigVector& docs,
+                              const std::vector<float>& clustersCentres,
+                              const std::vector<cluster_t>& docsClusters,
+                              std::size_t numBooks,
+                              float distanceThreshold,
+                              const std::vector<std::vector<float>>& transformations,
+                              const std::vector<std::vector<float>>& codebooksCentres) {
+
+    // Compute the codes for each doc.
 
     std::size_t dim{docs.dim()};
     std::size_t numDocs{docs.numVectors()};
-
-    std::vector<float> clustersCentres;
-    std::vector<cluster_t> docsClusters;
-    time([&] {
-        coarseClustering(metric == Cosine, docs, clustersCentres, docsClusters, docsPerCoarseCluster);
-    }, "Coarse clustering");
-
-    std::vector<std::vector<float>> transformations;
-    std::vector<std::vector<float>> codebooksCentres;
-    std::tie(transformations, codebooksCentres) =
-        buildCodebooksForPqIndex(docs, clustersCentres, docsClusters, numBooks);
-
-    // Compute the codes for each doc.
 
     std::vector<Reader> encoders;
     encoders.reserve(NUM_READERS);
@@ -586,6 +649,108 @@ PqIndex buildPqIndex(const BigVector& docs,
     }
 
     parallelRead(docs, encoders);
+
+    return docsCodes;
+}
+
+} // unnamed::
+
+PqIndex mergePqIndices(const std::pair<PqIndex, PqIndex>& index,
+                       const std::pair<BigVector, BigVector>& docs_,
+                       Metric metric,
+                       std::size_t docsPerCoarseCluster,
+                       float distanceThreshold) {
+
+    if (index.first.numCodebooks() != index.second.numCodebooks()) {
+        throw std::runtime_error{
+            "Indices have different number of codebooks " +
+            std::to_string(index.first.numCodebooks()) + " != " +
+            std::to_string(index.second.numCodebooks())};
+    }
+    if (index.first.numCodebooksCentres() != index.second.numCodebooksCentres()) {
+        throw std::runtime_error{
+            "Indices have different number of codebook centres " +
+            std::to_string(index.first.numCodebooksCentres()) + " != " +
+            std::to_string(index.second.numCodebooksCentres())};
+    }
+
+    auto docs = merge(docs_.first, docs_.second, createTemporaryFile());
+
+    std::size_t dim{docs.dim()};
+    std::size_t numDocs{docs.numVectors()};
+    std::size_t numBooks{index.first.numCodebooks()};
+    std::size_t numClusters{std::max(1UL, (numDocs + docsPerCoarseCluster - 1) / docsPerCoarseCluster)};
+
+    std::vector<float> clustersCentres;
+    std::vector<int> selectedClusters;
+    std::vector<cluster_t> docsClusters;
+
+    time([&] {
+        // Use k-means++ initialization to pick from between the current cluster centres
+        // from the indices to merge.
+        std::vector<float> candidates(index.first.clustersCentres().size() +
+                                      index.second.clustersCentres().size());
+        std::copy(index.first.clustersCentres().begin(),
+                index.first.clustersCentres().end(),
+                candidates.begin());
+        std::copy(index.second.clustersCentres().begin(),
+                index.second.clustersCentres().end(),
+                candidates.begin() + index.first.clustersCentres().size());
+        std::minstd_rand rng;
+        std::tie(clustersCentres, selectedClusters) =
+            initKmeansPlusPlus(dim, 1, numClusters, candidates, rng);
+        assignDocsToCoarseClusters(metric == Cosine, docs, clustersCentres, docsClusters);
+    }, "Coarse clustering merge");
+
+    // Select the corresponding transformations and codebook centres for the selected
+    // clusters from the indices to merge. TODO we really need to check on the change
+    // in the data covariance for selected clusters to decide which transformations we
+    // need to recompute.
+    std::vector<std::vector<float>> transformations(numClusters);
+    std::vector<std::vector<float>> codebooksCentres(numClusters);
+    for (std::size_t i = 0; i < numClusters; ++i) {
+        auto cluster = selectedClusters[i];
+        transformations[i] = (cluster < index.first.numClusters()) ?
+            index.first.transformations(cluster) :
+            index.second.transformations(cluster - index.first.numClusters());
+        codebooksCentres[i] = (cluster < index.first.numClusters()) ?
+            index.first.codebooksCentres(cluster) :
+            index.second.codebooksCentres(cluster - index.first.numClusters());
+    }
+
+    codebooksCentres = refreshCodebooksForPqIndex(docs, clustersCentres, docsClusters,
+                                                  numBooks, transformations,
+                                                  std::move(codebooksCentres));
+    
+    auto docsCodes = encodeAll(docs, clustersCentres, docsClusters, numBooks,
+                               distanceThreshold, transformations, codebooksCentres);
+
+    return {metric, dim, numBooks, std::move(clustersCentres), std::move(transformations),
+            std::move(codebooksCentres), std::move(docsClusters), std::move(docsCodes)};
+}
+
+PqIndex buildPqIndex(const BigVector& docs,
+                     Metric metric,
+                     std::size_t docsPerCoarseCluster,
+                     std::size_t numBooks,
+                     float distanceThreshold) {
+
+    std::size_t dim{docs.dim()};
+    std::size_t numDocs{docs.numVectors()};
+
+    std::vector<float> clustersCentres;
+    std::vector<cluster_t> docsClusters;
+    time([&] {
+        coarseClustering(metric == Cosine, docs, clustersCentres, docsClusters, docsPerCoarseCluster);
+    }, "Coarse clustering");
+
+    std::vector<std::vector<float>> transformations;
+    std::vector<std::vector<float>> codebooksCentres;
+    std::tie(transformations, codebooksCentres) =
+        buildCodebooksForPqIndex(docs, clustersCentres, docsClusters, numBooks);
+
+    auto docsCodes = encodeAll(docs, clustersCentres, docsClusters, numBooks,
+                              distanceThreshold, transformations, codebooksCentres);
 
     return {metric, dim, numBooks, std::move(clustersCentres), std::move(transformations),
             std::move(codebooksCentres), std::move(docsClusters), std::move(docsCodes)};
