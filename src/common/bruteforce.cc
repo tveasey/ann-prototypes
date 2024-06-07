@@ -6,6 +6,7 @@
 #include <queue>
 #include <utility>
 #include <vector>
+#include <iostream>
 
 TopK::TopK(std::size_t k) : k_{k} {}
 
@@ -71,7 +72,7 @@ searchBruteForce(std::size_t k,
                  const std::vector<float>& query) {
 
     std::size_t dim{query.size()};
-    if (dim != docs.size()) {
+    if ((docs.size() % dim) != 0) {
         throw std::invalid_argument("query and docs have different dimensions");
     }
 
@@ -84,7 +85,7 @@ searchBruteForce(std::size_t k,
             sim += query[j] * docs[i + j];
         }
         float dist{1.0F - sim};
-        topk.add(id++, dist);
+        topk.add(id, dist);
     }
 
     return topk.unpack();

@@ -157,10 +157,90 @@ void BigVector::create_memory_mapped_file(std::size_t dim,
     data_ = reinterpret_cast<float*>(file_.data());
 }
 
+namespace {
+
+class Copier {
+public:
+    Copier(std::size_t offset, std::size_t dim, float* begin) :
+        offset_{offset}, dim_{dim}, begin_{begin} {
+    }
+
+    void operator()(std::size_t id, BigVector::VectorReference doc) {
+        std::copy(doc.data(), doc.data() + dim_, begin_ + (id - offset_) * dim_);
+    }
+
+private:
+    std::size_t offset_;
+    std::size_t dim_;
+    float* begin_;
+};
+
+class YieldFrom {
+private:
+    constexpr static std::size_t BUFFER_VECTORS{128 * 1024};
+
+public:
+    YieldFrom(std::vector<const BigVector*> source) :
+        source_{std::move(source)},
+        offset_{0}, pos_{0} {
+        buffer_.resize(BUFFER_VECTORS * source_[0]->dim());
+        curr_ = source_.data();
+        this->fillBuffer();
+    }
+
+    float operator()() {
+        if (pos_ == read_) {
+            if (offset_ == (*curr_)->numVectors()) {
+                ++curr_;
+                offset_ = 0;
+            }
+            this->fillBuffer();
+            pos_ = 0;
+        }
+        return buffer_[pos_++];
+    }
+
+private:
+    void fillBuffer() {
+        std::size_t dim{(*curr_)->dim()};
+        std::size_t end{std::min((*curr_)->numVectors(), offset_ + BUFFER_VECTORS)};
+        std::size_t numReaders{std::clamp((end - offset_) / 10, 1UL, 32UL)};
+        std::vector<Reader> copiers(numReaders, Copier{offset_, dim, buffer_.data()});
+        parallelRead(**curr_, offset_, end, copiers);
+        read_ = (end - offset_) * dim;
+        offset_ = end;
+    }
+
+private:
+    std::vector<const BigVector*> source_;
+    const BigVector** curr_{nullptr};
+    std::vector<float> buffer_;
+    std::size_t offset_{0};
+    std::size_t pos_{0};
+    std::size_t read_{0};
+};
+
+} // unnamed::
+
+BigVector merge(const BigVector& a, const BigVector& b, std::filesystem::path storage) {
+    if (a.dim() != b.dim()) {
+        throw std::invalid_argument("The dimensions of the vectors must match");
+    }
+
+    return {a.dim(), a.numVectors() + b.numVectors(), storage, YieldFrom{{&a, &b}}};
+}
+
 void parallelRead(const BigVector& docs, std::vector<Reader>& readers) {
+    parallelRead(docs, 0, docs.numVectors(), readers);
+}
+
+void parallelRead(const BigVector& docs,
+                  std::size_t begin,
+                  std::size_t end,
+                  std::vector<Reader>& readers) {
 
     std::size_t numReaders{readers.size()};
-    std::size_t blocksize{(docs.numVectors() + numReaders - 1) / numReaders};
+    std::size_t blocksize{(end - begin + numReaders - 1) / numReaders};
 
     // Compared to the cost of reading a large number of vectors from disk
     // the cost of creating the threads is negligible so we don't bother
@@ -168,9 +248,9 @@ void parallelRead(const BigVector& docs, std::vector<Reader>& readers) {
     std::vector<std::thread> threads;
     threads.reserve(numReaders);
     for (std::size_t i = 0; i < numReaders; ++i) {
-        threads.emplace_back([i, blocksize, &readers, &docs]() {
-            std::size_t blockBegin{i * blocksize};
-            std::size_t blockEnd{std::min((i + 1) * blocksize, docs.numVectors())};
+        threads.emplace_back([begin, end, i, blocksize, &readers, &docs]() {
+            std::size_t blockBegin{begin + i * blocksize};
+            std::size_t blockEnd{std::min(begin + (i + 1) * blocksize, end)};
             auto beginDocs = docs.begin() + blockBegin;
             auto endDocs = docs.begin() + blockEnd;
             std::size_t id{blockBegin};

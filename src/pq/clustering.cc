@@ -275,13 +275,31 @@ void coarseClustering(bool normalized,
     }
     std::cout << "Coarse clustering MSE = " << msd << std::endl;
 
+    assignDocsToCoarseClusters(normalized, docs, clusterCentres, docsClusters);
+}
+
+void assignDocsToCoarseClusters(bool normalized,
+                                const BigVector& docs,
+                                std::vector<float>& clusterCentres,
+                                std::vector<cluster_t>& docsClusters) {
+
     // Assign each document to the nearest centroid and update the centres.
+
+    std::size_t dim{docs.dim()};
+    std::size_t numDocs{docs.numVectors()};
+    std::size_t numClusters{clusterCentres.size() / dim};
 
     docsClusters.resize(numDocs, 0);
     std::vector<std::vector<float>> newCentres(
         NUM_READERS, std::vector<float>(numClusters * dim, 0.0F));
     std::vector<std::vector<float>> compensations(
         NUM_READERS, std::vector<float>(numClusters * dim, 0.0F));
+
+    auto ifSphericalKMeansNormalize = [dim, normalized](std::vector<float>& vectors) {
+        if (normalized) {
+            normalize(dim, vectors);
+        }
+    };
 
     std::vector<Reader> clusterWriters;
     clusterWriters.reserve(NUM_READERS);

@@ -8,6 +8,8 @@ constexpr int NUM_BOOKS{24};
 constexpr int BOOK_SIZE{256};
 // The number of iterations to run k-means for when constructing the codebooks.
 constexpr std::size_t BOOK_CONSTRUCTION_K_MEANS_ITR{8};
+// The number of iterations to run k-means for when updating the codebooks.
+constexpr std::size_t BOOK_UPDATE_K_MEANS_ITR{3};
 // The number of random restarts of clustering to use when constructing the codebooks.
 constexpr std::size_t BOOK_CONSTRUCTION_K_MEANS_RESTARTS{5};
 // The number of docs to sample to compute the coarse clustering.

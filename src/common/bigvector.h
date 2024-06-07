@@ -197,11 +197,26 @@ private:
 
 using Reader = std::function<void (std::size_t, BigVector::VectorReference)>;
 
+// Merge two big vectors into a new big vector.
+//
+// Note there are clearly more efficient strategies but this gives us some
+// sort of lower bound on the performance.
+BigVector merge(const BigVector& a, const BigVector& b, std::filesystem::path storage);
+
 // Read all the vectors in parallel.
 //
 // It arranges to read multiple disjoint regions of the memory mapped file
 // concurrently to maximize IOPS.
 void parallelRead(const BigVector& docs, std::vector<Reader>& readers);
+
+// Read all the vectors in a specified range parallel.
+//
+// It arranges to read multiple disjoint regions of the memory mapped file
+// concurrently to maximize IOPS.
+void parallelRead(const BigVector& docs,
+                  std::size_t begin,
+                  std::size_t end,
+                  std::vector<Reader>& readers);
 
 // A simple reservoir sampler which stores the samples flat in a std::vector.
 //

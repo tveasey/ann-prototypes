@@ -73,6 +73,24 @@ buildCodebook(std::size_t dim, std::size_t numBooks, const std::vector<float>& d
     return std::make_pair(std::move(codebookCentres), std::move(docsCodes));
 }
 
+std::pair<std::vector<float>, std::vector<code_t>>
+updateCodebook(std::size_t dim,
+               std::size_t numBooks,
+               std::vector<float> codebookCentres,
+               const std::vector<float>& docs) {
+    std::size_t bookDim{dim / numBooks};
+    std::vector<code_t> docsCodes(docs.size() / bookDim);
+    double lastMse{std::numeric_limits<double>::max()};
+    for (std::size_t i = 0; i < BOOK_CONSTRUCTION_K_MEANS_ITR; ++i) {
+        double mse{stepLloydForBookConstruction(dim, numBooks, docs, codebookCentres, docsCodes)};
+        if (std::abs(lastMse - mse) < 1e-4 * mse) {
+            break;
+        }
+        lastMse = mse;
+    }
+    return std::make_pair(std::move(codebookCentres), std::move(docsCodes));
+}
+
 void encode(const std::vector<float>& doc,
             const std::vector<float>& codebooksCentres,
             std::size_t numBooks,

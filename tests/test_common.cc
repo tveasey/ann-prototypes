@@ -24,8 +24,7 @@ namespace {
 
 BOOST_AUTO_TEST_SUITE(common)
 
-BOOST_AUTO_TEST_CASE(testBigVector) {
-
+std::filesystem::path createTemporaryFile() {
     // Create a temporary file.
     char filename[] = "/tmp/test_storage_XXXXXX";
     int ret{::mkstemp(filename)};
@@ -33,10 +32,14 @@ BOOST_AUTO_TEST_CASE(testBigVector) {
         BOOST_FAIL("Couldn't create temporary file");
     }
     std::cout << "Created temporary file " << filename << std::endl;
+    return std::filesystem::path{filename};
+}
 
+BOOST_AUTO_TEST_CASE(testBigVector) {
+
+    std::filesystem::path tmpFile{createTemporaryFile()};
     std::size_t dim{10};
     std::size_t numVectors{10};
-    std::filesystem::path tmpFile{filename};
     BigVector vec{dim, numVectors, tmpFile, [i = 0]() mutable {
         return i++;
     }};
@@ -46,6 +49,34 @@ BOOST_AUTO_TEST_CASE(testBigVector) {
     BOOST_REQUIRE_EQUAL(vec.size(), 100);
     float i{0.0F};
     for (auto vec : vec) {
+        for (std::size_t j = 0.0; j < 10.0; j += 1.0F) {
+            BOOST_REQUIRE_EQUAL(vec[j], i + j);
+        }
+        i += 10.0F;
+    }
+}
+
+BOOST_AUTO_TEST_CASE(testBigVectorMerge) {
+
+    std::size_t dim{10};
+    std::size_t numVectors{10};
+    std::filesystem::path tmpFile1{createTemporaryFile()};
+    BigVector vec1{dim, numVectors, tmpFile1, [i = 0]() mutable {
+        return i++;
+    }};
+    std::filesystem::path tmpFile2{createTemporaryFile()};
+    BigVector vec2{dim, numVectors, tmpFile2, [i = dim * numVectors]() mutable {
+        return i++;
+    }};
+
+    std::filesystem::path tmpFile3{createTemporaryFile()};
+    BigVector merged{merge(vec1, vec2, tmpFile3)};
+
+    BOOST_REQUIRE_EQUAL(merged.dim(), 10);
+    BOOST_REQUIRE_EQUAL(merged.numVectors(), 20);
+    BOOST_REQUIRE_EQUAL(merged.size(), 200);
+    float i{0.0F};
+    for (auto vec : merged) {
         for (std::size_t j = 0.0; j < 10.0; j += 1.0F) {
             BOOST_REQUIRE_EQUAL(vec[j], i + j);
         }
@@ -217,14 +248,14 @@ BOOST_AUTO_TEST_CASE(testReservoirSample) {
 
     // Check that the vectors we sample are all in the original set.
     // We can do this by checking that each vector is a constant vector
-    // whose cmoponents are integers in the range [0, 1000).
+    // whose components are integers in the range [0, 1500000).
     for (std::size_t i = 0; i < samples.size(); i += dim) {
         float value{samples[i]};
         BOOST_REQUIRE(std::all_of(samples.begin() + i, samples.begin() + i + dim,
                                   [value](float x) { return x == value; }));
         BOOST_REQUIRE_CLOSE(value, std::round(value), 1e-6);
         BOOST_REQUIRE(value >= 0.0F);
-        BOOST_REQUIRE(value < 1000.0F);
+        BOOST_REQUIRE(value < 1500000.0F);
     }
 }
 

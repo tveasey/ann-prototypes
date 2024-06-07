@@ -64,3 +64,12 @@ void coarseClustering(bool normalized,
                       std::vector<float>& clusterCentres,
                       std::vector<cluster_t>& docsClusters,
                       std::size_t docsPerCluster = COARSE_CLUSTERING_DOCS_PER_CLUSTER);
+
+// Assign the documents to the coarse clusters.
+//
+// All vectors are assigned to the closest centre and separate codebooks
+// are constructed for each cluster.
+void assignDocsToCoarseClusters(bool normalized,
+                                const BigVector& docsToMerge,
+                                std::vector<float>& clusterCentres,
+                                std::vector<cluster_t>& docsClusters);
