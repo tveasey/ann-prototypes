@@ -18,7 +18,8 @@ std::filesystem::path createTemporaryFile();
 // Load vector data from source zero pad and normalize if necessary.
 BigVector loadAndPrepareData(const std::filesystem::path& source,
                              std::size_t numBooks,
-                             bool normalized);
+                             bool normalized,
+                             const std::pair<double, double>& range = {0.0, 1.0});
 
 // Sample documents from docs uniformly at random specified probability.
 std::vector<float>

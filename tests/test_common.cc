@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -53,6 +54,31 @@ BOOST_AUTO_TEST_CASE(testBigVector) {
             BOOST_REQUIRE_EQUAL(vec[j], i + j);
         }
         i += 10.0F;
+    }
+}
+
+BOOST_AUTO_TEST_CASE(testBigVectorReadRange) {
+
+    auto fvecs = std::filesystem::path(__FILE__).parent_path() / "vectors.fvec";
+
+    std::vector<std::pair<double, double>> ranges{{0.0, 0.5}, {0.5, 1.0}};
+    std::vector<std::vector<float>> expected{{-1.1F, 2.1F, 0.3F, 1.7F}, {1.2F, 3.1F, -0.9F, 1.8F}};
+
+    for (std::size_t i = 0; i < ranges.size(); ++i) {
+        std::filesystem::path tmpFile{createTemporaryFile()};
+        BigVector vec{
+            fvecs, tmpFile,
+            [](std::size_t dim, std::vector<float>&) { return dim; },
+            ranges[i]};
+
+        BOOST_REQUIRE_EQUAL(vec.dim(), 4);
+        BOOST_REQUIRE_EQUAL(vec.numVectors(), 1);
+        BOOST_REQUIRE_EQUAL(vec.size(), 4);
+        for (auto vec : vec) {
+            for (std::size_t j = 0; j < 4; j += 1) {
+                BOOST_REQUIRE_CLOSE(vec[j], expected[i][j], 1e-6);
+            }
+        }
     }
 }
 

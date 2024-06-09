@@ -149,7 +149,8 @@ public:
     // Create a BigVector reading the vectors from from an numpy fvecs file.
     BigVector(const std::filesystem::path& fvecs,
               const std::filesystem::path& storage,
-              TPrepare prepare = [](std::size_t dim, std::vector<float>&) { return dim; });
+              TPrepare prepare = [](std::size_t dim, std::vector<float>&) { return dim; },
+              const std::pair<double, double>& range = {0.0, 1.0});
 
     ~BigVector();
 

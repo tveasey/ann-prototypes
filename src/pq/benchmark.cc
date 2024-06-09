@@ -93,7 +93,7 @@ PqStats runQueries(std::size_t numQueries,
 
 } // unnamed::
 
-void runPQBenchmark(const std::string& tag,
+void runPqBenchmark(const std::string& tag,
                     Metric metric,
                     float distanceThreshold,
                     std::size_t docsPerCoarseCluster,
@@ -138,7 +138,7 @@ void runPQBenchmark(const std::string& tag,
     writeStats(stats);
 }
 
-void runPQMergeBenchmark(const std::string& tag,
+void runPqMergeBenchmark(const std::string& tag,
                          Metric metric,
                          float distanceThreshold,
                          std::size_t docsPerCoarseCluster,

@@ -10,6 +10,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <sys/_types/_seek_set.h>
 #include <utility>
 
 #include <sys/stat.h>
@@ -34,7 +35,8 @@ BigVector::BigVector(std::size_t dim,
 
 BigVector::BigVector(const std::filesystem::path& fvecs,
                      const std::filesystem::path& storage,
-                     TPrepare prepare)
+                     TPrepare prepare,
+                     const std::pair<double, double>& range)
     : storage_{storage} {
 
     // Create from an numpy fvecs without ever copying the full data
@@ -64,22 +66,40 @@ BigVector::BigVector(const std::filesystem::path& fvecs,
     }
     numVectors_ = bytes / ((dim_ + 1) * 4);
 
+    std::size_t start{0};
+    std::size_t end{numVectors_};
+    if (range.first > 0.0 || range.second < 1.0) {
+        auto [a, b] = range;
+        a = std::clamp(a, 0.0, 1.0);
+        b = std::clamp(b, a, 1.0);
+        if (a > 0.0) {
+            start = static_cast<std::size_t>(a * numVectors_);
+        }
+        if (b < 1.0) {
+            end = static_cast<std::size_t>(b * numVectors_);
+        }
+        numVectors_ = end - start;
+    }
+
     // Dry run to estimate the padded dimension.
     std::vector<float> doc(dim_, 0.0F);
     std::size_t preparedDim{prepare(dim_, doc)};
 
     this->create_memory_mapped_file(preparedDim, numVectors_, storage);
 
-    // Read the data into the memory mapped file in 1MB chunks and then drop
-    // the dimension header from each row and write the data to the memory
-    // mapped file.
-    std::size_t chunkSize{(1024UL * 1024UL / (4 * (dim_ + 1)))};
+    // Read the data in 1MB chunks then drop the dimension header from each
+    // row and write the data to the memory mapped file.
+    std::size_t chunkSize{(1024 * 1024 / (4 * (dim_ + 1)))};
     std::vector<float> chunk(chunkSize * (dim_ + 1));
     std::size_t numChunks{(numVectors_ + chunkSize - 1) / chunkSize};
+
     auto* writePos = data_;
+    if (std::fseek(source, start * (dim_ + 1) * sizeof(float), SEEK_CUR) != 0) {
+        throw std::runtime_error("Failed to seek to " + std::to_string(start));
+    }
+
     for (std::size_t i = 0; i < numChunks; ++i) {
         chunkSize = std::min(chunkSize, (numVectors_ - i * chunkSize));
-
         chunk.resize(chunkSize * (dim_ + 1));
         std::size_t floatsRead{std::fread(
             chunk.data(), sizeof(float), chunkSize * (dim_ + 1), source)};
@@ -89,8 +109,7 @@ BigVector::BigVector(const std::filesystem::path& fvecs,
                 std::to_string(chunkSize * (dim_ + 1)) + " floats");
         }
 
-        // Shift to remove row headers and zero pad to a multiple of the
-        // number of books.
+        // Shift to remove row headers.
         for (std::size_t i = 0; i < chunkSize; i++) {
             std::memmove(chunk.data() + i * dim_,
                          chunk.data() + 1 + i * (dim_ + 1),
@@ -177,7 +196,7 @@ private:
 
 class YieldFrom {
 private:
-    constexpr static std::size_t BUFFER_VECTORS{128 * 1024};
+    constexpr static std::size_t BUFFER_VECTORS{128UL * 1024UL};
 
 public:
     YieldFrom(std::vector<const BigVector*> source) :
@@ -226,7 +245,6 @@ BigVector merge(const BigVector& a, const BigVector& b, std::filesystem::path st
     if (a.dim() != b.dim()) {
         throw std::invalid_argument("The dimensions of the vectors must match");
     }
-
     return {a.dim(), a.numVectors() + b.numVectors(), storage, YieldFrom{{&a, &b}}};
 }
 

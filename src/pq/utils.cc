@@ -42,7 +42,8 @@ std::filesystem::path createTemporaryFile() {
 
 BigVector loadAndPrepareData(const std::filesystem::path& source,
                              std::size_t numBooks,
-                             bool normalized) {
+                             bool normalized,
+                             const std::pair<double, double>& range) {
 
     // A temporary file for storing the data.
     char filename[] = "/tmp/big_vector_storage_XXXXXX";
@@ -58,7 +59,7 @@ BigVector loadAndPrepareData(const std::filesystem::path& source,
                     normalize(dim_, docs);
                 }
                 return zeroPad(dim_, numBooks, docs);
-           }};
+           }, range};
 }
 
 std::vector<float>

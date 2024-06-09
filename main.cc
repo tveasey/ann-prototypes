@@ -9,6 +9,7 @@
 
 #include <boost/program_options.hpp>
 
+#include <boost/program_options/value_semantic.hpp>
 #include <fstream>
 #include <iostream>
 #include <optional>
@@ -16,7 +17,7 @@
 
 namespace {
 
-void loadAndRunPQBenchmark(const std::string& dataset,
+void loadAndRunPqBenchmark(const std::string& dataset,
                            Metric metric,
                            float distanceThreshold,
                            std::size_t docsPerCoarseCluster,
@@ -47,8 +48,46 @@ void loadAndRunPQBenchmark(const std::string& dataset,
         return;
     }
 
-    runPQBenchmark(dataset, metric, distanceThreshold, docsPerCoarseCluster,
+    runPqBenchmark(dataset, metric, distanceThreshold, docsPerCoarseCluster,
                    numBooks, 10, docs, queries, writePqStats);
+}
+
+void loadAndRunPqMergeBenchmark(const std::string& dataset,
+                                Metric metric,
+                                float distanceThreshold,
+                                std::size_t docsPerCoarseCluster,
+                                std::size_t dimensionsPerCode) {
+
+    auto root = std::filesystem::path(__FILE__).parent_path();
+
+    std::cout << "Loading queries from "
+              << (root / "data" / ("queries-" + dataset + ".fvec")) << std::endl;
+    auto [queries, qdim] = readFvecs(root / "data" / ("queries-" + dataset + ".fvec"));
+    std::cout << "Loaded " << queries.size() / qdim << " queries of dimension " << qdim << std::endl;
+
+    // We pad to a multiple of the number of books so round up.
+    std::size_t numBooks{(qdim + dimensionsPerCode - 1) / dimensionsPerCode};
+
+    zeroPad(qdim, numBooks, queries);
+
+    std::cout << "Loading corpus from "
+              << (root / "data" / ("corpus-" + dataset + ".fvec")) << std::endl;
+    BigVector docs1{loadAndPrepareData(
+        root / "data" / ("corpus-" + dataset + ".fvec"), numBooks, metric == Cosine, {0.0, 0.5})};
+    BigVector docs2{loadAndPrepareData(
+        root / "data" / ("corpus-" + dataset + ".fvec"), numBooks, metric == Cosine, {0.5, 1.0})};
+    std::cout << "Loaded " << (docs1.numVectors() + docs2.numVectors())
+              << " vectors of dimension " << docs1.dim() << std::endl;
+
+    if (qdim != docs1.dim()) {
+        throw std::runtime_error("Dimension mismatch");
+    }
+    if (docs1.numVectors() == 0 || docs2.numVectors() == 0 || queries.empty()) {
+        return;
+    }
+
+    runPqMergeBenchmark(dataset, metric, distanceThreshold, docsPerCoarseCluster,
+                        numBooks, 10, docs1, docs2, queries, writePqStats);
 }
 
 void loadAndRunScalarBenchmark(const std::string& dataset, Metric metric, ScalarBits bits) {
@@ -70,6 +109,7 @@ int main(int argc, char* argv[]) {
 
     std::optional<ScalarBits> scalar;
     Metric metric{Cosine};
+    bool merge{false};
     float distanceThreshold{0.0F};
     std::size_t docsPerCoarseCluster{COARSE_CLUSTERING_DOCS_PER_CLUSTER};
     std::size_t dimensionsPerCode{8};
@@ -84,6 +124,8 @@ int main(int argc, char* argv[]) {
             "Run a test dataset")
         ("metric,m", boost::program_options::value<std::string>()->default_value("cosine"),
             "The metric, must be cosine, dot or euclidean with which to compare vectors")
+        ("merge", boost::program_options::value<bool>()->default_value(false),
+            "Run the merge benchmark instead of the standard benchmark")
         ("distance", boost::program_options::value<float>()->default_value(0.0F),
             "The ScaNN threshold used for computing the parallel distance cost multiplier")
         ("docs-per-coarse-cluster", boost::program_options::value<std::size_t>()->default_value(COARSE_CLUSTERING_DOCS_PER_CLUSTER),
@@ -129,6 +171,9 @@ int main(int argc, char* argv[]) {
                 throw boost::program_options::error("Invalid metric");
             }
         }
+        if (vm.count("merge")) {
+            merge = vm["merge"].as<bool>();
+        }
         if (vm.count("distance")) {
             distanceThreshold = vm["distance"].as<float>();
         }
@@ -154,8 +199,11 @@ int main(int argc, char* argv[]) {
         try {
             if (scalar != std::nullopt) {
                 loadAndRunScalarBenchmark(dataset, metric, *scalar);
+            } else if (merge) {
+                loadAndRunPqMergeBenchmark(dataset, metric, distanceThreshold,
+                                           docsPerCoarseCluster, dimensionsPerCode);
             } else {
-                loadAndRunPQBenchmark(dataset, metric, distanceThreshold,
+                loadAndRunPqBenchmark(dataset, metric, distanceThreshold,
                                       docsPerCoarseCluster, dimensionsPerCode);
             }
         } catch (const std::exception& e) {
