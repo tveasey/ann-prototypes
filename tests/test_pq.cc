@@ -10,9 +10,11 @@
 #include "../src/common/io.h"
 #include "../src/common/utils.h"
 
+#include <boost/test/tools/old/interface.hpp>
 #include <boost/test/unit_test.hpp>
 
 #include <algorithm>
+#include <boost/test/unit_test_suite.hpp>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -306,6 +308,26 @@ BOOST_AUTO_TEST_CASE(testClusteringStepLloyd) {
     }
 }
 
+BOOST_AUTO_TEST_CASE(testCentroidSelection) {
+
+    std::vector<float> centroids{1.0F, 1.0F, 2.0F, 2.0F,
+                                 1.1F, 1.1F, 4.0F, 1.0F,
+                                 0.0F, 0.3F, 2.1F, 1.9F};
+
+    std::minstd_rand rng;
+    auto [selected, indices] = initKmeansPlusPlus(2, 1, 4, centroids, rng);
+
+    BOOST_REQUIRE_EQUAL(selected.size(), 8);
+    BOOST_REQUIRE_EQUAL(indices.size(), 4);
+
+    for (std::size_t i = 0; i < indices.size(); ++i) {
+        BOOST_REQUIRE(std::equal(selected.begin() + 2 * i,
+                                 selected.begin() + 2 * (i + 1),
+                                 centroids.begin() + 2 * indices[i],
+                                 centroids.begin() + 2 * (indices[i] + 1)));
+    }
+}
+
 BOOST_AUTO_TEST_CASE(testCoarseClustering) {
 
     char filename[]{"/tmp/test_storage_XXXXXX"};
@@ -316,7 +338,7 @@ BOOST_AUTO_TEST_CASE(testCoarseClustering) {
     std::cout << "Created temporary file " << filename << std::endl;
 
     std::size_t dim{16};
-    std::size_t numDocs{10 * COARSE_CLUSTERING_SAMPLE_SIZE};
+    std::size_t numDocs{10 * COARSE_CLUSTERING_DOCS_PER_CLUSTER};
     std::minstd_rand rng{0};
     std::uniform_real_distribution<float> u01{0.0F, 1.0F};
     std::filesystem::path tmpFile{filename};
