@@ -126,11 +126,11 @@ int main(int argc, char* argv[]) {
             "The metric, must be cosine, dot or euclidean with which to compare vectors")
         ("merge", boost::program_options::value<bool>()->default_value(false),
             "Run the merge benchmark instead of the standard benchmark")
-        ("distance", boost::program_options::value<float>()->default_value(0.0F),
+        ("perp-distance-threshold", boost::program_options::value<float>()->default_value(0.0F),
             "The ScaNN threshold used for computing the parallel distance cost multiplier")
         ("docs-per-coarse-cluster", boost::program_options::value<std::size_t>()->default_value(COARSE_CLUSTERING_DOCS_PER_CLUSTER),
             "The number of documents per coarse cluster in the PQ index")
-        ("dimensions-per-code", boost::program_options::value<std::size_t>()->default_value(8),
+        ("dimensions-per-code", boost::program_options::value<std::size_t>()->default_value(16),
             "The number of dimensions per code in the PQ index");
 
     try {

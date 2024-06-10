@@ -79,6 +79,9 @@ BigVector::BigVector(const std::filesystem::path& fvecs,
             end = static_cast<std::size_t>(b * numVectors_);
         }
         numVectors_ = end - start;
+        if (std::fseek(source, start * (dim_ + 1) * sizeof(float), SEEK_CUR) != 0) {
+            throw std::runtime_error("Failed to seek to " + std::to_string(start));
+        }
     }
 
     // Dry run to estimate the padded dimension.
@@ -92,12 +95,7 @@ BigVector::BigVector(const std::filesystem::path& fvecs,
     std::size_t chunkSize{(1024 * 1024 / (4 * (dim_ + 1)))};
     std::vector<float> chunk(chunkSize * (dim_ + 1));
     std::size_t numChunks{(numVectors_ + chunkSize - 1) / chunkSize};
-
     auto* writePos = data_;
-    if (std::fseek(source, start * (dim_ + 1) * sizeof(float), SEEK_CUR) != 0) {
-        throw std::runtime_error("Failed to seek to " + std::to_string(start));
-    }
-
     for (std::size_t i = 0; i < numChunks; ++i) {
         chunkSize = std::min(chunkSize, (numVectors_ - i * chunkSize));
         chunk.resize(chunkSize * (dim_ + 1));

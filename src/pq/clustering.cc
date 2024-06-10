@@ -26,7 +26,7 @@ initKmeansPlusPlus(std::size_t dim,
     std::size_t subspaceDim{dim / numSubspaces};
     std::size_t numDocs{docs.size() / dim};
     std::vector<float> centres(numClusters * dim);
-    std::vector<int> selectedDocs(numClusters);
+    std::vector<int> selectedDocs(numClusters * numSubspaces);
     std::vector<float> msds;
 
     auto selected = selectedDocs.begin();
