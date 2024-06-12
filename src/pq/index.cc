@@ -675,8 +675,11 @@ PqIndex buildPqIndex(const BigVector& docs,
     std::tie(transformations, codebooksCentres) =
         buildCodebooksForPqIndex(docs, clustersCentres, docsClusters, numBooks);
 
-    auto docsCodes = encodeAll(docs, clustersCentres, docsClusters, numBooks,
+    std::vector<code_t> docsCodes;
+    time([&] {
+        docsCodes = encodeAll(docs, clustersCentres, docsClusters, numBooks,
                               distanceThreshold, transformations, codebooksCentres);
+    }, "Encode all");
 
     return {metric, dim, numBooks, std::move(clustersCentres), std::move(transformations),
             std::move(codebooksCentres), std::move(docsClusters), std::move(docsCodes)};
@@ -753,8 +756,11 @@ PqIndex mergePqIndices(const BigVector& docs,
                                                   numBooks, transformations,
                                                   std::move(codebooksCentres));
     
-    auto docsCodes = encodeAll(docs, clustersCentres, docsClusters, numBooks,
-                               distanceThreshold, transformations, codebooksCentres);
+    std::vector<code_t> docsCodes;
+    time([&] {
+        docsCodes = encodeAll(docs, clustersCentres, docsClusters, numBooks,
+                              distanceThreshold, transformations, codebooksCentres);
+    }, "Encode all");
 
     return {metric, dim, numBooks, std::move(clustersCentres), std::move(transformations),
             std::move(codebooksCentres), std::move(docsClusters), std::move(docsCodes)};

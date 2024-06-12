@@ -8,14 +8,37 @@
 #include "src/common/utils.h"
 
 #include <boost/program_options.hpp>
-
 #include <boost/program_options/value_semantic.hpp>
+
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <optional>
 #include <random>
 
 namespace {
+
+void generateBenchmark(const std::string& dataset,
+                      int dimension,
+                      std::size_t numVecs) {
+
+    auto root = std::filesystem::path(__FILE__).parent_path();
+
+    std::cout << "Writing " << numVecs << " vectors with dimension " << dimension
+              << " to " << (root / "data" / (dataset + ".fvec")) << std::endl;
+
+    std::vector<float> result(dimension);
+    std::minstd_rand rng;
+    std::uniform_real_distribution<float> u01{0.0F, 1.0F};
+    auto randDocs = [&] {
+        std::generate_n(result.begin(), dimension, [&] { return u01(rng); });
+        return result;
+    };
+    writeFvecs(root / "data" / (dataset + ".fvec"), dimension, numVecs, randDocs);
+
+    std::cout << "Wrote " << numVecs << " vectors with dimension " << dimension
+              << " to " << (root / "data" / (dataset + ".fvec")) << std::endl;
+}
 
 void loadAndRunPqBenchmark(const std::string& dataset,
                            Metric metric,
@@ -107,6 +130,9 @@ void loadAndRunScalarBenchmark(const std::string& dataset, Metric metric, Scalar
 
 int main(int argc, char* argv[]) {
 
+    bool generate{false};
+    int dimension{1024};
+    std::size_t numVecs{16UL * 1024UL * 1024UL};
     std::optional<ScalarBits> scalar;
     Metric metric{Cosine};
     bool merge{false};
@@ -118,13 +144,19 @@ int main(int argc, char* argv[]) {
     boost::program_options::options_description desc("Usage: run_benchmark\nOptions");
     desc.add_options()
         ("help,h", "Show this help")
+        ("generate,g", boost::program_options::bool_switch(),
+            "Generate random data with the specified vector count and dimension")
+        ("dim,d", boost::program_options::value<int>()->default_value(1024),
+            "The dimension of the data to generate")
+        ("num-vecs,v", boost::program_options::value<std::size_t>()->default_value(16UL * 1024UL * 1024UL),
+            "The number of document vectors to generate")
         ("scalar,s", boost::program_options::value<std::string>(),
             "Use 1, 4, 4P or 8 bit scalar quantisation. If not supplied then run PQ")
         ("run,r", boost::program_options::value<std::string>(),
             "Run a test dataset")
         ("metric,m", boost::program_options::value<std::string>()->default_value("cosine"),
             "The metric, must be cosine, dot or euclidean with which to compare vectors")
-        ("merge", boost::program_options::value<bool>()->default_value(false),
+        ("merge", boost::program_options::bool_switch(),
             "Run the merge benchmark instead of the standard benchmark")
         ("perp-distance-threshold", boost::program_options::value<float>()->default_value(0.0F),
             "The ScaNN threshold used for computing the parallel distance cost multiplier")
@@ -141,6 +173,21 @@ int main(int argc, char* argv[]) {
         if (vm.count("help")) {
             std::cerr << desc << std::endl;
             return 0;
+        }
+        if (vm.count("generate")) {
+            generate = vm["generate"].as<bool>();
+        }
+        if (vm.count("dim")) {
+            dimension = vm["dim"].as<int>();
+            if (dimension <= 0) {
+                throw boost::program_options::error("Invalid dimension");
+            }
+        }
+        if (vm.count("num-vecs")) {
+            numVecs = vm["num-vecs"].as<std::size_t>();
+            if (numVecs == 0) {
+                throw boost::program_options::error("Invalid number of vectors");
+            }
         }
         if (vm.count("scalar")) {
             auto s = vm["scalar"].as<std::string>();
@@ -195,7 +242,9 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    if (!dataset.empty()) {
+    if (generate) {
+        generateBenchmark(dataset, dimension, numVecs);
+    } else if (!dataset.empty()) {
         try {
             if (scalar != std::nullopt) {
                 loadAndRunScalarBenchmark(dataset, metric, *scalar);

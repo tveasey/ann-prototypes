@@ -1,4 +1,5 @@
 #include "io.h"
+#include "progress_bar.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -49,4 +50,28 @@ std::pair<std::vector<float>, std::size_t> readFvecs(const std::filesystem::path
     std::fclose(f);
 
     return {std::move(vectors), static_cast<std::size_t>(dim)};
+}
+
+std::size_t writeFvecs(const std::filesystem::path& file,
+                       int dim,
+                       std::size_t numVecs,
+                       TGenerator generator) {
+    auto fileStr = file.u8string();
+    auto* f = std::fopen(fileStr.c_str(), "w");
+    if (f == nullptr) {
+        std::cout << "Couldn't open " << file << std::endl;
+    }
+
+    std::size_t bytes{0};
+    ProgressBar progress("Writing...", numVecs);
+    for (std::size_t i = 0; i < numVecs; ++i) {
+        auto vec = generator();
+        bytes += std::fwrite(&dim, sizeof(int), 1, f);
+        bytes += std::fwrite(vec.data(), sizeof(float), dim, f);
+        progress.update();
+    }
+
+    std::fclose(f);
+
+    return bytes;
 }

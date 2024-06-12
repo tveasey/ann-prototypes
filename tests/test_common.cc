@@ -7,6 +7,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include <algorithm>
+#include <boost/test/unit_test_suite.hpp>
 #include <chrono>
 #include <cstddef>
 #include <filesystem>
@@ -25,7 +26,7 @@ namespace {
 
 BOOST_AUTO_TEST_SUITE(common)
 
-std::filesystem::path createTemporaryFile() {
+std::filesystem::path createBigVectorStorage() {
     // Create a temporary file.
     char filename[] = "/tmp/test_storage_XXXXXX";
     int ret{::mkstemp(filename)};
@@ -38,7 +39,7 @@ std::filesystem::path createTemporaryFile() {
 
 BOOST_AUTO_TEST_CASE(testBigVector) {
 
-    std::filesystem::path tmpFile{createTemporaryFile()};
+    std::filesystem::path tmpFile{createBigVectorStorage()};
     std::size_t dim{10};
     std::size_t numVectors{10};
     BigVector vec{dim, numVectors, tmpFile, [i = 0]() mutable {
@@ -65,7 +66,7 @@ BOOST_AUTO_TEST_CASE(testBigVectorReadRange) {
     std::vector<std::vector<float>> expected{{-1.1F, 2.1F, 0.3F, 1.7F}, {1.2F, 3.1F, -0.9F, 1.8F}};
 
     for (std::size_t i = 0; i < ranges.size(); ++i) {
-        std::filesystem::path tmpFile{createTemporaryFile()};
+        std::filesystem::path tmpFile{createBigVectorStorage()};
         BigVector vec{
             fvecs, tmpFile,
             [](std::size_t dim, std::vector<float>&) { return dim; },
@@ -86,16 +87,16 @@ BOOST_AUTO_TEST_CASE(testBigVectorMerge) {
 
     std::size_t dim{10};
     std::size_t numVectors{10};
-    std::filesystem::path tmpFile1{createTemporaryFile()};
+    std::filesystem::path tmpFile1{createBigVectorStorage()};
     BigVector vec1{dim, numVectors, tmpFile1, [i = 0]() mutable {
         return i++;
     }};
-    std::filesystem::path tmpFile2{createTemporaryFile()};
+    std::filesystem::path tmpFile2{createBigVectorStorage()};
     BigVector vec2{dim, numVectors, tmpFile2, [i = dim * numVectors]() mutable {
         return i++;
     }};
 
-    std::filesystem::path tmpFile3{createTemporaryFile()};
+    std::filesystem::path tmpFile3{createBigVectorStorage()};
     BigVector merged{merge(vec1, vec2, tmpFile3)};
 
     BOOST_REQUIRE_EQUAL(merged.dim(), 10);
@@ -187,6 +188,38 @@ BOOST_AUTO_TEST_CASE(testReadFvecs) {
     std::ostringstream result;
     result << vectors;
     BOOST_REQUIRE_EQUAL(result.str(), "[-1.1,2.1,0.3,1.7,1.2,3.1,-0.9,1.8]");
+}
+
+BOOST_AUTO_TEST_CASE(testWriteFvecs) {
+    auto file = createBigVectorStorage();
+
+    std::size_t dim{3};
+    std::size_t numVectors{5};
+
+    float i{0.0F};
+    TGenerator generator = [&i] {
+        i++;
+        std::vector<float> result{i + 1.0F, i + 2.0F, i + 3.0F};
+        return result;
+    };
+
+    writeFvecs(file, dim, numVectors, generator);
+    auto [vectorsRead, dimRead] = readFvecs(file);
+
+    BOOST_REQUIRE_EQUAL(dimRead, dim);
+
+    i = 0.0F;
+    std::vector<float> vectors(numVectors * dim);
+    for (std::size_t j = 0; j < numVectors; ++j) {
+        auto vec = generator();
+        std::copy(vec.begin(), vec.end(), vectors.begin() + dim * j);
+    }
+
+    std::ostringstream actual;
+    actual << vectorsRead;
+    std::ostringstream expected;
+    expected << vectors;
+    BOOST_REQUIRE_EQUAL(actual.str(), expected.str());
 }
 
 BOOST_AUTO_TEST_CASE(testRecall) {

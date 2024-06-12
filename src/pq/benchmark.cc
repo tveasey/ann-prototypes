@@ -167,7 +167,7 @@ void runPqMergeBenchmark(const std::string& tag,
     std::chrono::duration<double> diff2{0};
     std::chrono::duration<double> diffm{0};
 
-    auto docs = merge(docs1, docs2, createTemporaryFile());
+    auto docs = merge(docs1, docs2, createBigVectorStorage());
 
     std::cout << "Building PQ index..." << std::endl;
     PqIndex index1{[&] {
@@ -188,6 +188,7 @@ void runPqMergeBenchmark(const std::string& tag,
         return mergePqIndices(docs, distanceThreshold, docsPerCoarseCluster,
                               {std::move(index1), std::move(index2)});
     }()};
+    std::cout << "Merging PQ indices merged in " << diffm.count() << std::endl;
 
     stats.pqVectorCompressionRatio = index1.vectorCompressionRatio();
     stats.pqCompressionRatio = index.compressionRatio();
