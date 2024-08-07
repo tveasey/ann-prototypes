@@ -1,4 +1,7 @@
 import math
+import argparse
+from pathlib import Path
+from tqdm import tqdm
 
 import numpy as np
 
@@ -109,3 +112,32 @@ def fvecs_read(filename, c_contiguous=True):
     if c_contiguous:
         fv = fv.copy()
     return fv
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Compute the corrected maximum inner product.")
+    parser.add_argument("--query-file", type=str, help="The query vectors file.")
+    parser.add_argument("--docs-file", type=str, help="The docs vectors file.")
+    parser.add_argument("--top-k", type=int, default=10, help="The top-k value (default 10).")
+    parser.add_argument("--rerank-multiple", type=int, default=5, help="The multiple to rerank (default 5).")
+    args = parser.parse_args()
+
+    Path(args.query_file).resolve(strict=True)
+    Path(args.docs_file).resolve(strict=True)
+
+    q = fvecs_read(args.query_file)
+    o = fvecs_read(args.docs_file)
+
+    k = args.top_k
+    m = args.rerank_multiple * k
+
+    recalls = []
+    for i in tqdm(range(min(30, len(q))), desc="Calculating recall"):
+        true_dot, est_dot_mip = mip(q[i,:], o)
+
+        reranked = np.argpartition(true_dot, -k)[-k:]
+        top_k = np.argpartition(est_dot_mip, -m)[-m:]
+
+        recalls.append(len(set(reranked).intersection(set(top_k)))*100/k)
+
+    print(f"Recall@{k}|{m}: {np.mean(recalls)}")
