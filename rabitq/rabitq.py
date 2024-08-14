@@ -33,26 +33,31 @@ def _binarize(data: np.ndarray) -> np.ndarray:
 
 
 def _quantize(
-    q: np.ndarray, num_bits: int, rng: np.random.Generator
+    q: np.ndarray,
+    num_bits: int,
+    rng: np.random.Generator,
+    v_l: float | None = None,
+    v_u: float | None = None,
 ) -> tuple[float, float, np.ndarray]:
     """
     Quantize the query.
     """
     m = 2**num_bits - 1
-    v_l = np.min(q)
-    v_u = np.max(q)
+    v_l = v_l or np.min(q)
+    v_u = v_u or np.max(q)
     inv_delta = m / (v_u - v_l) # multiply is much cheaper than divide
     return (
         v_l,
         v_u,
-        np.floor(inv_delta * (q - v_l) + rng.uniform(0.0, 1.0), dtype=np.float32),
+        np.floor(inv_delta * (np.clip(q, v_l, v_u) - v_l) + rng.uniform(0.0, 1.0), dtype=np.float32),
     )  # Don't care about packing properly here
 
 def _simulate_quantization(data: np.ndarray, num_bits: int, rng: np.random.Generator) -> np.ndarray:
     """
-    Simulate quantization noise.
+    Simulate quantization error.
     """
-    l, u, data = _quantize(data, num_bits, rng)
+    sample = np.random.choice(len(data), 10000)
+    l, u, _ = _quantize(data[sample], num_bits, rng)
     delta = (u - l) / (2**num_bits - 1)
     return l + delta * data
 
