@@ -463,9 +463,9 @@ computeQuantisationInterval(std::size_t dim,
         }
     }
 
-    // Perform a grid search over the bucket centres for binary quantisation
-    // maximizing the coefficient of determination between the quantised and
-    // float dot product computed for the top-10 nearest matches.
+    // Perform a black box optimization of the quantization interval maximizing
+    // the coefficient of determination between the quantised and float dot
+    // product (computed for the top-10 nearest matches).
     std::vector<float> query(dim);
     std::vector<float> queryNeighbours(numNeighbours * dim);
     auto correlation = [&] (float l, float u) {

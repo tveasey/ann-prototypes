@@ -78,9 +78,9 @@ updateCodebook(std::size_t dim,
 
 std::pair<std::vector<float>, std::vector<code_t>>
 buildCodebook(std::size_t dim, std::size_t numBooks, const std::vector<float>& docs) {
+    std::size_t bookDim{dim / numBooks};
     std::vector<float> codebookCentres{initCodebookCentres(dim, numBooks, docs)};
-    return updateCodebook(dim, numBooks, BOOK_CONSTRUCTION_K_MEANS_ITR,
-                          docs, std::move(codebookCentres));
+    return updateCodebook(dim, numBooks, BOOK_CONSTRUCTION_K_MEANS_ITR, docs, codebookCentres);
 }
 
 std::pair<std::vector<float>, std::vector<code_t>>
@@ -88,8 +88,8 @@ updateCodebook(std::size_t dim,
                std::size_t numBooks,
                const std::vector<float>& docs,
                std::vector<float> codebookCentres) {
-    return updateCodebook(dim, numBooks, BOOK_UPDATE_K_MEANS_ITR,
-                          docs, std::move(codebookCentres));
+    std::size_t bookDim{dim / numBooks};
+    return updateCodebook(dim, numBooks, BOOK_UPDATE_K_MEANS_ITR, docs, codebookCentres);
 }
 
 void encode(const std::vector<float>& doc,

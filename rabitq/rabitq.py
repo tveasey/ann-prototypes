@@ -41,15 +41,58 @@ def _quantize(
     m = 2**num_bits - 1
     v_l = np.min(q)
     v_u = np.max(q)
-    delta = (v_u - v_l) / m
+    inv_delta = m / (v_u - v_l) # multiply is much cheaper than divide
     return (
         v_l,
         v_u,
-        np.floor((q - v_l) / delta + rng.uniform(0.0, 1.0), dtype=np.float32),
+        np.floor(inv_delta * (q - v_l) + rng.uniform(0.0, 1.0), dtype=np.float32),
     )  # Don't care about packing properly here
 
+def _simulate_quantization(data: np.ndarray, num_bits: int, rng: np.random.Generator) -> np.ndarray:
+    """
+    Simulate quantization noise.
+    """
+    l, u, data = _quantize(data, num_bits, rng)
+    delta = (u - l) / (2**num_bits - 1)
+    return l + delta * data
 
-def normalized_residual_dot(q: np.ndarray, o_r: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def plot_constant_distributions(q: np.ndarray, o_r: np.ndarray):
+
+    from matplotlib import pyplot as plt
+
+    d = len(q)
+    sqrt_d = math.sqrt(d)
+
+    centre, o = _centre_data(o_r)
+    o = _normalize(o)
+    q = q - centre
+    q = _normalize(q)
+    x_b = _binarize(o)
+
+    s_b = x_b.sum(axis=1)
+    o_o_q = (o * (2 * x_b - 1)).sum(axis=1) / sqrt_d
+    o_n = np.linalg.norm(o_r - centre, axis=1)
+    c_o_r = np.dot(centre, o_r.T)
+
+    plt.figure(1)
+    plt.hist(s_b, bins=100)
+    plt.title("distribution of sum of binary components")
+    plt.figure(2)
+    plt.hist(o_o_q, bins=100)
+    plt.title("distribution of dot of document with quantized document")
+    plt.figure(3)
+    plt.hist(o_n, bins=100)
+    plt.title("distribution of norm of residual of document from its centre")
+    plt.figure(4)
+    plt.hist(c_o_r, bins=100)
+    plt.title("distribution of dot of centre with document")
+    plt.show()
+
+def normalized_residual_dot(
+        q: np.ndarray,
+        o_r: np.ndarray,
+        constant_quantisation_bits: int | None = None
+) -> tuple[np.ndarray, np.ndarray]:
     d = len(q)
     sqrt_d = math.sqrt(d)
 
@@ -58,10 +101,14 @@ def normalized_residual_dot(q: np.ndarray, o_r: np.ndarray) -> tuple[np.ndarray,
     q = q - centre
     q = _normalize(q)
 
+    rng = np.random.Generator(np.random.PCG64())
+
     x_b = _binarize(o)
-    v_l, v_u, q_u = _quantize(q, 4, np.random.Generator(np.random.PCG64()))
+    v_l, v_u, q_u = _quantize(q, 4, rng)
 
     o_o_q = (o * (2 * x_b - 1)).sum(axis=1) / sqrt_d
+    if constant_quantisation_bits is not None:
+        o_o_q = _simulate_quantization(o_o_q, 8, rng)
 
     dot_q = np.dot(q_u, x_b.T)
 
@@ -78,21 +125,28 @@ def normalized_residual_dot(q: np.ndarray, o_r: np.ndarray) -> tuple[np.ndarray,
     return est_dot, centre
 
 
-def mip(q: np.ndarray, o_r: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def mip(q: np.ndarray,
+        o_r: np.ndarray,
+        constant_quantisation_bits: int | None = None
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Compute the corrected maximum inner product.
     """
 
     true_dot = np.dot(q, o_r.T)
 
-    est_dot, centre = normalized_residual_dot(q, o_r)
+    est_dot, centre = normalized_residual_dot(q, o_r, constant_quantisation_bits)
 
     q_n = np.linalg.norm(q - centre)
     o_n = np.linalg.norm(o_r - centre, axis=1)
+    c_o_r = np.dot(centre, o_r.T)
+    if constant_quantisation_bits is not None:
+        o_n = _simulate_quantization(o_n, 8, np.random.Generator(np.random.PCG64()))
+        c_o_r = _simulate_quantization(c_o_r, 8, np.random.Generator(np.random.PCG64()))
 
     est_dot_mip = (
         q_n * o_n * est_dot
-        + np.dot(centre, o_r.T)
+        + c_o_r
         + np.dot(q, centre)
         - np.dot(centre, centre)
     )
@@ -120,6 +174,8 @@ if __name__ == "__main__":
     parser.add_argument("--docs-file", type=str, help="The docs vectors file.")
     parser.add_argument("--top-k", type=int, default=10, help="The top-k value (default 10).")
     parser.add_argument("--rerank-multiple", type=int, default=5, help="The multiple to rerank (default 5).")
+    parser.add_argument("--constant-quantisation-bits", type=int, default=None, help="The number of bits to quantize the constants.")
+    parser.add_argument("--plot", action="store_true", help="Plot the distributions of the constants.")
     args = parser.parse_args()
 
     Path(args.query_file).resolve(strict=True)
@@ -127,6 +183,10 @@ if __name__ == "__main__":
 
     q = fvecs_read(args.query_file)
     o = fvecs_read(args.docs_file)
+
+    if args.plot:
+        plot_constant_distributions(q, o)
+        exit(0)
 
     k = args.top_k
     m = args.rerank_multiple * k
