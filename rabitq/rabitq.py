@@ -57,7 +57,7 @@ def _simulate_quantization(data: np.ndarray, num_bits: int, rng: np.random.Gener
     Simulate quantization error.
     """
     sample = np.random.choice(len(data), 10000)
-    l, u, _ = _quantize(data[sample], num_bits, rng)
+    l, u, _ = _quantize(data[sample], num_bits, rng, l, u)
     delta = (u - l) / (2**num_bits - 1)
     return l + delta * data
 
