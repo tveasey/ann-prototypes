@@ -6,6 +6,13 @@ from tqdm import tqdm
 import numpy as np
 
 
+def _error_bound(o_o_q: np.ndarray, o_n: np.ndarray, q_n: np.ndarray, d: int) -> float:
+    """
+    Compute the error bound.
+    """
+    # Note everything is broadcast over examples.
+    return o_n * q_n * (1.9 / math.sqrt(d - 1) * np.sqrt((1 - o_o_q ** 2) / o_o_q ** 2))
+
 def _centre_data(data: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """
     Centre the data by subtracting the mean.
@@ -127,7 +134,7 @@ def normalized_residual_dot(
         - sqrt_d * v_l
     ) / o_o_q
 
-    return est_dot, centre
+    return est_dot, centre, o_o_q
 
 
 def mip(q: np.ndarray,
@@ -140,7 +147,7 @@ def mip(q: np.ndarray,
 
     true_dot = np.dot(q, o_r.T)
 
-    est_dot, centre = normalized_residual_dot(q, o_r, constant_quantisation_bits)
+    est_dot, centre, o_o_q = normalized_residual_dot(q, o_r, constant_quantisation_bits)
 
     q_n = np.linalg.norm(q - centre)
     o_n = np.linalg.norm(o_r - centre, axis=1)
@@ -156,7 +163,10 @@ def mip(q: np.ndarray,
         - np.dot(centre, centre)
     )
 
-    return true_dot, est_dot_mip
+    est_dot_mip_lb = est_dot_mip - _error_bound(o_o_q, o_n, q_n, len(q))
+    est_dot_mip_ub = est_dot_mip + _error_bound(o_o_q, o_n, q_n, len(q))
+
+    return true_dot, est_dot_mip, est_dot_mip_lb, est_dot_mip_ub
 
 def fvecs_read(filename, c_contiguous=True):
     fv = np.fromfile(filename, dtype=np.float32)
@@ -197,12 +207,20 @@ if __name__ == "__main__":
     m = args.rerank_multiple * k
 
     recalls = []
+    true_dot_in_ci = 0
+    count = 0
     for i in tqdm(range(min(30, len(q))), desc="Calculating recall"):
-        true_dot, est_dot_mip = mip(q[i,:], o)
+        true_dot, est_dot_mip, est_dot_mip_lb, est_dot_mip_ub = mip(q[i,:], o)
 
+        # Compute the recall@k|m
         reranked = np.argpartition(true_dot, -k)[-k:]
         top_k = np.argpartition(est_dot_mip, -m)[-m:]
-
         recalls.append(len(set(reranked).intersection(set(top_k)))*100/k)
 
+        # Compute the % that the true dot product is in the confidence interval.
+        true_dot_in_ci += np.sum((true_dot >= est_dot_mip_lb) & (true_dot < est_dot_mip_ub)) / len(true_dot)
+        count += 1
+
+
     print(f"Recall@{k}|{m}: {np.mean(recalls)}")
+    print(f"True dot product in confidence interval: {true_dot_in_ci / count}")
