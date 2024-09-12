@@ -1,0 +1,5 @@
+outs:
+- md5: ddfa2d2cff18de5b2692d19c23bca512
+  size: 154815
+  hash: md5
+  path: nearest-neighbours-dbpedia-entity-arctic.json

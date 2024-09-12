@@ -1,0 +1,5 @@
+outs:
+- md5: 12a57f12b1eda65283ab205c4df1189f
+  size: 1436492
+  hash: md5
+  path: queries-dbpedia-entity-arctic-0.fvec

@@ -1,0 +1,5 @@
+outs:
+- md5: bb32354d34b1f50ac1599c0b86481e35
+  size: 3076000000
+  hash: md5
+  path: corpus-dbpedia-entity-arctic-1.fvec
