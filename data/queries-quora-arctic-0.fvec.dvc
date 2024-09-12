@@ -1,0 +1,5 @@
+outs:
+- md5: e064252eda13bbb65e9d0f5f1a76b0d2
+  size: 46140000
+  hash: md5
+  path: queries-quora-arctic-0.fvec

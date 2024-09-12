@@ -190,7 +190,9 @@ if __name__ == "__main__":
     parser.add_argument("--top-k", type=int, default=10, help="The top-k value (default 10).")
     parser.add_argument("--rerank-multiple", type=int, default=5, help="The multiple to rerank (default 5).")
     parser.add_argument("--constant-quantisation-bits", type=int, default=None, help="The number of bits to quantize the constants.")
-    parser.add_argument("--plot", action="store_true", help="Plot the distributions of the constants.")
+    parser.add_argument("--normalize", action="store_true", help="Normalize the vectors.")
+    parser.add_argument("--plot-constants", action="store_true", help="Plot the distributions of the constants.")
+    parser.add_argument("--plot-errors", action="store_true", help="Plot the distributions of the constants.")
     args = parser.parse_args()
 
     Path(args.query_file).resolve(strict=True)
@@ -199,7 +201,11 @@ if __name__ == "__main__":
     q = fvecs_read(args.query_file)
     o = fvecs_read(args.docs_file)
 
-    if args.plot:
+    if args.normalize:
+        q = _normalize(q)
+        o = _normalize(o)
+
+    if args.plot_constants:
         plot_constant_distributions(q, o)
         exit(0)
 
@@ -221,6 +227,13 @@ if __name__ == "__main__":
         true_dot_in_ci += np.sum((true_dot >= est_dot_mip_lb) & (true_dot < est_dot_mip_ub)) / len(true_dot)
         count += 1
 
-
     print(f"Recall@{k}|{m}: {np.mean(recalls)}")
     print(f"True dot product in confidence interval: {true_dot_in_ci / count}")
+
+    if args.plot_errors:
+        import matplotlib.pyplot as plt
+
+        plt.scatter(est_dot_mip, true_dot)
+        plt.xlabel("estimated dot product")
+        plt.ylabel("true dot product")
+        plt.show()

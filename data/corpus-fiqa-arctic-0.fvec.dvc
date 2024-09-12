@@ -1,0 +1,5 @@
+outs:
+- md5: 70e89e7fc219481853173d7676fc4bf9
+  size: 177294488
+  hash: md5
+  path: corpus-fiqa-arctic-0.fvec

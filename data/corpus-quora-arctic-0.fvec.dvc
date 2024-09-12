@@ -1,0 +1,5 @@
+outs:
+- md5: 26d914a332f537e07a13881245bc5ae0
+  size: 1608535756
+  hash: md5
+  path: corpus-quora-arctic-0.fvec
