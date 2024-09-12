@@ -1,0 +1,5 @@
+outs:
+- md5: 7e4777ed7d52f2811186d663932bb1be
+  size: 3076000000
+  hash: md5
+  path: corpus-hotpotqa-arctic-0.fvec

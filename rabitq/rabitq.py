@@ -191,6 +191,7 @@ if __name__ == "__main__":
     parser.add_argument("--rerank-multiple", type=int, default=5, help="The multiple to rerank (default 5).")
     parser.add_argument("--constant-quantisation-bits", type=int, default=None, help="The number of bits to quantize the constants.")
     parser.add_argument("--normalize", action="store_true", help="Normalize the vectors.")
+    parser.add_argument("--random-dimension", type=int, default=None, help="The number random dimension to use.")
     parser.add_argument("--plot-constants", action="store_true", help="Plot the distributions of the constants.")
     parser.add_argument("--plot-errors", action="store_true", help="Plot the distributions of the constants.")
     args = parser.parse_args()
@@ -200,6 +201,11 @@ if __name__ == "__main__":
 
     q = fvecs_read(args.query_file)
     o = fvecs_read(args.docs_file)
+
+    if args.random_dimension is not None:
+        indices = np.random.choice(q.shape[1], args.random_dimension, replace=False)
+        q = q[:, indices]
+        o = o[:, indices]
 
     if args.normalize:
         q = _normalize(q)

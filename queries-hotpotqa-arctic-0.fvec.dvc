@@ -1,0 +1,5 @@
+outs:
+- md5: 5e1cd17e460ef593d7a11355433de4c0
+  size: 300992752
+  hash: md5
+  path: queries-hotpotqa-arctic-0.fvec
