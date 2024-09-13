@@ -1,0 +1,5 @@
+outs:
+- md5: 0113913b88a7a4c8de66f886b86f1b1f
+  size: 1540000000
+  hash: md5
+  path: corpus-dbpedia-entity-E5-small-1.fvec

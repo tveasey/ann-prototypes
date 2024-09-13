@@ -1,0 +1,5 @@
+outs:
+- md5: d4682f42ebe1559e8b3241b07cfc5519
+  size: 153041
+  hash: md5
+  path: nearest-neighbours-hotpotqa-E5-small.json

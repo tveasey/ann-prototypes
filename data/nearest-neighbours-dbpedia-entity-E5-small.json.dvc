@@ -1,0 +1,5 @@
+outs:
+- md5: 4d3ecc962c95dd1be1704790de7d0a5d
+  size: 152817
+  hash: md5
+  path: nearest-neighbours-dbpedia-entity-E5-small.json

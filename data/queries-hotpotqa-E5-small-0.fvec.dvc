@@ -1,0 +1,5 @@
+outs:
+- md5: 5c09683a2f2df8d1e52e0123e4e91591
+  size: 150692080
+  hash: md5
+  path: queries-hotpotqa-E5-small-0.fvec

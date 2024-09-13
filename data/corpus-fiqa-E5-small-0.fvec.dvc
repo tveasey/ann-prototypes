@@ -1,0 +1,5 @@
+outs:
+- md5: b36d3e2b64f8485504db55b5934652cb
+  size: 88762520
+  hash: md5
+  path: corpus-fiqa-E5-small-0.fvec

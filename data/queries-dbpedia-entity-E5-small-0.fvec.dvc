@@ -1,0 +1,5 @@
+outs:
+- md5: 25b9f584f877b0390a82f2813cd9451c
+  size: 719180
+  hash: md5
+  path: queries-dbpedia-entity-E5-small-0.fvec

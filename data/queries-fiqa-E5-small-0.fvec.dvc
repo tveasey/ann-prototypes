@@ -1,0 +1,5 @@
+outs:
+- md5: 6161136517a91239f0e04f58742884b9
+  size: 10237920
+  hash: md5
+  path: queries-fiqa-E5-small-0.fvec
