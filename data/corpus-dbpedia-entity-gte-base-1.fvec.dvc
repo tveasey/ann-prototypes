@@ -1,0 +1,5 @@
+outs:
+- md5: cc8731a31cc22f7a914d580c442b2056
+  size: 3076000000
+  hash: md5
+  path: corpus-dbpedia-entity-gte-base-1.fvec

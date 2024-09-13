@@ -1,0 +1,5 @@
+outs:
+- md5: b2dcb4b314716aa736e2260d1aec15f5
+  size: 153022
+  hash: md5
+  path: nearest-neighbours-dbpedia-entity-gte-base.json

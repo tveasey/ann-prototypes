@@ -1,0 +1,5 @@
+outs:
+- md5: 59c8451b94cdcb7ef22f183f7b00964c
+  size: 177294488
+  hash: md5
+  path: corpus-fiqa-gte-base-0.fvec

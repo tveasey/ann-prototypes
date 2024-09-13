@@ -1,0 +1,5 @@
+outs:
+- md5: 5a44d0a40bd1ab69b709967f95a0a566
+  size: 300992752
+  hash: md5
+  path: queries-hotpotqa-gte-base-0.fvec

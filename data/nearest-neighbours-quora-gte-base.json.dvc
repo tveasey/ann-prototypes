@@ -1,0 +1,5 @@
+outs:
+- md5: 2996a7159ac8d3dcd45aa2a6c0260599
+  size: 148384
+  hash: md5
+  path: nearest-neighbours-quora-gte-base.json

@@ -1,0 +1,5 @@
+outs:
+- md5: 7a93b0beb525af2d18b488b24edf10b5
+  size: 1436492
+  hash: md5
+  path: queries-dbpedia-entity-gte-base-0.fvec

@@ -1,0 +1,5 @@
+outs:
+- md5: d3435fab40709d4d64d02c359eee12a4
+  size: 154762
+  hash: md5
+  path: nearest-neighbours-hotpotqa-gte-base.json

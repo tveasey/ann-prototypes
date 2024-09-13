@@ -1,0 +1,5 @@
+outs:
+- md5: b49ad6a687e228d2dc97407d892039d6
+  size: 1608535756
+  hash: md5
+  path: corpus-quora-gte-base-0.fvec

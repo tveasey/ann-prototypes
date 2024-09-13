@@ -1,0 +1,5 @@
+outs:
+- md5: 288f5ccabeb3a8953f972f53f53b9371
+  size: 20449248
+  hash: md5
+  path: queries-fiqa-gte-base-0.fvec
