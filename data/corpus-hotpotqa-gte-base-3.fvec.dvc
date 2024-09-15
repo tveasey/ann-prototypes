@@ -1,0 +1,5 @@
+outs:
+- md5: ec50a44d7bf1d5e27e5fd2d8d6ddc29a
+  size: 3076000000
+  hash: md5
+  path: corpus-hotpotqa-gte-base-3.fvec
