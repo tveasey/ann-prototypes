@@ -60,7 +60,8 @@ class TieredBaselineMergePolicy:
     def merge_all(self) -> float:
         # The optimal way to do this is to merge all tiered graphs to the largest segment
         # but this makes the cost rather sensitive to initial conditions. Instead we just
-        # do our normal tiered policy but relax the number of segments in the flush.
+        # do our normal tiered policy but relax the number of segments in the flush. This
+        # is a better estimate of the average cost over all initial conditions.
         #
         # Note optimal strategy.
         # n = []
