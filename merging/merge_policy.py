@@ -1,3 +1,4 @@
+import math
 import numpy as np
 
 from tqdm.auto import tqdm
@@ -20,15 +21,17 @@ class BaselineMergePolicy:
     def should_promote(self) -> bool:
         return self.n_ > 0
 
-    def add(self, n: int, f: float) -> float:
+    def add(self, n: int, f: float) -> tuple[float, float]:
         self.segments_.append(n)
         self.fractions_.append(f)
-        return self.flush() if len(self.segments_) == self.max_merge_count_ else 0.0
+        if len(self.segments_) == self.max_merge_count_:
+            return self.flush()
+        return 0.0, 0.0
 
-    def flush(self) -> tuple[float, float, float]:
+    def flush(self) -> tuple[float, float]:
         count = len(self.segments_)
         if count == 0:
-            return 0.0
+            return 0.0, 0.0
         max = np.argmax([int((1-self.fractions_[i]) * self.segments_[i]) for i in range(count)])
         self.segments_[0], self.segments_[max] = self.segments_[max], self.segments_[0]
         self.fractions_[0], self.fractions_[max] = self.fractions_[max], self.fractions_[0]
@@ -36,28 +39,54 @@ class BaselineMergePolicy:
             int((1-self.fractions_[0]) * self.segments_[0]),
             [int((1-self.fractions_[j]) * self.segments_[j]) for j in range(1, count)]
         )
+        wrote = sum([int((1-self.fractions_[i]) * self.segments_[i]) for i in range(count)])
         self.n_ = sum([int((1-self.fractions_[i]) * self.segments_[i]) for i in range(count)])
         self.segments_ = []
         self.fractions_ = []
-        return cost
+        return cost, wrote
 
 class TieredBaselineMergePolicy:
     def __init__(self, merge_count: int = 10):
         self.max_merge_count_ = merge_count
         self.tiers_ = [BaselineMergePolicy(merge_count)]
+        self.total_cost_ = 0.0
+        self.amplification_ = 0
+        self.total_docs_ = 0
 
-    def add(self, n: int, f: float) -> float:
-        cost = self.tiers_[0].add(n, f)
+    def cost(self) -> float:
+        return self.total_cost_
+
+    def amplification(self) -> float:
+        return self.amplification_ / self.total_docs_
+
+    def num_segments(self) -> int:
+        n = 0
+        for tier in self.tiers_:
+            n += len(tier.segments_)
+        return n
+    
+    def query_cost(self) -> float:
+        cost = 0.0
+        for tier in self.tiers_:
+            cost += np.sum(np.log([n for n in tier.segments_]))
+        return cost / math.log(self.total_docs_)
+
+    def add(self, n: int, f: float) -> None:
+        cost_i, wrote_i = self.tiers_[0].add(n, f)
+        self.total_cost_ += cost_i
+        self.amplification_ += wrote_i
+        self.total_docs_ += n
         n_tiers = len(self.tiers_)
         for i in range(n_tiers):
             if self.tiers_[i].should_promote():
                 if i+1 == len(self.tiers_):
                     self.tiers_.append(BaselineMergePolicy(self.max_merge_count_))
-                cost += self.tiers_[i+1].add(self.tiers_[i].n_, self.tiers_[i].f_)
+                cost_i, wrote_i = self.tiers_[i+1].add(self.tiers_[i].n_, self.tiers_[i].f_)
+                self.total_cost_ += cost_i
+                self.amplification_ += wrote_i
                 self.tiers_[i] = BaselineMergePolicy(self.max_merge_count_)
-        return cost
     
-    def merge_all(self) -> float:
+    def merge_all(self) -> None:
         # The optimal way to do this is to merge all tiered graphs to the largest segment
         # but this makes the cost rather sensitive to initial conditions. Instead we just
         # do our normal tiered policy but relax the number of segments in the flush. This
@@ -81,13 +110,17 @@ class TieredBaselineMergePolicy:
         #     int((1-f[max]) * n[max]),
         #     [int((1-f[i]) * n[i]) for i in range(len(n)) if i != max]
         # )
-        cost = 0.0
         for i in range(len(self.tiers_) - 1):
-            cost += self.tiers_[i].flush()
-            cost += self.tiers_[i+1].add(self.tiers_[i].n_, self.tiers_[i].f_)
+            cost_i, wrote_i = self.tiers_[i].flush()
+            self.total_cost_ += cost_i
+            self.amplification_ += wrote_i
+            cost_i, wrote_i = self.tiers_[i+1].add(self.tiers_[i].n_, self.tiers_[i].f_)
+            self.total_cost_ += cost_i
+            self.amplification_ += wrote_i
             self.tiers_[i] = BaselineMergePolicy(self.max_merge_count_)
-        cost += self.tiers_[-1].flush()
-        return cost
+        cost_i, wrote_i = self.tiers_[-1].flush()
+        self.total_cost_ += cost_i
+        self.amplification_ += wrote_i
 
 class MergeToLargestPolicy:
     def __init__(self, merge_count: int = 10, flush_count: int = 7):
@@ -102,15 +135,17 @@ class MergeToLargestPolicy:
     def should_promote(self) -> bool:
         return self.flush_count_ > self.max_flush_count_
 
-    def add(self, n: int, f: float) -> float:
+    def add(self, n: int, f: float) -> tuple[float, float]:
         self.segments_.append(n)
         self.fractions_.append(f)
-        return self.flush() if len(self.segments_) == self.max_merge_count_ else 0.0
+        if len(self.segments_) == self.max_merge_count_:
+            return self.flush()
+        return 0.0, 0.0
 
-    def flush(self) -> float:
+    def flush(self) -> tuple[float, float]:
         count = len(self.segments_)
         if count == 0:
-            return 0.0
+            return 0.0, 0.0
         if self.n_ == 0:
             max = np.argmax([int((1-self.fractions_[i]) * self.segments_[i]) for i in range(count)])
             self.segments_[0], self.segments_[max] = self.segments_[max], self.segments_[0]
@@ -124,20 +159,47 @@ class MergeToLargestPolicy:
                 self.n_,
                 [int((1-self.fractions_[i]) * self.segments_[i]) for i in range(count)]
             )
+        wrote = self.n_ + sum([int((1-self.fractions_[i]) * self.segments_[i]) for i in range(count)])
         self.n_ += sum([int((1-self.fractions_[i]) * self.segments_[i]) for i in range(count)])
         self.segments_ = []
         self.fractions_ = []
         self.flush_count_ += 1
-        return cost
+        return cost, wrote
 
 class TieredMergeToLargestPolicy:
     def __init__(self, merge_count: int = 10, flush_count: int = 6):
         self.tiers_ = [MergeToLargestPolicy(merge_count, flush_count)]
         self.max_merge_count_ = merge_count
         self.max_flush_count_ = flush_count
+        self.total_cost_ = 0.0
+        self.amplification_ = 0
+        self.total_docs_ = 0
 
-    def add(self, n: int, f: float) -> float:
-        cost = self.tiers_[0].add(n, f)
+    def cost(self) -> float:
+        return self.total_cost_
+
+    def amplification(self) -> float:
+        return self.amplification_ / self.total_docs_
+    
+    def num_segments(self) -> int:
+        n = 0
+        for tier in self.tiers_:
+            n += len(tier.segments_)
+            n += 1 if tier.n_ > 0 else 0
+        return n
+    
+    def query_cost(self) -> float:
+        cost = 0.0
+        for tier in self.tiers_:
+            cost += math.log(tier.n_) if tier.n_ > 0 else 0.0
+            cost += np.sum(np.log([n for n in tier.segments_]))
+        return cost / math.log(self.total_docs_)
+
+    def add(self, n: int, f: float) -> None:
+        cost_i, wrote_i = self.tiers_[0].add(n, f)
+        self.total_cost_ += cost_i
+        self.amplification_ += wrote_i
+        self.total_docs_ += n
         n_tiers = len(self.tiers_)
         for i in range(n_tiers):
             if self.tiers_[i].should_promote():
@@ -145,49 +207,75 @@ class TieredMergeToLargestPolicy:
                     self.tiers_.append(
                         MergeToLargestPolicy(self.max_merge_count_, self.max_flush_count_)
                     )
-                cost += self.tiers_[i+1].add(self.tiers_[i].n_, self.tiers_[i].f_)
+                cost_i, wrote_i = self.tiers_[i+1].add(self.tiers_[i].n_, self.tiers_[i].f_)
+                self.total_cost_ += cost_i
+                self.amplification_ += wrote_i
                 self.tiers_[i] = MergeToLargestPolicy(self.max_merge_count_, self.max_flush_count_)
-        return cost
 
-    def merge_all(self) -> float:
+    def merge_all(self) -> None:
         cost = 0.0
         for i in range(len(self.tiers_) - 1):
-            cost += self.tiers_[i].flush()
-            cost += self.tiers_[i+1].add(self.tiers_[i].n_, self.tiers_[i].f_)
+            cost_i, wrote_i = self.tiers_[i].flush()
+            cost += cost_i
+            self.amplification_ += wrote_i
+            cost_i, wrote_i = self.tiers_[i+1].add(self.tiers_[i].n_, self.tiers_[i].f_)
+            cost += cost_i
+            self.amplification_ += wrote_i
             self.tiers_[i] = MergeToLargestPolicy(self.max_merge_count_, self.max_flush_count_)
-        cost += self.tiers_[-1].flush()
-        return cost
+        cost_i, wrote_i = self.tiers_[-1].flush()
+        cost += cost_i
+        self.amplification_ += wrote_i
 
-def merge(policy, n: list, f: list) -> list:
-    total_cost = 0.0
+def merge(policy, n: list, f: list):
     for ni, fi in zip(n, f):
-        total_cost += policy.add(ni, fi)
-    total_cost += policy.merge_all()
+        policy.add(ni, fi)
+    #total_cost += policy.merge_all()
     #print("Docs merged:", policy.tiers_[-1].n_)
-    return total_cost
+    return policy
 
 def trial():
     np.random.seed(42)
 
     flush_counts = [2, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 20, 30]
     blc = []
+    bla = []
+    bls = []
+    blq = []
     tlc = [[] for _ in flush_counts]
+    tla = [[] for _ in flush_counts]
+    tls = [[] for _ in flush_counts]
+    tlq = [[] for _ in flush_counts]
+
     for _ in tqdm(range(5), desc="Trials"):
-        count = np.random.randint(400000, 600000)
+        count = np.random.randint(40000, 60000)
         # Initial segment sizes.
         n = [int(np.random.normal(100, 4)) for _ in range(count)]
         # The delete fractions.
         f = [fi for fi in np.random.uniform(0.0, 0.1, count)]
 
-        blc = merge(TieredBaselineMergePolicy(), n.copy(), f.copy())
+        baseline = merge(TieredBaselineMergePolicy(), n.copy(), f.copy())
+        print(f"Baseline docs: {baseline.total_docs_}")
+        blc.append(baseline.cost())
+        bla.append(baseline.amplification())
+        bls.append(baseline.num_segments())
+        blq.append(baseline.query_cost())
+
         for i, flush_count in enumerate(flush_counts):
-            tlc[i] = merge(TieredMergeToLargestPolicy(flush_count=flush_count), n.copy(), f.copy())
+            largest = merge(TieredMergeToLargestPolicy(flush_count=flush_count), n.copy(), f.copy())
+            tlc[i].append(largest.cost())
+            tla[i].append(largest.amplification())
+            tls[i].append(largest.num_segments())
+            tlq[i].append(largest.query_cost())
 
     print(f"Lucene baseline cost: {np.average(blc):.2f}")
+    print(f"Lucene baseline amplification: {np.average(bla):.2f}")
+    print(f"Lucene baseline segments: {np.average(bls):.2f}")
+    print(f"Lucene baseline query cost: {np.average(blq):.2f}")
     for i, flush_count in enumerate(flush_counts):
-        print(f"Tiered merge to largest flush count {flush_count}: {np.average(np.array(tlc[i]) / blc):.2f}")
-
-    print([np.average(np.array(tlc[i]) / np.array(blc)) for i in range(len(flush_counts))])
+        print(f"Tiered merge to largest {flush_count} cost: {np.average(np.array(tlc[i]) / np.array(blc)):.2f}")
+        print(f"Tiered merge to largest {flush_count} amplification: {np.average(np.array(tla[i]) / np.array(bla)):.2f}")
+        print(f"Tiered merge to largest {flush_count} segments: {np.average(np.array(tls[i]) / np.array(bls)):.2f}")
+        print(f"Tiered merge to largest {flush_count} query cost: {np.average(np.array(tlq[i]) / np.array(blq)):.2f}")
 
 if __name__ == "__main__":
     trial()
