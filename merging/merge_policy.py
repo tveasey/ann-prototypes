@@ -254,7 +254,6 @@ def trial():
         f = [fi for fi in np.random.uniform(0.0, 0.1, count)]
 
         baseline = merge(TieredBaselineMergePolicy(), n.copy(), f.copy())
-        print(f"Baseline docs: {baseline.total_docs_}")
         blc.append(baseline.cost())
         bla.append(baseline.amplification())
         bls.append(baseline.num_segments())
