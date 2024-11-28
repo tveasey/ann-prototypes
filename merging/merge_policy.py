@@ -2,14 +2,20 @@ import math
 import numpy as np
 
 from tqdm.auto import tqdm
+from matplotlib import pyplot as plt
 
-cost_of_copy = 0.05
+cost_of_copy = 0.5
 cost_of_insert = 1.0
 max_delete_fraction = 0.1
 
 def merge_cost(n1: int, n2: list) -> float:
     n_s = np.sum(n2)
-    return cost_of_copy * (n1 + n_s) + cost_of_insert * n_s
+    cost = cost_of_copy * (n1 + n_s)
+    graph_size = n1
+    for n in n2:
+        cost += cost_of_insert * n * math.log(graph_size)
+        graph_size += n
+    return cost
 
 class BaselineMergePolicy:
     def __init__(self, merge_count: int = 10):
@@ -170,7 +176,7 @@ class MergeToLargestPolicy:
         return cost, wrote
 
 class TieredMergeToLargestPolicy:
-    def __init__(self, merge_count: int = 10, flush_count: int = 6):
+    def __init__(self, merge_count: int = 10, flush_count: int = 8):
         self.tiers_ = [MergeToLargestPolicy(merge_count, flush_count)]
         self.max_merge_count_ = merge_count
         self.max_flush_count_ = flush_count
@@ -232,8 +238,8 @@ class TieredMergeToLargestPolicy:
 def merge(policy, n: list, f: list):
     for ni, fi in zip(n, f):
         policy.add(ni, fi)
-    #total_cost += policy.merge_all()
-    #print("Docs merged:", policy.tiers_[-1].n_)
+    # Simulate force merge to a single segment.
+    #policy.merge_all()
     return policy
 
 def trial():
@@ -270,16 +276,34 @@ def trial():
             tlq[i].append(largest.query_cost())
 
     print("Lucene baseline")
-    print(f" cost: {np.average(blc):.2f}",
+    print(f"  Avg. cost: {np.average(blc):.2f}",
           f"amplification: {np.average(bla):.2f}",
           f"segments: {np.average(bls):.2f}",
           f"query cost: {np.average(blq):.2f}")
+
     print("Tiered merge to largest")
+    cost_vs_baseline = []
+    amplification_vs_baseline = []
+    segments_vs_baseline = []
+    query_cost_vs_baseline = []
     for i, flush_count in enumerate(flush_counts):
-        print(f"  flush count {flush_count} cost: {np.average(np.array(tlc[i]) / np.array(blc)):.2f}",
-              f"amplification: {np.average(np.array(tla[i]) / np.array(bla)):.2f}",
-              f"segments: {np.average(np.array(tls[i]) / np.array(bls)):.2f}",
-              f"query cost: {np.average(np.array(tlq[i]) / np.array(blq)):.2f}")
+        cost_vs_baseline.append(np.average(np.array(tlc[i]) / np.array(blc)))
+        amplification_vs_baseline.append(np.average(np.array(tla[i]) / np.array(bla)))
+        segments_vs_baseline.append(np.average(np.array(tls[i]) / np.array(bls)))
+        query_cost_vs_baseline.append(np.average(np.array(tlq[i]) / np.array(blq)))
+        print(f"  flush count {flush_count} avg cost: {cost_vs_baseline[-1]:.2f}",
+              f"amplification: {amplification_vs_baseline[-1]:.2f}",
+              f"segments: {segments_vs_baseline[-1]:.2f}",
+              f"query cost: {query_cost_vs_baseline[-1]:.2f}")
+
+    plt.plot(flush_counts, cost_vs_baseline, label="Cost")
+    plt.plot(flush_counts, amplification_vs_baseline, label="Amplification")
+    plt.plot(flush_counts, segments_vs_baseline, label="Segments")
+    plt.plot(flush_counts, query_cost_vs_baseline, label="Query cost")
+    plt.xlabel("Flush count")
+    plt.ylabel("Ratio")
+    plt.legend()
+    plt.show()
 
 if __name__ == "__main__":
     trial()
