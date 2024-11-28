@@ -5,6 +5,7 @@ from tqdm.auto import tqdm
 
 cost_of_copy = 0.05
 cost_of_insert = 1.0
+max_delete_fraction = 0.1
 
 def merge_cost(n1: int, n2: list) -> float:
     n_s = np.sum(n2)
@@ -37,10 +38,11 @@ class BaselineMergePolicy:
         self.fractions_[0], self.fractions_[max] = self.fractions_[max], self.fractions_[0]
         cost = merge_cost(
             int((1-self.fractions_[0]) * self.segments_[0]),
-            [int((1-self.fractions_[j]) * self.segments_[j]) for j in range(1, count)]
+            [int((1-self.fractions_[i]) * self.segments_[i]) for i in range(1, count)]
         )
         wrote = sum([int((1-self.fractions_[i]) * self.segments_[i]) for i in range(count)])
         self.n_ = sum([int((1-self.fractions_[i]) * self.segments_[i]) for i in range(count)])
+        self.f_ = np.random.uniform(0.0, max_delete_fraction)
         self.segments_ = []
         self.fractions_ = []
         return cost, wrote
@@ -152,7 +154,7 @@ class MergeToLargestPolicy:
             self.fractions_[0], self.fractions_[max] = self.fractions_[max], self.fractions_[0]
             cost = merge_cost(
                 int((1-self.fractions_[0]) * self.segments_[0]),
-                [int((1-self.fractions_[j]) * self.segments_[j]) for j in range(1, count)]
+                [int((1-self.fractions_[i]) * self.segments_[i]) for i in range(1, count)]
             )
         else:
             cost = merge_cost(
@@ -161,6 +163,7 @@ class MergeToLargestPolicy:
             )
         wrote = self.n_ + sum([int((1-self.fractions_[i]) * self.segments_[i]) for i in range(count)])
         self.n_ += sum([int((1-self.fractions_[i]) * self.segments_[i]) for i in range(count)])
+        self.f_ = np.random.uniform(0.0, max_delete_fraction)
         self.segments_ = []
         self.fractions_ = []
         self.flush_count_ += 1
@@ -184,8 +187,8 @@ class TieredMergeToLargestPolicy:
     def num_segments(self) -> int:
         n = 0
         for tier in self.tiers_:
-            n += len(tier.segments_)
             n += 1 if tier.n_ > 0 else 0
+            n += len(tier.segments_)
         return n
     
     def query_cost(self) -> float:
@@ -236,7 +239,7 @@ def merge(policy, n: list, f: list):
 def trial():
     np.random.seed(42)
 
-    flush_counts = [2, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 20, 30]
+    flush_counts = [2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 20, 30]
     blc = []
     bla = []
     bls = []
@@ -246,12 +249,12 @@ def trial():
     tls = [[] for _ in flush_counts]
     tlq = [[] for _ in flush_counts]
 
-    for _ in tqdm(range(5), desc="Trials"):
-        count = np.random.randint(40000, 60000)
+    for _ in tqdm(range(200), desc="Trials"):
+        count = np.random.randint(10000, 100000)
         # Initial segment sizes.
         n = [int(np.random.normal(100, 4)) for _ in range(count)]
         # The delete fractions.
-        f = [fi for fi in np.random.uniform(0.0, 0.1, count)]
+        f = [fi for fi in np.random.uniform(0.0, max_delete_fraction, count)]
 
         baseline = merge(TieredBaselineMergePolicy(), n.copy(), f.copy())
         blc.append(baseline.cost())
@@ -266,15 +269,17 @@ def trial():
             tls[i].append(largest.num_segments())
             tlq[i].append(largest.query_cost())
 
-    print(f"Lucene baseline cost: {np.average(blc):.2f}")
-    print(f"Lucene baseline amplification: {np.average(bla):.2f}")
-    print(f"Lucene baseline segments: {np.average(bls):.2f}")
-    print(f"Lucene baseline query cost: {np.average(blq):.2f}")
+    print("Lucene baseline")
+    print(f" cost: {np.average(blc):.2f}",
+          f"amplification: {np.average(bla):.2f}",
+          f"segments: {np.average(bls):.2f}",
+          f"query cost: {np.average(blq):.2f}")
+    print("Tiered merge to largest")
     for i, flush_count in enumerate(flush_counts):
-        print(f"Tiered merge to largest {flush_count} cost: {np.average(np.array(tlc[i]) / np.array(blc)):.2f}")
-        print(f"Tiered merge to largest {flush_count} amplification: {np.average(np.array(tla[i]) / np.array(bla)):.2f}")
-        print(f"Tiered merge to largest {flush_count} segments: {np.average(np.array(tls[i]) / np.array(bls)):.2f}")
-        print(f"Tiered merge to largest {flush_count} query cost: {np.average(np.array(tlq[i]) / np.array(blq)):.2f}")
+        print(f"  flush count {flush_count} cost: {np.average(np.array(tlc[i]) / np.array(blc)):.2f}",
+              f"amplification: {np.average(np.array(tla[i]) / np.array(bla)):.2f}",
+              f"segments: {np.average(np.array(tls[i]) / np.array(bls)):.2f}",
+              f"query cost: {np.average(np.array(tlq[i]) / np.array(blq)):.2f}")
 
 if __name__ == "__main__":
     trial()
