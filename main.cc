@@ -1,6 +1,7 @@
 #include "src/common/bigvector.h"
 #include "src/common/io.h"
 #include "src/common/types.h"
+#include "src/common/utils.h"
 #include "src/pq/benchmark.h"
 #include "src/pq/constants.h"
 #include "src/pq/utils.h"
@@ -134,14 +135,18 @@ void loadAndRunScalarBenchmark(const std::string& dataset, Metric metric, Scalar
 
 void loadAndRunSoarIVFBenchmark(const std::string& dataset,
                                 Metric metric,
+                                std::size_t docsPerCluster,
                                 float lambda,
-                                std::size_t docsPerCluster) {
+                                std::size_t numProbes) {
     
     auto root = std::filesystem::path(__FILE__).parent_path();
 
     std::cout << "Loading queries from "
               << (root / "data" / ("queries-" + dataset + ".fvec")) << std::endl;
     auto [queries, qdim] = readFvecs(root / "data" / ("queries-" + dataset + ".fvec"));
+    if (metric == Cosine) {
+        normalize(qdim, queries);
+    }
     std::cout << "Loaded " << queries.size() / qdim << " queries of dimension " << qdim << std::endl;
     
     std::cout << "Loading corpus from "
@@ -157,7 +162,7 @@ void loadAndRunSoarIVFBenchmark(const std::string& dataset,
         return;
     }
 
-    runSoarIVFBenchmark(metric, docs, queries, lambda, docsPerCluster, 10, docsPerCluster);
+    runSoarIVFBenchmark(metric, docs, queries, 10, docsPerCluster, lambda, numProbes);
 }
 
 } // unnamed::
@@ -174,6 +179,7 @@ int main(int argc, char* argv[]) {
     std::size_t soarDocsPerCluster{500};
     std::size_t pqDocsPerCluster{COARSE_CLUSTERING_DOCS_PER_CLUSTER};
     float lambda{1.0F};
+    std::size_t numProbes{10};
     std::size_t dimensionsPerCode{8};
     std::string dataset;
 
@@ -198,8 +204,8 @@ int main(int argc, char* argv[]) {
             "The number of documents per cluster to use for SOAR IVF")
         ("lambda", boost::program_options::value<float>()->default_value(1.0F),
             "The SOAR IVF lambda value")
-        ("merge", boost::program_options::bool_switch(),
-            "Run the merge benchmark instead of the standard benchmark")
+        ("num-probes", boost::program_options::value<std::size_t>()->default_value(10),
+            "The number of probes to use for SOAR IVF")
         ("perp-distance-threshold", boost::program_options::value<float>()->default_value(0.0F),
             "The ScaNN threshold used for computing the parallel distance cost multiplier")
         ("pq-docs-per-cluster", boost::program_options::value<std::size_t>()->default_value(COARSE_CLUSTERING_DOCS_PER_CLUSTER),
@@ -283,6 +289,15 @@ int main(int argc, char* argv[]) {
                 throw boost::program_options::error("Invalid docs per cluster");
             }
         }
+        if (vm.count("lambda")) {
+            lambda = vm["lambda"].as<float>();
+        }
+        if (vm.count("num-probes")) {
+            numProbes = vm["num-probes"].as<std::size_t>();
+            if (numProbes == 0) {
+                throw boost::program_options::error("Invalid number of probes");
+            }
+        }
         if (vm.count("pq-docs-per-cluster")) {
             pqDocsPerCluster = vm["pq-docs-per-cluster"].as<std::size_t>();
             if (pqDocsPerCluster == 0) {
@@ -318,7 +333,8 @@ int main(int argc, char* argv[]) {
                         dataset, metric, distanceThreshold, pqDocsPerCluster, dimensionsPerCode);
                     break;
                 case Experiment::SoarIVF:
-                    loadAndRunSoarIVFBenchmark(dataset, metric, lambda, soarDocsPerCluster);
+                    loadAndRunSoarIVFBenchmark(
+                        dataset, metric, soarDocsPerCluster, lambda, numProbes);
                     break;
             }
         } catch (const std::exception& e) {

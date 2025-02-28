@@ -161,10 +161,10 @@ void assignSpilledDocs(float lambda,
             auto cj = &centres[j * dim];
             #pragma omp simd reduction(+:sd, proj)
             for (std::size_t k = 0; k < dim; ++k) {
-                float dik{doc[k] - cj[k]};
-                float projik{r1[k] * dik};
-                sd += dik * dik;
-                proj += projik;
+                float djk{doc[k] - cj[k]};
+                float projjk{r1[k] * djk};
+                sd += djk * djk;
+                proj += projjk;
             }
             float dsoar{sd + lambda * proj * proj / n1};
             if (dsoar < mdsoar) {
@@ -223,8 +223,10 @@ void SoarIVFIndex::build(const BigVector& docs) {
 
     // Do SOAR based spill assignments.
     std::vector<std::size_t> spilledDocsCodes;
-    diff = time([&]{ assignSpilledDocs(lambda_, docs_, centres_, docsCodes, spilledDocsCodes); });
-    std::cout << "Assigned spilled documents took " << diff.count() << " s" << std::endl;
+    if (lambda_ > 0.0F) {
+        diff = time([&]{ assignSpilledDocs(lambda_, docs_, centres_, docsCodes, spilledDocsCodes); });
+        std::cout << "Assigned spilled documents took " << diff.count() << " s" << std::endl;
+    }
 
     // Fill in the clusters' documents.
     clustersDocs_.resize(numClusters_);
@@ -242,22 +244,22 @@ void SoarIVFIndex::build(const BigVector& docs) {
     }
 }
 
-std::vector<std::size_t>
+std::pair<std::vector<std::size_t>, std::size_t>
 SoarIVFIndex::search(const float* query, std::size_t k, std::size_t numProbes) const {
     // Find the nearest numProbes clusters.
     std::priority_queue<std::pair<float, std::size_t>> nearest;
     for (std::size_t i = 0; i < numProbes; ++i) {
-        nearest.push({std::numeric_limits<float>::max(),
-                        std::numeric_limits<std::size_t>::max()});
+        nearest.emplace(std::numeric_limits<float>::max(),
+                        std::numeric_limits<std::size_t>::max());
     }
     for (std::size_t i = 0; i < numClusters_; ++i) {
-        float dist{0.0F};
+        float sim{0.0F};
         auto* centre = &centres_[i * dim_];
-        #pragma omp simd reduction(+:dist)
+        #pragma omp simd reduction(+:sim)
         for (std::size_t j = 0; j < dim_; ++j) {
-            float d{query[j] - centre[j]};
-            dist += d * d;
+            sim += query[j] * centre[j];
         }
+        float dist{1.0F - sim};
         if (dist < nearest.top().first) {
             nearest.pop();
             nearest.emplace(dist, i);
@@ -271,21 +273,23 @@ SoarIVFIndex::search(const float* query, std::size_t k, std::size_t numProbes) c
 
     // Find the nearest k documents searching the nearest clusters.
     for (std::size_t i = 0; i < k; ++i) {
-        nearest.push({std::numeric_limits<float>::max(),
-                        std::numeric_limits<std::size_t>::max()});
+        nearest.emplace(std::numeric_limits<float>::max(),
+                        std::numeric_limits<std::size_t>::max());
     }
+    std::size_t numberOfComparisions{0};
     for (auto cluster : nearestClusters) {
+        numberOfComparisions += clustersDocs_[cluster].size();
         for (auto i : clustersDocs_[cluster]) {
-            float sd{0.0F};
+            float sim{0.0F};
             const auto* doc = &docs_[i * dim_];
-            #pragma omp simd reduction(+:sd)
+            #pragma omp simd reduction(+:sim)
             for (std::size_t j = 0; j < dim_; ++j) {
-                float d{query[j] - doc[j]};
-                sd += d * d;
+                sim += query[j] * doc[j];
             }
-            if (sd < nearest.top().first) {
+            float dist{1.0F - sim};
+            if (dist < nearest.top().first) {
                 nearest.pop();
-                nearest.push({sd, i});
+                nearest.emplace(dist, i);
             }
         }
     }
@@ -295,7 +299,7 @@ SoarIVFIndex::search(const float* query, std::size_t k, std::size_t numProbes) c
         nearest.pop();
     }
 
-    return nearestDocs;
+    return {std::move(nearestDocs), numberOfComparisions};
 }
 
 void SoarIVFIndex::maybeNormalizeCentres() {

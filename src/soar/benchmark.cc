@@ -39,17 +39,26 @@ void runQueries(const BigVector& docs,
     std::cout << "Brute force took " << diff.count() << " s" << std::endl;
 
     std::vector<std::vector<std::size_t>> topkSoarIVF(numQueries);
-
-    diff = std::chrono::duration<double>{0};
-    progress = std::make_unique<ProgressBar>("IVF search...", numQueries);
-    for (std::size_t i = 0, j = 0; i < queries.size(); i += dim, ++j) {
-        diff += time([&] { topkSoarIVF[j] = index.search(queries.data() + i * dim, k, numProbes); });
-        progress->update();
+    for (std::size_t m : {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}) {
+        std::cout << "Running IVF search with " << m * numProbes << " probes" << std::endl;
+        diff = std::chrono::duration<double>{0};
+        progress = std::make_unique<ProgressBar>("IVF search...", numQueries);
+        std::size_t averageNumberComparisons{0};
+        for (std::size_t i = 0, j = 0; i < queries.size(); i += dim, ++j) {
+            std::size_t numberOfComparisons{0};
+            diff += time([&] {
+                std::tie(topkSoarIVF[j], numberOfComparisons) = index.search(queries.data() + i, k, m * numProbes);
+            });
+            averageNumberComparisons += numberOfComparisons;
+            progress->update();
+        }
+        averageNumberComparisons = (averageNumberComparisons + numQueries / 2) / numQueries;
+        progress.reset();
+        std::cout << "IVF search took " << diff.count() << " s" << std::endl;
+        std::cout << "QPS = " << numQueries / diff.count() << std::endl;
+        std::cout << "Average recall@" << k << " = " << computeRecalls(topkExact, topkSoarIVF)[AVG_RECALL] << std::endl;
+        std::cout << "Average number of comparisons = " << averageNumberComparisons << std::endl;
     }
-    progress.reset();
-    std::cout << "IVF search took " << diff.count() << " s" << std::endl;
-    std::cout << "QPS = " << numQueries / diff.count() << std::endl;
-    std::cout << "Average recall@" << k << " = " << computeRecalls(topkExact, topkSoarIVF)[AVG_RECALL] << std::endl;
 }
     
 } // unnamed::
@@ -57,9 +66,9 @@ void runQueries(const BigVector& docs,
 void runSoarIVFBenchmark(Metric metric,
                          const BigVector& docs,
                          std::vector<float>& queries,
-                         float lambda,
-                         std::size_t docsPerCluster,
                          std::size_t k,
+                         std::size_t docsPerCluster,
+                         float lambda,
                          std::size_t numProbes) {
 
     std::cout << "Running Soar IVF benchmark..." << std::endl;

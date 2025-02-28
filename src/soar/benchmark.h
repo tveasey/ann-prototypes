@@ -10,7 +10,7 @@
 void runSoarIVFBenchmark(Metric metric,
                          const BigVector& docs,
                          std::vector<float>& queries,
-                         float lambda,
-                         std::size_t docsPerCluster,
                          std::size_t k,
+                         std::size_t docsPerCluster,
+                         float lambda,
                          std::size_t numProbes);
