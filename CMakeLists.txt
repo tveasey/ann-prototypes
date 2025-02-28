@@ -27,6 +27,12 @@ add_library(scalar SHARED
 )
 target_link_libraries(scalar common)
 
+add_library(soar SHARED
+    src/soar/benchmark.cc
+    src/soar/ivf.cc
+)
+target_link_libraries(soar common)
+
 add_executable(run_tests
     tests/main.cc
     tests/test_common.cc

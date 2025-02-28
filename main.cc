@@ -5,13 +5,13 @@
 #include "src/pq/constants.h"
 #include "src/pq/utils.h"
 #include "src/scalar/scalar.h"
-#include "src/common/utils.h"
+#include "src/scalar/utils.h"
+#include "src/soar/benchmark.h"
 
 #include <boost/program_options.hpp>
 #include <boost/program_options/value_semantic.hpp>
 
 #include <algorithm>
-#include <fstream>
 #include <iostream>
 #include <optional>
 #include <random>
@@ -111,6 +111,34 @@ void loadAndRunPqMergeBenchmark(const std::string& dataset,
 
     runPqMergeBenchmark(dataset, metric, distanceThreshold, docsPerCoarseCluster,
                         numBooks, 10, docs1, docs2, queries, writePqStats);
+}
+
+void testSoarIVF(const std::string& dataset,
+                 Metric metric,
+                 float lambda,
+                 std::size_t docsPerCluster) {
+    
+    auto root = std::filesystem::path(__FILE__).parent_path();
+
+    std::cout << "Loading queries from "
+              << (root / "data" / ("queries-" + dataset + ".fvec")) << std::endl;
+    auto [queries, qdim] = readFvecs(root / "data" / ("queries-" + dataset + ".fvec"));
+    std::cout << "Loaded " << queries.size() / qdim << " queries of dimension " << qdim << std::endl;
+    
+    std::cout << "Loading corpus from "
+              << (root / "data" / ("corpus-" + dataset + ".fvec")) << std::endl;
+    BigVector docs{loadAndPrepareData(
+        root / "data" / ("corpus-" + dataset + ".fvec"), 1, metric == Cosine)};
+    std::cout << "Loaded " << docs.numVectors() << " vectors of dimension " << docs.dim() << std::endl;
+    
+    if (qdim != docs.dim()) {
+        throw std::runtime_error("Dimension mismatch");
+    }
+    if (docs.numVectors() == 0 || queries.empty()) {
+        return;
+    }
+
+    runSoarIVFBenchmark(metric, docs, queries, lambda, docsPerCluster, 10, docsPerCluster);
 }
 
 void loadAndRunScalarBenchmark(const std::string& dataset, Metric metric, ScalarBits bits) {
