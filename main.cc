@@ -171,7 +171,8 @@ int main(int argc, char* argv[]) {
     ScalarBits scalar{B4};
     Metric metric{Cosine};
     float distanceThreshold{0.0F};
-    std::size_t docsPerCluster{COARSE_CLUSTERING_DOCS_PER_CLUSTER};
+    std::size_t soarDocsPerCluster{500};
+    std::size_t pqDocsPerCluster{COARSE_CLUSTERING_DOCS_PER_CLUSTER};
     float lambda{1.0F};
     std::size_t dimensionsPerCode{8};
     std::string dataset;
@@ -277,14 +278,14 @@ int main(int argc, char* argv[]) {
             distanceThreshold = vm["distance"].as<float>();
         }
         if (vm.count("soar-docs-per-cluster")) {
-            docsPerCluster = vm["soar-docs-per-cluster"].as<std::size_t>();
-            if (docsPerCluster == 0) {
+            soarDocsPerCluster = vm["soar-docs-per-cluster"].as<std::size_t>();
+            if (soarDocsPerCluster == 0) {
                 throw boost::program_options::error("Invalid docs per cluster");
             }
         }
         if (vm.count("pq-docs-per-cluster")) {
-            docsPerCluster = vm["pq-docs-per-cluster"].as<std::size_t>();
-            if (docsPerCluster == 0) {
+            pqDocsPerCluster = vm["pq-docs-per-cluster"].as<std::size_t>();
+            if (pqDocsPerCluster == 0) {
                 throw boost::program_options::error("Invalid docs per cluster");
             }
         }
@@ -309,15 +310,15 @@ int main(int argc, char* argv[]) {
                     loadAndRunScalarBenchmark(dataset, metric, scalar);
                     break;
                 case Experiment::PQ:
-                    loadAndRunPqBenchmark(dataset, metric, distanceThreshold,
-                                            docsPerCluster, dimensionsPerCode);
+                    loadAndRunPqBenchmark(
+                        dataset, metric, distanceThreshold, pqDocsPerCluster, dimensionsPerCode);
                     break;
                 case Experiment::Merge:
-                    loadAndRunPqMergeBenchmark(dataset, metric, distanceThreshold,
-                                               docsPerCluster, dimensionsPerCode);
+                    loadAndRunPqMergeBenchmark(
+                        dataset, metric, distanceThreshold, pqDocsPerCluster, dimensionsPerCode);
                     break;
                 case Experiment::SoarIVF:
-                    loadAndRunSoarIVFBenchmark(dataset, metric, lambda, docsPerCluster);
+                    loadAndRunSoarIVFBenchmark(dataset, metric, lambda, soarDocsPerCluster);
                     break;
             }
         } catch (const std::exception& e) {

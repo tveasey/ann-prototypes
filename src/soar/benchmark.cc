@@ -20,10 +20,9 @@ void runQueries(const BigVector& docs,
 
     std::size_t numQueries{queries.size() / docs.dim()};
     std::size_t dim{docs.dim()};
-    std::cout << std::setprecision(5)
-                << "query count = " << numQueries
-                << ", doc count = " << docs.numVectors()
-                << ", dimension = " << dim << std::endl;
+    std::cout << "query count = " << numQueries
+              << ", doc count = " << docs.numVectors()
+              << ", dimension = " << dim << std::endl;
 
     std::vector<std::vector<std::size_t>> topkExact(numQueries);
 
@@ -42,13 +41,13 @@ void runQueries(const BigVector& docs,
     std::vector<std::vector<std::size_t>> topkSoarIVF(numQueries);
 
     diff = std::chrono::duration<double>{0};
-    progress = std::make_unique<ProgressBar>("PQ search...", numQueries);
+    progress = std::make_unique<ProgressBar>("IVF search...", numQueries);
     for (std::size_t i = 0, j = 0; i < queries.size(); i += dim, ++j) {
         diff += time([&] { topkSoarIVF[j] = index.search(queries.data() + i * dim, k, numProbes); });
         progress->update();
     }
     progress.reset();
-    std::cout << "PQ search took " << diff.count() << " s" << std::endl;
+    std::cout << "IVF search took " << diff.count() << " s" << std::endl;
     std::cout << "QPS = " << numQueries / diff.count() << std::endl;
     std::cout << "Average recall@" << k << " = " << computeRecalls(topkExact, topkSoarIVF)[AVG_RECALL] << std::endl;
 }
@@ -70,12 +69,15 @@ void runSoarIVFBenchmark(Metric metric,
 
     std::size_t numClusters{
         std::max(1UL, (docs.numVectors() + docsPerCluster - 1) / docsPerCluster)};
+    std::cout << "numVectors = " << docs.numVectors() << std::endl;
+    std::cout << "docsPerCluster = " << docsPerCluster << std::endl;
+    std::cout << "numClusters = " << numClusters << std::endl;
 
     SoarIVFIndex index{metric, lambda, docs.dim(), numClusters};
 
     std::cout << "Building IVF index..." << std::endl;
-    index.build(docs);
-    std::cout << "IVF index built" << std::endl;
+    auto duration = time([&] { index.build(docs); });
+    std::cout << "Building IVF index took " << duration.count() << " s" << std::endl;
 
     runQueries(docs, queries, index, k, numProbes);
 }

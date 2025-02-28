@@ -1,8 +1,10 @@
 #include "ivf.h"
 
+#include "../common/progress_bar.h"
 #include "../common/utils.h"
 
 #include <cstddef>
+#include <iostream>
 #include <limits>
 #include <queue>
 #include <random>
@@ -39,8 +41,8 @@ std::vector<float> initKmeansPlusPlus(std::size_t dim,
             float sd{0.0F};
             #pragma omp simd reduction(+:sd)
             for (std::size_t j = 0; j < dim; ++j) {
-                float dij{doc[j] - lastCentre[j]};
-                sd += dij * dij;
+                float dlj{doc[j] - lastCentre[j]};
+                sd += dlj * dlj;
             }
             *msd = std::min(*msd, sd);
         }
@@ -99,7 +101,7 @@ double stepLloyd(std::size_t dim,
         for (std::size_t j = 0; j < dim; ++j) {
             newCentre[j] += doc[j];
         }
-        ++centreCounts[numClusters];
+        ++centreCounts[imsd];
 
         // Encode the document.
         docsCodes[pos] = static_cast<std::size_t>(imsd);
@@ -108,10 +110,11 @@ double stepLloyd(std::size_t dim,
 
     for (std::size_t i = 0; i < centreCounts.size(); ++i) {
         if (centreCounts[i] > 0) {
+            auto* centre = &centres[i * dim];
+            auto* newCentre = &newCentres[i * dim];
             for (std::size_t j = 0; j < dim; ++j) {
-                centres[i * dim + j] = static_cast<float>(
-                    newCentres[i * dim + j] /
-                    static_cast<double>(centreCounts[i]));
+                centre[j] = static_cast<float>(
+                    newCentre[j] / static_cast<double>(centreCounts[i]));
             }
         }
     }
@@ -186,6 +189,9 @@ SoarIVFIndex::SoarIVFIndex(Metric metric,
 }
 
 void SoarIVFIndex::build(const BigVector& docs) {
+    std::cout << "Building IVF index for " << docs.numVectors() << " documents"
+              << ", using " << numClusters_ << " clusters" << std::endl;
+
     // Just do everything in memory (we're not testing anything massive).
     docs_.clear();
     docs_.resize(docs.size());
@@ -196,22 +202,29 @@ void SoarIVFIndex::build(const BigVector& docs) {
     // This can work on a subset of the documents of size O(numClusters_) if we switch
     // to keeping the documents on disk.
     std::minstd_rand rng;
-    centres_ = initKmeansPlusPlus(dim_, numClusters_, docs_, rng);
+    auto diff = time([&] { centres_ = initKmeansPlusPlus(dim_, numClusters_, docs_, rng); });
+    std::cout << "Initialised centres took " << diff.count() << " s" << std::endl;
     std::vector<std::size_t> docsCodes;
+    std::unique_ptr<ProgressBar> progress{
+        std::make_unique<ProgressBar>("Clustering...", numIterations_)};
     double sdlast{stepLloyd(dim_, numClusters_, docs_, centres_, docsCodes)};
+    progress->update();
     maybeNormalizeCentres();
     for (int i = 0; i < numIterations_ - 1; ++i) {
         double sd{stepLloyd(dim_, numClusters_, docs_, centres_, docsCodes)};
+        progress->update();
         maybeNormalizeCentres();
         if (sd > (1.0 - 1e-6) * sdlast) {
             break;
         }
         sdlast = sd;
     }
+    progress.reset();
 
     // Do SOAR based spill assignments.
     std::vector<std::size_t> spilledDocsCodes;
-    assignSpilledDocs(lambda_, docs_, centres_, docsCodes, spilledDocsCodes);
+    diff = time([&]{ assignSpilledDocs(lambda_, docs_, centres_, docsCodes, spilledDocsCodes); });
+    std::cout << "Assigned spilled documents took " << diff.count() << " s" << std::endl;
 
     // Fill in the clusters' documents.
     clustersDocs_.resize(numClusters_);
