@@ -3,14 +3,12 @@
 #include "constants.h"
 #include "clustering.h"
 #include "types.h"
-#include "utils.h"
 #include "../common/utils.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <limits>
-#include <numeric>
 #include <random>
 #include <utility>
 #include <vector>

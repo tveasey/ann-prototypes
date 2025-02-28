@@ -6,7 +6,6 @@
 #include <queue>
 #include <utility>
 #include <vector>
-#include <iostream>
 
 TopK::TopK(std::size_t k) : k_{k} {}
 

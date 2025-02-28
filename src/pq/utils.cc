@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <cstddef>
 #include <filesystem>
-#include <functional>
 #include <iostream>
 #include <limits>
 #include <random>

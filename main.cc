@@ -13,10 +13,16 @@
 
 #include <algorithm>
 #include <iostream>
-#include <optional>
 #include <random>
 
 namespace {
+
+enum class Experiment {
+    Scalar,
+    PQ,
+    Merge,
+    SoarIVF
+};
 
 void generateBenchmark(const std::string& dataset,
                       int dimension,
@@ -113,10 +119,23 @@ void loadAndRunPqMergeBenchmark(const std::string& dataset,
                         numBooks, 10, docs1, docs2, queries, writePqStats);
 }
 
-void testSoarIVF(const std::string& dataset,
-                 Metric metric,
-                 float lambda,
-                 std::size_t docsPerCluster) {
+void loadAndRunScalarBenchmark(const std::string& dataset, Metric metric, ScalarBits bits) {
+    auto root = std::filesystem::path(__FILE__).parent_path();
+    auto [docs, ddim] = readFvecs(root / "data" / ("corpus-" + dataset + ".fvec"));
+    auto [queries, qdim] = readFvecs(root / "data" / ("queries-" + dataset + ".fvec"));
+    if (ddim != qdim) {
+        throw std::runtime_error("Dimension mismatch");
+    }
+    if (docs.empty() || queries.empty()) {
+        return;
+    }
+    runScalarBenchmark(dataset, metric, bits, 10, qdim, docs, queries);
+}
+
+void loadAndRunSoarIVFBenchmark(const std::string& dataset,
+                                Metric metric,
+                                float lambda,
+                                std::size_t docsPerCluster) {
     
     auto root = std::filesystem::path(__FILE__).parent_path();
 
@@ -141,19 +160,6 @@ void testSoarIVF(const std::string& dataset,
     runSoarIVFBenchmark(metric, docs, queries, lambda, docsPerCluster, 10, docsPerCluster);
 }
 
-void loadAndRunScalarBenchmark(const std::string& dataset, Metric metric, ScalarBits bits) {
-    auto root = std::filesystem::path(__FILE__).parent_path();
-    auto [docs, ddim] = readFvecs(root / "data" / ("corpus-" + dataset + ".fvec"));
-    auto [queries, qdim] = readFvecs(root / "data" / ("queries-" + dataset + ".fvec"));
-    if (ddim != qdim) {
-        throw std::runtime_error("Dimension mismatch");
-    }
-    if (docs.empty() || queries.empty()) {
-        return;
-    }
-    runScalarBenchmark(dataset, metric, bits, 10, qdim, docs, queries);
-}
-
 } // unnamed::
 
 int main(int argc, char* argv[]) {
@@ -161,11 +167,12 @@ int main(int argc, char* argv[]) {
     bool generate{false};
     int dimension{1024};
     std::size_t numVecs{16UL * 1024UL * 1024UL};
-    std::optional<ScalarBits> scalar;
+    Experiment experiment{Experiment::PQ};
+    ScalarBits scalar{B4};
     Metric metric{Cosine};
-    bool merge{false};
     float distanceThreshold{0.0F};
-    std::size_t docsPerCoarseCluster{COARSE_CLUSTERING_DOCS_PER_CLUSTER};
+    std::size_t docsPerCluster{COARSE_CLUSTERING_DOCS_PER_CLUSTER};
+    float lambda{1.0F};
     std::size_t dimensionsPerCode{8};
     std::string dataset;
 
@@ -178,20 +185,26 @@ int main(int argc, char* argv[]) {
             "The dimension of the data to generate")
         ("num-vecs,v", boost::program_options::value<std::size_t>()->default_value(16UL * 1024UL * 1024UL),
             "The number of document vectors to generate")
+        ("experiment,e", boost::program_options::value<std::string>(),
+            "The experiment to run, must be scalar, pq, merge or ivf")
         ("scalar,s", boost::program_options::value<std::string>(),
             "Use 1, 4, 4P or 8 bit scalar quantisation. If not supplied then run PQ")
         ("run,r", boost::program_options::value<std::string>(),
             "Run a test dataset")
         ("metric,m", boost::program_options::value<std::string>()->default_value("cosine"),
             "The metric, must be cosine, dot or euclidean with which to compare vectors")
+        ("ivf-docs-per-cluster", boost::program_options::value<std::size_t>()->default_value(500),
+            "The number of documents per cluster to use for SOAR IVF")
+        ("lambda", boost::program_options::value<float>()->default_value(1.0F),
+            "The SOAR IVF lambda value")
         ("merge", boost::program_options::bool_switch(),
             "Run the merge benchmark instead of the standard benchmark")
         ("perp-distance-threshold", boost::program_options::value<float>()->default_value(0.0F),
             "The ScaNN threshold used for computing the parallel distance cost multiplier")
-        ("docs-per-coarse-cluster", boost::program_options::value<std::size_t>()->default_value(COARSE_CLUSTERING_DOCS_PER_CLUSTER),
-            "The number of documents per coarse cluster in the PQ index")
-        ("dimensions-per-code", boost::program_options::value<std::size_t>()->default_value(16),
-            "The number of dimensions per code in the PQ index");
+        ("pq-docs-per-cluster", boost::program_options::value<std::size_t>()->default_value(COARSE_CLUSTERING_DOCS_PER_CLUSTER),
+            "The number of documents per cluster to use for PQ")
+        ("pq-dimensions-per-code", boost::program_options::value<std::size_t>()->default_value(16),
+            "The number of dimensions per code to use for PQ");
 
     try {
         boost::program_options::variables_map vm;
@@ -217,6 +230,20 @@ int main(int argc, char* argv[]) {
                 throw boost::program_options::error("Invalid number of vectors");
             }
         }
+        if (vm.count("experiment")) {
+            auto e = vm["experiment"].as<std::string>();
+            if (e == "scalar") {
+                experiment = Experiment::Scalar;
+            } else if (e == "pq") {
+                experiment = Experiment::PQ;
+            } else if (e == "merge") {
+                experiment = Experiment::Merge;
+            } else if (e == "ivf") {
+                experiment = Experiment::SoarIVF;
+            } else {
+                throw boost::program_options::error("Invalid experiment");
+            }
+        }
         if (vm.count("scalar")) {
             auto s = vm["scalar"].as<std::string>();
             if (s == "1") {
@@ -227,7 +254,7 @@ int main(int argc, char* argv[]) {
                 scalar = B4P;
             } else if (s == "8") {
                 scalar = B8;
-            } else if (s != "None") {
+            } else {
                 throw boost::program_options::error("Invalid scalar quantisation");
             }
         }
@@ -246,16 +273,19 @@ int main(int argc, char* argv[]) {
                 throw boost::program_options::error("Invalid metric");
             }
         }
-        if (vm.count("merge")) {
-            merge = vm["merge"].as<bool>();
-        }
         if (vm.count("distance")) {
             distanceThreshold = vm["distance"].as<float>();
         }
-        if (vm.count("docs-per-coarse-cluster")) {
-            docsPerCoarseCluster = vm["docs-per-coarse-cluster"].as<std::size_t>();
-            if (docsPerCoarseCluster == 0) {
-                throw boost::program_options::error("Invalid docs per coarse cluster");
+        if (vm.count("soar-docs-per-cluster")) {
+            docsPerCluster = vm["soar-docs-per-cluster"].as<std::size_t>();
+            if (docsPerCluster == 0) {
+                throw boost::program_options::error("Invalid docs per cluster");
+            }
+        }
+        if (vm.count("pq-docs-per-cluster")) {
+            docsPerCluster = vm["pq-docs-per-cluster"].as<std::size_t>();
+            if (docsPerCluster == 0) {
+                throw boost::program_options::error("Invalid docs per cluster");
             }
         }
         if (vm.count("dimensions-per-code")) {
@@ -274,19 +304,30 @@ int main(int argc, char* argv[]) {
         generateBenchmark(dataset, dimension, numVecs);
     } else if (!dataset.empty()) {
         try {
-            if (scalar != std::nullopt) {
-                loadAndRunScalarBenchmark(dataset, metric, *scalar);
-            } else if (merge) {
-                loadAndRunPqMergeBenchmark(dataset, metric, distanceThreshold,
-                                           docsPerCoarseCluster, dimensionsPerCode);
-            } else {
-                loadAndRunPqBenchmark(dataset, metric, distanceThreshold,
-                                      docsPerCoarseCluster, dimensionsPerCode);
+            switch (experiment) {
+                case Experiment::Scalar:
+                    loadAndRunScalarBenchmark(dataset, metric, scalar);
+                    break;
+                case Experiment::PQ:
+                    loadAndRunPqBenchmark(dataset, metric, distanceThreshold,
+                                            docsPerCluster, dimensionsPerCode);
+                    break;
+                case Experiment::Merge:
+                    loadAndRunPqMergeBenchmark(dataset, metric, distanceThreshold,
+                                               docsPerCluster, dimensionsPerCode);
+                    break;
+                case Experiment::SoarIVF:
+                    loadAndRunSoarIVFBenchmark(dataset, metric, lambda, docsPerCluster);
+                    break;
             }
         } catch (const std::exception& e) {
             std::cerr << "Caught exception: " << e.what() << std::endl;
             return 1;
         }
+    } else {
+        std::cerr << "No dataset specified" << std::endl;
+        std::cerr << desc << std::endl;
+        return 1;
     }
 
     return 0;

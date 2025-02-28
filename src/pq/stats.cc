@@ -1,11 +1,8 @@
 #include "stats.h"
 
 #include "constants.h"
-#include "types.h"
 #include "../common/evaluation.h"
 
-#include <algorithm>
-#include <cmath>
 #include <filesystem>
 #include <fstream>
 

@@ -4,7 +4,6 @@
 #include "codebooks.h"
 #include "constants.h"
 #include "subspace.h"
-#include "utils.h"
 #include "../common/bigvector.h"
 #include "../common/bruteforce.h"
 #include "../common/progress_bar.h"
@@ -17,7 +16,6 @@
 #include <limits>
 #include <numeric>
 #include <ostream>
-#include <queue>
 #include <random>
 #include <stdexcept>
 #include <string>

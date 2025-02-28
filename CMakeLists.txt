@@ -43,7 +43,7 @@ add_executable(run_tests
 target_link_libraries(run_tests common pq scalar)
 
 add_executable(run_benchmark main.cc)
-target_link_libraries(run_benchmark common pq scalar)
+target_link_libraries(run_benchmark common pq scalar soar)
 
 find_package(Boost 1.83.0 REQUIRED COMPONENTS iostreams program_options unit_test_framework)
 include_directories(${Boost_INCLUDE_DIRS})

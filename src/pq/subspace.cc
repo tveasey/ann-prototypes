@@ -1,19 +1,12 @@
-#include "utils.h"
-
-#include "constants.h"
-#include "../common/utils.h"
-
 #include "../Eigen/Dense"
 #include "../Eigen/SVD"
 
-#include <cstdint>
+#include <cmath>
 #include <functional>
-#include <iostream>
 #include <queue>
 #include <vector>
-#include <random>
 #include <algorithm>
-#include <cmath>
+#include <numeric>
 
 std::vector<float> centreData(std::size_t dim,
                               std::vector<float> data) {

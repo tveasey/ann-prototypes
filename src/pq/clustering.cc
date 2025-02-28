@@ -6,7 +6,6 @@
 #include "../common/utils.h"
 
 #include <algorithm>
-#include <cstdint>
 #include <iostream>
 #include <limits>
 #include <random>
