@@ -8,6 +8,7 @@
 #include <limits>
 #include <queue>
 #include <random>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -276,10 +277,14 @@ SoarIVFIndex::search(const float* query, std::size_t k, std::size_t numProbes) c
         nearest.emplace(std::numeric_limits<float>::max(),
                         std::numeric_limits<std::size_t>::max());
     }
+    std::unordered_set<std::size_t> uniqueDocs;
     std::size_t numberOfComparisions{0};
     for (auto cluster : nearestClusters) {
         numberOfComparisions += clustersDocs_[cluster].size();
         for (auto i : clustersDocs_[cluster]) {
+            if (uniqueDocs.find(i) != uniqueDocs.end()) {
+                continue;
+            }
             float sim{0.0F};
             const auto* doc = &docs_[i * dim_];
             #pragma omp simd reduction(+:sim)
@@ -288,6 +293,8 @@ SoarIVFIndex::search(const float* query, std::size_t k, std::size_t numProbes) c
             }
             float dist{1.0F - sim};
             if (dist < nearest.top().first) {
+                uniqueDocs.erase(nearest.top().second);
+                uniqueDocs.insert(i);
                 nearest.pop();
                 nearest.emplace(dist, i);
             }

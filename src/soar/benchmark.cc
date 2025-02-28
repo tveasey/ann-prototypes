@@ -47,7 +47,8 @@ void runQueries(const BigVector& docs,
         for (std::size_t i = 0, j = 0; i < queries.size(); i += dim, ++j) {
             std::size_t numberOfComparisons{0};
             diff += time([&] {
-                std::tie(topkSoarIVF[j], numberOfComparisons) = index.search(queries.data() + i, k, m * numProbes);
+                std::tie(topkSoarIVF[j], numberOfComparisons) =
+                    index.search(queries.data() + i, k, m * numProbes);
             });
             averageNumberComparisons += numberOfComparisons;
             progress->update();
@@ -56,7 +57,8 @@ void runQueries(const BigVector& docs,
         progress.reset();
         std::cout << "IVF search took " << diff.count() << " s" << std::endl;
         std::cout << "QPS = " << numQueries / diff.count() << std::endl;
-        std::cout << "Average recall@" << k << " = " << computeRecalls(topkExact, topkSoarIVF)[AVG_RECALL] << std::endl;
+        std::cout << "Average recall@" << k << " = "
+                  << computeRecalls(topkExact, topkSoarIVF)[AVG_RECALL] << std::endl;
         std::cout << "Average number of comparisons = " << averageNumberComparisons << std::endl;
     }
 }
