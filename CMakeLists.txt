@@ -10,6 +10,14 @@ add_library(common SHARED
     src/common/utils.cc
 )
 
+add_library(fast_k_means SHARED
+    src/fast_k_means/baseline.cc
+    src/fast_k_means/common.cc
+    src/fast_k_means/hamerly.cc
+    src/fast_k_means/hierarchical.cc
+)
+target_link_libraries(fast_k_means common)
+
 add_library(pq SHARED
     src/pq/benchmark.cc
     src/pq/clustering.cc
@@ -33,6 +41,9 @@ add_library(soar SHARED
 )
 target_link_libraries(soar common)
 
+add_executable(run_kmeans_benchmark src/fast_k_means/main.cc)
+target_link_libraries(run_kmeans_benchmark common fast_k_means)
+
 add_executable(run_tests
     tests/main.cc
     tests/test_common.cc
@@ -50,4 +61,4 @@ include_directories(${Boost_INCLUDE_DIRS})
 target_link_libraries(run_tests ${Boost_LIBRARIES})
 target_link_libraries(common ${Boost_LIBRARIES})
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp-simd -std=c++17 -march=native -O3")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp-simd -std=c++17 -march=native -O3 -DNDEBUG")

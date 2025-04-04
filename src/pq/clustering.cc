@@ -112,7 +112,6 @@ std::vector<float> initForgy(std::size_t dim,
     return centres;
 }
 
-
 template<typename CODE>
 double stepLloyd(std::size_t dim,
                  std::size_t numSubspaces,

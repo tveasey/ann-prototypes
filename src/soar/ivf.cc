@@ -225,8 +225,10 @@ void SoarIVFIndex::build(const BigVector& docs) {
     // Do SOAR based spill assignments.
     std::vector<std::size_t> spilledDocsCodes;
     if (lambda_ > 0.0F) {
-        diff = time([&]{ assignSpilledDocs(lambda_, docs_, centres_, docsCodes, spilledDocsCodes); });
-        std::cout << "Assigned spilled documents took " << diff.count() << " s" << std::endl;
+        diff = time([&]{
+            assignSpilledDocs(lambda_, docs_, centres_, docsCodes, spilledDocsCodes);
+        });
+        std::cout << "Assigning spilled documents took " << diff.count() << " s" << std::endl;
     }
 
     // Fill in the clusters' documents.
