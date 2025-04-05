@@ -19,7 +19,7 @@ bool stepLloyd(std::size_t dim,
     for (std::size_t i = 0, id = 0; id < dataset.size(); ++i, id += dim) {
         std::size_t bestJd{0};
         float minDsq{std::numeric_limits<float>::max()};
-        for (std::size_t j = 0, jd = 0; jd < centers.size(); ++j, jd += dim) {
+        for (std::size_t jd = 0; jd < centers.size(); jd += dim) {
             float d_sq = distanceSq(dim, &dataset[id], &centers[jd]);
             if (d_sq < minDsq) {
                 minDsq = d_sq;
