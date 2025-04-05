@@ -122,7 +122,7 @@ std::pair<float, float> KMeansResult::clusterSizeMoments() const {
         float diff{static_cast<float>(size) - mean};
         variance += diff * diff;
     }
-    return {mean, std::sqrtf(variance) / sizes.size()};
+    return {mean, std::sqrtf(variance / sizes.size())};
 }
 
 std::string KMeansResult::print() const {
@@ -233,7 +233,7 @@ std::pair<float, float> HierarchicalKMeansResult::clusterSizeMoments() const {
         float diff{static_cast<float>(size) - mean};
         variance += diff * diff;
     }
-    return {mean, std::sqrtf(variance) / sizes.size()};
+    return {mean, std::sqrtf(variance / sizes.size())};
 }
 
 std::string HierarchicalKMeansResult::print() const {

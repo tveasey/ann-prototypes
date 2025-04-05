@@ -1,7 +1,5 @@
 #include "common.h"
-#include "hamerly.h"
 #include "baseline.h"
-#include <iostream>
 
 #include <algorithm>
 #include <cassert>
@@ -42,6 +40,8 @@ HierarchicalKMeansResult kMeansHierarchical(std::size_t dim,
                                             const Dataset& dataset,
                                             std::size_t targetSize,
                                             std::size_t maxIterations,
+                                            std::size_t maxK,
+                                            std::size_t samplesPerCluster,
                                             std::size_t depth) {
 
     std::size_t n{dataset.size() / dim};
@@ -50,8 +50,8 @@ HierarchicalKMeansResult kMeansHierarchical(std::size_t dim,
         return {};
     }
 
-    std::size_t k{std::clamp((n + targetSize - 1) / targetSize, 2UL, 128UL)};                          
-    std::size_t m{std::min(k * 512 * dim, dataset.size())};
+    std::size_t k{std::clamp((n + targetSize - 1) / targetSize, 2UL, maxK)};
+    std::size_t m{std::min(k * samplesPerCluster * dim, dataset.size())};
 
     Dataset sample;
     if (m == dataset.size()) {
@@ -82,7 +82,8 @@ HierarchicalKMeansResult kMeansHierarchical(std::size_t dim,
         if (10 * counts[c] > 11 * targetSize) {
             result.copyClusterPoints(dim, c, dataset, sample);
             result.updateAssignmentsWithRecursiveSplit(
-                dim, c, kMeansHierarchical(dim, sample, targetSize, maxIterations, depth + 1)
+                dim, c, kMeansHierarchical(dim, sample, targetSize, maxIterations,
+                                           maxK, samplesPerCluster, depth + 1)
             );
         }
     }

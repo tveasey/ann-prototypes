@@ -1,8 +1,8 @@
-#include "../common/utils.h"
 #include "baseline.h"
 #include "common.h"
 #include "hamerly.h"
 #include "hierarchical.h"
+#include "../common/utils.h"
 
 #include <filesystem>
 #include <iostream>
@@ -75,9 +75,17 @@ int main(int argc, char** argv) {
     std::vector<std::string> files;
     std::size_t k{100};
     Method method{Method::KMEANS_HIERARCHICAL};
+    bool parameterSearch{false};
     for (int i = 1; i < argc; ++i) {
         if (std::string(argv[i]) == "-h") {
-            std::cout << "Usage: " << argv[0] << " [-d <dim>] [-k <clusters>] -f <file1> <file1> ..." << std::endl;
+            std::cout << "Usage: " << argv[0] << std::endl;
+            std::cout << " [-m <method>] [-p] [-k <clusters>] [-d <dim>] -f <file1> <file1> ..." << std::endl;
+            std::cout << "  -m <method>       : kmeans method (lloyd, hamerly, hierarchical)" << std::endl;
+            std::cout << "  -p                : parameter search" << std::endl;
+            std::cout << "  -k <clusters>     : number of clusters (default: 100)" << std::endl;
+            std::cout << "  -d <dim>          : dimension of vectors (default: auto)" << std::endl;
+            std::cout << "  -f <file1> <file2>: input files (required)" << std::endl;
+            std::cout << "  -h                : help" << std::endl;
             return 0;
         } else if (std::string(argv[i]) == "-d") {
             dim_ = std::stoul(argv[++i]);
@@ -99,6 +107,11 @@ int main(int argc, char** argv) {
                 std::cout << "Unknown method: " << methodStr << std::endl;
                 return 1;
             }
+        } else if (std::string(argv[i]) == "-p") {
+            parameterSearch = true;
+        } else {
+            std::cout << "Unknown option: " << argv[i] << std::endl;
+            return 1;
         }
     }
 
@@ -116,18 +129,71 @@ int main(int argc, char** argv) {
     }
     std::cout << "Read " << data.size() / dim << " corpus vectors of dimension " << dim << std::endl;
 
+    if (parameterSearch) {
+        std::vector<std::vector<std::size_t>> parameters;
+        std::vector<float> dispersions;
+        std::vector<double> seconds;
+
+        for (std::size_t maxK : {120, 128, 136}) {
+            for (std::size_t samplesPerCluster : {256, 384, 512}) {
+                for (std::size_t maxIterations : {6, 8, 10}) {
+                    std::cout << "Running parameter search with maxK=" << maxK
+                              << ", samplesPerCluster=" << samplesPerCluster
+                              << ", maxIterations=" << maxIterations << std::endl;
+                    HierarchicalKMeansResult result;
+                    auto took = time([&] {
+                        result = kMeansHierarchical(dim, data, 512, maxIterations, maxK, samplesPerCluster);
+                    }, "K-Means Hierarchical").count();
+                    float dispersion{result.computeDispersion(dim, data)};
+                    std::cout << "Took " << took << " seconds, dispersion: " << dispersion << std::endl;
+                    parameters.push_back({maxK, samplesPerCluster, maxIterations});
+                    seconds.push_back(took);
+                    dispersions.push_back(dispersion);
+                }
+            }
+        }
+
+        double minDispersion{*std::min_element(dispersions.begin(), dispersions.end())};
+        double minSeconds{*std::min_element(seconds.begin(), seconds.end())};
+        std::cout << "Min dispersion: " << minDispersion << std::endl;
+        std::cout << "Min seconds: " << minSeconds << std::endl;
+        std::transform(dispersions.begin(), dispersions.end(), dispersions.begin(),
+                       [minDispersion](double d) { return d / minDispersion; });
+        std::transform(seconds.begin(), seconds.end(), seconds.begin(),
+                       [minSeconds](double s) { return s / minSeconds; });
+
+        std::vector<std::size_t> bestParameters;
+        double bestScore{std::numeric_limits<double>::max()};
+        for (std::size_t i = 0; i < parameters.size(); ++i) {
+            double score{10.0 * dispersions[i] + seconds[i]};
+            if (score < bestScore) {
+                bestScore = score;
+                bestParameters = parameters[i];
+            }
+        }
+
+        std::cout << "Parameters: " << parameters << std::endl;
+        std::cout << "Dispersions: " << dispersions << std::endl;
+        std::cout << "Seconds: " << seconds << std::endl;
+        std::cout << "Best parameters: maxK=" << bestParameters[0]
+                  << ", samplesPerCluster=" << bestParameters[1]
+                  << ", maxIterations=" << bestParameters[2] << std::endl;
+        std::cout << "Best score: " << bestScore << std::endl;
+        return 0;
+    }
+
     // --- Downsample for raw clustering ---
     std::vector<float> sample(std::min(256 * k * dim, data.size()));
     std::copy_n(data.begin(), sample.size(), sample.begin());
-    
+
     // --- Choose Initial Centers (e.g., first k points) ---
     Centers initialCenters;
     k = pickInitialCenters(dim, sample, k, initialCenters);
-    
+
     // --- Run K-Means ---
-    std::cout << "Running K-Means with k=" << k << "..." << std::endl;
     switch (method) {
         case Method::KMEANS_LLOYD: {
+            std::cout << "Running K-Means with k=" << k << "..." << std::endl;
             std::cout << "Using Lloyd's algorithm" << std::endl;
             KMeansResult result;
             time([&] {
@@ -139,6 +205,7 @@ int main(int argc, char** argv) {
             break;
         }
         case Method::KMEANS_HAMERLY: {
+            std::cout << "Running K-Means with k=" << k << "..." << std::endl;
             std::cout << "Using Hamerly's algorithm" << std::endl;
             KMeansResult result;
             time([&] { 
@@ -150,6 +217,7 @@ int main(int argc, char** argv) {
             break;
         }
         case Method::KMEANS_HIERARCHICAL: {
+            std::cout << "Running K-Means..." << std::endl;
             std::cout << "Using Hierarchical K-Means" << std::endl;
             HierarchicalKMeansResult result;
             time([&] { result = kMeansHierarchical(dim, data, 512, 8); }, "K-Means Hierarchical");
