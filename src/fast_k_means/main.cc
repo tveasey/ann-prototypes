@@ -114,14 +114,15 @@ int main(int argc, char** argv) {
         data.insert(data.end(), x.begin(), x.end());
         dim = d;
     }
-    //data.resize(std::min(100 * k * dim, data.size()));
     std::cout << "Read " << data.size() / dim << " corpus vectors of dimension " << dim << std::endl;
 
+    // --- Downsample for raw clustering ---
+    std::vector<float> sample(std::min(256 * k * dim, data.size()));
+    std::copy_n(data.begin(), sample.size(), sample.begin());
+    
     // --- Choose Initial Centers (e.g., first k points) ---
     Centers initialCenters;
-    for (int i = 0; i < k * dim; ++i) {
-        initialCenters.push_back(data[i]);
-    }
+    k = pickInitialCenters(dim, sample, k, initialCenters);
     
     // --- Run K-Means ---
     std::cout << "Running K-Means with k=" << k << "..." << std::endl;
@@ -129,7 +130,10 @@ int main(int argc, char** argv) {
         case Method::KMEANS_LLOYD: {
             std::cout << "Using Lloyd's algorithm" << std::endl;
             KMeansResult result;
-            time([&] { result = kMeans(dim, data, initialCenters, k, 32); }, "K-Means Lloyd");
+            time([&] {
+                result = kMeans(dim, sample, initialCenters, k, 8);
+                result.assignRemainingPoints(dim, sample.size(), data);
+            }, "K-Means Lloyd");
             std::cout << "\n--- Results ---" << result.print() << std::endl;
             std::cout << "Average distance to final centers: " << result.computeDispersion(dim, data) << std::endl;
             break;
@@ -137,7 +141,10 @@ int main(int argc, char** argv) {
         case Method::KMEANS_HAMERLY: {
             std::cout << "Using Hamerly's algorithm" << std::endl;
             KMeansResult result;
-            time([&] { result = kMeansHamerly(dim, data, initialCenters, k, 32); }, "K-Means Hamerly");
+            time([&] { 
+                result = kMeansHamerly(dim, sample, initialCenters, k, 32);
+                result.assignRemainingPoints(dim, sample.size(), data);
+            }, "K-Means Hamerly");
             std::cout << "\n--- Results ---" << result.print() << std::endl;
             std::cout << "Average distance to final centers: " << result.computeDispersion(dim, data) << std::endl;
             break;
@@ -145,12 +152,13 @@ int main(int argc, char** argv) {
         case Method::KMEANS_HIERARCHICAL: {
             std::cout << "Using Hierarchical K-Means" << std::endl;
             HierarchicalKMeansResult result;
-            time([&] { result = kMeansHierarchical(dim, data, 512, 32); }, "K-Means Hierarchical");
+            time([&] { result = kMeansHierarchical(dim, data, 512, 8); }, "K-Means Hierarchical");
             std::cout << "\n--- Results ---" << result.print() << std::endl;
             std::cout << "Average distance to final centers: " << result.computeDispersion(dim, data) << std::endl;
             break;
         }
     }
+    std::cout << "--- End Results ---" << std::endl;
 }
 
     

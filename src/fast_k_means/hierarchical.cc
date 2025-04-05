@@ -1,5 +1,7 @@
 #include "common.h"
 #include "hamerly.h"
+#include "baseline.h"
+#include <iostream>
 
 #include <algorithm>
 #include <cassert>
@@ -49,7 +51,7 @@ HierarchicalKMeansResult kMeansHierarchical(std::size_t dim,
     }
 
     std::size_t k{std::clamp((n + targetSize - 1) / targetSize, 2UL, 128UL)};                          
-    std::size_t m{std::min(k * targetSize * dim, dataset.size())};
+    std::size_t m{std::min(k * 512 * dim, dataset.size())};
 
     Dataset sample;
     if (m == dataset.size()) {
@@ -64,7 +66,7 @@ HierarchicalKMeansResult kMeansHierarchical(std::size_t dim,
 
     HierarchicalKMeansResult result;
     {
-        KMeansResult result_{kMeansHamerly(dim, sample, std::move(initialCenters), k, maxIterations)};
+        KMeansResult result_{kMeans(dim, sample, std::move(initialCenters), k, maxIterations)};
         result_.assignRemainingPoints(dim, sample.size(), dataset);
         result = HierarchicalKMeansResult(result_);
     }

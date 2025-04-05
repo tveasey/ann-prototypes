@@ -1,7 +1,6 @@
 #include "common.h"
 
 #include <algorithm>
-#include <cassert> // For basic error checking
 #include <cstdlib>
 #include <iostream>
 #include <limits>
@@ -21,9 +20,6 @@ void pointAllCtrs(std::size_t dim,
                   float& ui,
                   float& li) {
     std::size_t k{centers.size()};
-    if (k == 0) {
-        return; // No centers
-    }
 
     float minDsq{INF};
     float secondMinDsq{INF};
@@ -41,10 +37,8 @@ void pointAllCtrs(std::size_t dim,
     }
 
     ai = bestJd;
-    ui = minDsq; // Use squared distance for bounds internally
-
-    // Handle k=1 case where there's no second closest center
-    li = (k > dim) ? secondMinDsq : 0.0F;
+    ui = std::sqrtf(minDsq);
+    li = std::sqrtf(secondMinDsq);
 }
 
 
@@ -62,17 +56,6 @@ void initialize(std::size_t dim,
     std::size_t n{dataset.size()};
     std::size_t k{centers.size()};
 
-    if (n == 0 || k == 0) {
-         // Handle empty input if necessary
-         std::cerr << "Warning: Empty dataset, centers, or zero dimension in Initialize." << std::endl;
-         q.assign(k / dim, 0);
-         cPrime.assign(k, 0.0F);
-         u.resize(n / dim);
-         l.resize(n / dim);
-         a.resize(n / dim);
-         return;
-    }
-
     // Initialize counts and sums
     q.assign(k / dim, 0);
     cPrime.assign(k, 0.0F);
@@ -83,11 +66,9 @@ void initialize(std::size_t dim,
     a.resize(n / dim);
 
     // Assign initial clusters and calculate initial bounds
-    for (std::size_t i = 0, id = 0; id < n; id += dim, ++i) {
-        assert(id < dataset.size() && i < a.size() && i < u.size() && i < l.size());
+    for (std::size_t i = 0, id = 0; id < n; ++i, id += dim) {
         ConstPoint xi{&dataset[id]}; // Reference to the current point
         pointAllCtrs(dim, xi, centers, a[i], u[i], l[i]);
-        assert(a[i] / dim < q.size() && a[i] < cPrime.size() - dim);
         ++q[a[i] / dim];
         Point cPrimeAi{&cPrime[a[i]]}; // Reference to the center sum for this cluster
         #pragma omp simd
@@ -108,27 +89,23 @@ void moveCenters(std::size_t dim,
                  std::vector<float>& p) {     // Out: distances centers moved (squared)
 
     std::size_t k{centers.size()};
-    if (k == 0) {
-        return;
-    }
-
     p.resize(k / dim);
 
-    std::vector<float> cOld(dim, 0.0F); // Temporary storage for old center
     for (std::size_t i = 0, id = 0; id < k; ++i, id += dim) {
-        std::copy(&centers[id], &centers[id] + dim, &cOld[0]); // Copy old center
-        if (q[i] > 0) {
+        float dsq{0.0F};
+        std::size_t qi{q[i]};
+        if (qi > 0) {
+            Point cId{&centers[id]};
+            ConstPoint cPrimeId{&cPrime[id]};
+            #pragma omp simd reduction(+:dsq)
             for(std::size_t d = 0; d < dim; ++d) {
-                centers[id + d] = cPrime[id + d] / q[i];
+                float cNew{cPrimeId[d] / qi};
+                float diff{cNew - cId[d]};
+                dsq += diff * diff;
+                cId[d] = cNew;
             }
-            p[i] = distanceSq(dim, &cOld[0], &centers[id]);
-        } else {
-            // Handle empty cluster: keep center as is, movement is 0
-            // Alternative strategies exist (e.g., re-initialize randomly,
-            // or assign the point farthest from its center), but keeping
-            // it simple here.
-            p[i] = 0.0F;
         }
+        p[i] = std::sqrtf(dsq);
     }
 }
 
@@ -141,15 +118,11 @@ void updateBounds(std::size_t dim,
                   std::vector<float>& l) {     // In/Out: lower bounds
 
     std::size_t k{p.size()};
-    if (k == 0) {
-        return;
-    }
 
-    // Find the largest (r) and second largest (r_prime) center movements
+    // Find the largest and second largest center movements
     float maxP{-1.0F};
     float secondMaxP{-1.0F};
     std::size_t r{0}; // index of max movement
-
     for (std::size_t i = 0; i < k; ++i) {
         if (p[i] > maxP) {
             secondMaxP = maxP;
@@ -160,31 +133,11 @@ void updateBounds(std::size_t dim,
         }
     }
 
-    // Ensure secondMaxP is non-negative if initialized to -1
-    secondMaxP = std::max(secondMaxP, 0.0F);
-
     // Update bounds for each point
     for (std::size_t i = 0; i < u.size(); ++i) {
-        // Update upper bound (using sqrt because p is squared, but u/l are also squared internally)
-        // Correction: p, u, l are all squared distances, so add directly.
-        std::size_t ai{a[i] / dim}; // assignment of point i
+        std::size_t ai{a[i] / dim};
         u[i] += p[ai];
-
-        // Update lower bound
-        if (r == ai) {
-            // Subtract second largest movement if point belongs to fastest moving cluster
-            // Note: We stored squared distances. Subtraction is valid if we assume
-            // the triangle inequality holds approx. for squared distances too (less strict),
-            // or if we interpret bounds as squared bounds. Let's stick to squared bounds.
-            l[i] -= secondMaxP;
-        } else {
-            // Subtract largest movement otherwise
-            l[i] -= maxP;
-        }
-        // Ensure lower bound doesn't become negative (can happen due to approximations)
-        if (l[i] < 0.0F) {
-            l[i] = 0.0F;
-        }
+        l[i] = std::max(l[i] - ((r == ai) ? secondMaxP : maxP), 0.0F);
     }
 }
 
@@ -231,7 +184,7 @@ KMeansResult kMeansHamerly(std::size_t dim,
     // Re-calculate centers based on initial assignment (good practice)
     moveCenters(dim, cPrime, q, centers, p);
 
-    if (k == 1) {
+    if (k <= 1) {
         // Special case for k=1: assign all points to the first center
         return {k, std::move(centers), std::move(a), 0, true};
     }
@@ -249,23 +202,17 @@ KMeansResult kMeansHamerly(std::size_t dim,
         bool changed{false}; // Track if any assignment changed in this iteration
 
         // --- Step 3: Update s(j) - distance to closest *other* center ---
+        s.assign(k, INF); // Reset s(j) to max value
         for (std::size_t i = 0, id = 0; id < kd; ++i, id += dim) {
-            assert(id < centers.size() && i < s.size() - dim);
-            s[i] = INF;
-            for (std::size_t iPrime = 0, idPrime = 0; idPrime < id; ++iPrime, idPrime += dim) {
-                assert(idPrime < centers.size() - dim);
-                float dsq{distanceSq(dim, &centers[id], &centers[idPrime])};
-                if (dsq < s[i]) {
-                    s[i] = dsq;
-                } else if (dsq < s[iPrime]) {
-                    s[iPrime] = dsq;
-                }
-            }
-            // Handle k=1 case
-            if (k <= 1) {
-               s[i] = 0.0F;
+            ConstPoint center{&centers[id]}; // Reference to the current center
+            for (std::size_t j = 0, jd = 0; jd < id; ++j, jd += dim) {
+                float dsq{distanceSq(dim, center, &centers[jd])};
+                s[i] = std::min(s[i], dsq);
+                s[j] = std::min(s[j], dsq);
             }
         }
+        std::transform(s.begin(), s.end(), s.begin(),
+                       [](float val) { return std::sqrtf(val); });
 
         // --- Step 5: Iterate through points ---
         for (std::size_t i = 0, id = 0; id < n; ++i, id += dim) {
@@ -276,35 +223,37 @@ KMeansResult kMeansHamerly(std::size_t dim,
             if (u[i] > m) {
                 // --- Step 8: Tighten Upper Bound ---
                  // Recalculate distance to current assigned center
-                u[i] = distanceSq(dim, &dataset[id], &centers[a[i]]);
+                u[i] = std::sqrtf(distanceSq(dim, &dataset[id], &centers[a[i]]));
 
                 // --- Step 9: Second Bound Test ---
                 if (u[i] > m) {
-                    std::size_t a_old{a[i]}; // Store old assignment
+                    std::size_t aOld{a[i]}; // Store old assignment
 
                     // --- Step 11: Point-All-Ctrs ---
                     // Find true closest and second closest, update a(i), u(i), l(i)
                     pointAllCtrs(dim, &dataset[id], centers, a[i], u[i], l[i]);
 
-                    std::size_t a_new{a[i]}; // New assignment
+                    std::size_t aNew{a[i]}; // New assignment
 
                     // --- Step 12 & 13: Check for change and update tracking ---
-                    if (a_old != a_new) {
+                    if (aOld != aNew) {
                         changed = true;
-                        // We're moving a point from cluster a_old to a[i].
-                        // Update counts and vector sums.
-                        ++q[a_new / dim];
-                        --q[a_old / dim];
+                        ++q[aNew / dim];
+                        --q[aOld / dim];
+                        Point cPrimeOld{&cPrime[aOld]};
+                        Point cPrimeNew{&cPrime[aNew]};
+                        ConstPoint xi{&dataset[id]}; // Reference to the current point
+                        #pragma omp simd
                         for (std::size_t d = 0; d < dim; ++d) {
-                            cPrime[a_new + d] += dataset[id + d];
-                            cPrime[a_old + d] -= dataset[id + d];
+                            cPrimeNew[d] += xi[d];
+                            cPrimeOld[d] -= xi[d];
                         }
                         ++switched; // Count how many points were changed
                     }
                     ++recomputed; // Count how many points were recomputed
                 }
             }
-        } // End loop through points
+        }
 
         //std::cout << "% switched: " << (static_cast<float>(switched * dim) / n) * 100.0F << std::endl;
         //std::cout << "% recomputed: " << (static_cast<float>(recomputed * dim) / n) * 100.0F << std::endl;
