@@ -12,7 +12,10 @@ bool stepLloyd(std::size_t dim,
                std::vector<std::size_t>& a) {
 
     bool changed{false};
+
     nextCenters.assign(centers.size(), 0.0F);
+    q.assign(centers.size() / dim, 0);
+
     for (std::size_t i = 0, id = 0; id < dataset.size(); ++i, id += dim) {
         std::size_t bestJd{0};
         float minDsq{std::numeric_limits<float>::max()};
