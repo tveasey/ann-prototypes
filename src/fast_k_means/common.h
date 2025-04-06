@@ -80,12 +80,34 @@ private:
     bool converged_{false};
 };
 
+class LocalKMeansResult {
+public:
+    LocalKMeansResult() = default;
+    LocalKMeansResult(std::vector<Centers> finalCenters,
+                      std::vector<std::vector<std::size_t>> assignments,
+                      std::size_t iterationsRun,
+                      bool converged);
+
+    const std::vector<Centers>& finalCenters() const { return finalCenters_; }
+    const std::vector<std::vector<std::size_t>>& assignments() const { return assignments_; }
+    std::size_t iterationsRun() const { return iterationsRun_; }
+    bool converged() const { return converged_; }
+    std::string print() const;
+
+private:
+    std::vector<Centers> finalCenters_;
+    std::vector<std::vector<std::size_t>> assignments_;
+    std::size_t iterationsRun_{0};
+    bool converged_{false};
+};
+
 // This class encapsulates the result of the hierarchical k-means clustering
 // algorithm.
 class HierarchicalKMeansResult {
 public:
     HierarchicalKMeansResult() = default;
     HierarchicalKMeansResult(const KMeansResult& result);
+    HierarchicalKMeansResult(const LocalKMeansResult& result);
 
     std::size_t numClusters() const { return finalCenters_.size(); }
     std::vector<std::size_t> clusterSizes() const;
@@ -105,6 +127,4 @@ public:
 private:
     std::vector<Centers> finalCenters_;
     std::vector<std::vector<std::size_t>> assignments_;
-    std::size_t iterationsRun_{0};
-    bool converged_{false};
 };

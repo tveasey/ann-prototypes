@@ -1,5 +1,6 @@
 #include "common.h"
 #include "baseline.h"
+#include "local.h"
 
 #include <algorithm>
 #include <cassert>
@@ -12,18 +13,18 @@ std::size_t pickInitialCenters(std::size_t dim,
                                const Dataset& dataset,
                                std::size_t k,
                                Centers& centers) {
-    
+
     // Choose data points as random ensuring we have distinct points.
 
     std::vector<std::size_t> candidates(dataset.size() / dim);
     std::iota(candidates.begin(), candidates.end(), 0);
     std::minstd_rand rng;
     std::shuffle(candidates.begin(), candidates.end(), rng);
-    
+
     centers.resize(k * dim);
     std::size_t k_{0};
     for (std::size_t i = 0; i < candidates.size() && k_ < k; ++i) {
-        std::size_t cand{candidates[i] * dim};   
+        std::size_t cand{candidates[i] * dim};
         if (std::any_of(centers.begin(), centers.begin() + k_ * dim,
                         [&dataset, dim, cand](const float& center) {
                             return distanceSq(dim, &dataset[cand], &center) == 0.0F;
@@ -42,6 +43,7 @@ HierarchicalKMeansResult kMeansHierarchical(std::size_t dim,
                                             std::size_t maxIterations,
                                             std::size_t maxK,
                                             std::size_t samplesPerCluster,
+                                            std::size_t clustersPerNeighborhood,
                                             std::size_t depth) {
 
     std::size_t n{dataset.size() / dim};
@@ -83,9 +85,18 @@ HierarchicalKMeansResult kMeansHierarchical(std::size_t dim,
             result.copyClusterPoints(dim, c, dataset, sample);
             result.updateAssignmentsWithRecursiveSplit(
                 dim, c, kMeansHierarchical(dim, sample, targetSize, maxIterations,
-                                           maxK, samplesPerCluster, depth + 1)
+                                           maxK, samplesPerCluster,
+                                           clustersPerNeighborhood, depth + 1)
             );
         }
+    }
+
+    if (depth == 0) {
+        result = HierarchicalKMeansResult{
+            kMeansLocal(dim, dataset, result.finalCenters(),
+                        result.assignments(), clustersPerNeighborhood,
+                        maxIterations)
+        };
     }
 
     return result;

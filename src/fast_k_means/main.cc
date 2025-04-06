@@ -4,9 +4,12 @@
 #include "hierarchical.h"
 #include "../common/utils.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <iostream>
+#include <iterator>
 #include <optional>
+#include <queue>
 #include <utility>
 #include <vector>
 
@@ -67,6 +70,84 @@ std::pair<std::vector<float>, std::size_t> readFvecs(const std::filesystem::path
     std::fclose(f);
 
     return {std::move(vectors), static_cast<std::size_t>(dim)};
+}
+
+float ivfRecall(std::size_t dim,
+                const Dataset& data,
+                const HierarchicalKMeansResult& result) {
+
+    // Test IVF recall.
+
+    using Queue = std::priority_queue<std::pair<float, std::size_t>>;
+
+    auto updateTopk = [](std::size_t i,
+                         std::size_t j,
+                         float dsq,
+                         std::size_t k,
+                         auto& queue) {
+        if (queue.size() < k) {
+            queue.emplace(dsq, j);
+        } else if (dsq < queue.top().first) {
+            queue.pop();
+            queue.emplace(dsq, j);
+        }
+    };
+
+    std::size_t n{data.size() / dim};
+    std::size_t m{std::min(n, 50UL)};
+    std::vector<float> queries(m * dim);
+    std::copy_n(data.begin(), m * dim, queries.begin());
+
+    std::vector<Queue> nearestPoints(m);
+    for (std::size_t i = 0, id = 0; id < queries.size(); ++i, id += dim) {
+        for (std::size_t j = 0, jd = 0; jd < data.size(); ++j, jd += dim) {
+            if (i == j) {
+                continue;
+            }
+            float dsq{distanceSq(dim, &queries[id], &data[jd])};
+            updateTopk(i, j, dsq, 10, nearestPoints[i]);
+        }
+    }
+
+    std::vector<Queue> nearestClusters(m);
+    std::size_t numNearestClusters{
+        std::max((3 * result.finalCenters().size()) / 100, 1UL)
+    };
+    std::cout << numNearestClusters << " nearest clusters" << std::endl;
+    for (std::size_t i = 0, id = 0; id < queries.size(); ++i, id += dim) {
+        for (std::size_t j = 0; j < result.finalCenters().size(); ++j) {
+            float dsq{distanceSq(dim, &queries[id], &result.finalCenters()[j][0])};
+            updateTopk(i, j, dsq, numNearestClusters, nearestClusters[i]);
+        }
+    }
+
+    float averageRecall{0.0F};
+    std::vector<std::size_t> nearest;
+    std::vector<std::size_t> ivf;
+    for (std::size_t i = 0; i < m; ++i) {
+        nearest.clear();
+        while (!nearestPoints[i].empty()) {
+            nearest.push_back(nearestPoints[i].top().second);
+            nearestPoints[i].pop();
+        }
+        ivf.clear();
+        while (!nearestClusters[i].empty()) {
+            std::size_t cluster{nearestClusters[i].top().second};
+            ivf.insert(ivf.end(),
+                       result.assignments()[cluster].begin(),
+                       result.assignments()[cluster].end());
+            nearestClusters[i].pop();
+        }
+        std::sort(ivf.begin(), ivf.end());
+        auto hits = std::count_if(
+            nearest.begin(), nearest.end(),
+            [&ivf](std::size_t j) {
+                return std::binary_search(ivf.begin(), ivf.end(), j);
+            });
+        averageRecall += static_cast<float>(hits) / nearest.size();
+    }
+    averageRecall /= m;
+    return averageRecall;
 }
 }
 
@@ -220,12 +301,16 @@ int main(int argc, char** argv) {
             std::cout << "Running K-Means..." << std::endl;
             std::cout << "Using Hierarchical K-Means" << std::endl;
             HierarchicalKMeansResult result;
-            time([&] { result = kMeansHierarchical(dim, data, 512, 8); }, "K-Means Hierarchical");
+            time([&] { result = kMeansHierarchical(dim, data, 256, 8); }, "K-Means Hierarchical");
             std::cout << "\n--- Results ---" << result.print() << std::endl;
             std::cout << "Average distance to final centers: " << result.computeDispersion(dim, data) << std::endl;
+            std::cout << "Testing IVF recall..." << std::endl;
+            std::cout << "Average recall: " << ivfRecall(dim, data, result) << std::endl;
+
             break;
         }
     }
+
     std::cout << "--- End Results ---" << std::endl;
 }
 

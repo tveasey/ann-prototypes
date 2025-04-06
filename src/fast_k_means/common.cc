@@ -137,12 +137,27 @@ std::string KMeansResult::print() const {
     return result;
 }
 
+LocalKMeansResult::LocalKMeansResult(std::vector<Centers> finalCenters,
+                                     std::vector<std::vector<std::size_t>> assignments,
+                                     std::size_t iterationsRun,
+                                     bool converged)
+    : finalCenters_(std::move(finalCenters)),
+      assignments_(std::move(assignments)),
+      iterationsRun_(iterationsRun),
+      converged_(converged) {
+}
+
+std::string LocalKMeansResult::print() const {
+    std::string result;
+    result += "\nConverged: ";
+    result += (converged_ ? "Yes" : "No");
+    result += "\nIterations Run: " + std::to_string(iterationsRun_);
+    return result;
+}
 
 HierarchicalKMeansResult::HierarchicalKMeansResult(const KMeansResult& result)
     : finalCenters_(result.numClusters()),
-      assignments_(result.numClusters()),
-      iterationsRun_(result.iterationsRun()),
-      converged_(result.converged()) {
+      assignments_(result.numClusters()) {
 
     std::size_t dim{result.finalCenters().size() / result.numClusters()};
     for (std::size_t i = 0; i < result.assignments().size(); ++i) {
@@ -153,6 +168,11 @@ HierarchicalKMeansResult::HierarchicalKMeansResult(const KMeansResult& result)
         finalCenters_[i].resize(dim);
         std::copy_n(&result.finalCenters()[id], dim, &finalCenters_[i][0]);
     }
+}
+
+HierarchicalKMeansResult::HierarchicalKMeansResult(const LocalKMeansResult& result)
+    : finalCenters_(result.finalCenters()),
+      assignments_(result.assignments()) {
 }
 
 std::vector<std::size_t> HierarchicalKMeansResult::clusterSizes() const {
@@ -204,9 +224,6 @@ void HierarchicalKMeansResult::updateAssignmentsWithRecursiveSplit(std::size_t d
     for (std::size_t i = 1; i < splitClusters.assignments_.size(); ++i) {
         assignments_[last + i - 1] = copyAssignments(splitClusters.assignments_[i]);
     }
-
-    iterationsRun_ += splitClusters.iterationsRun_;
-    converged_ &= splitClusters.converged_;
 }
 
 float HierarchicalKMeansResult::computeDispersion(std::size_t dim, const Dataset& dataset) const {
@@ -238,9 +255,6 @@ std::pair<float, float> HierarchicalKMeansResult::clusterSizeMoments() const {
 
 std::string HierarchicalKMeansResult::print() const {
     std::string result;
-    result += "\nConverged: ";
-    result += (converged_ ? "Yes" : "No");
-    result += "\nIterations Run: " + std::to_string(iterationsRun_);
     result += "\nNumber of clusters: " + std::to_string(finalCenters_.size());
     auto moments = clusterSizeMoments();
     result += "\nCluster size moments: mean = " + std::to_string(moments.first) + " sd = " +

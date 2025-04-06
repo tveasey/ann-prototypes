@@ -15,6 +15,7 @@ add_library(fast_k_means SHARED
     src/fast_k_means/common.cc
     src/fast_k_means/hamerly.cc
     src/fast_k_means/hierarchical.cc
+    src/fast_k_means/local.cc
 )
 target_link_libraries(fast_k_means common)
 
