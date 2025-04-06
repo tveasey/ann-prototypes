@@ -76,7 +76,7 @@ float ivfRecall(std::size_t dim,
                 const Dataset& data,
                 const HierarchicalKMeansResult& result) {
 
-    // Test IVF recall.
+    // Extimate average IVF recall.
 
     using Queue = std::priority_queue<std::pair<float, std::size_t>>;
 

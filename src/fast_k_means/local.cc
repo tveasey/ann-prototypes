@@ -13,6 +13,42 @@ namespace {
 using Neighbors = std::vector<std::vector<std::size_t>>;
 using NeighborQueues = std::vector<std::priority_queue<std::pair<float, std::size_t>>>;
 float INF{std::numeric_limits<float>::max()};
+
+void computeNeighborhoods(std::size_t dim,
+                          const std::vector<Centers>& centers,
+                          Neighbors& neighbors,
+                          std::size_t clustersPerNeighborhood) {
+
+    auto updateNeighbors = [&](std::size_t i,
+                              std::size_t j,
+                              float dsq,
+                              auto& neighbors) {
+        if (neighbors.size() < clustersPerNeighborhood) {
+            neighbors.emplace(dsq, j);
+        } else if (dsq < neighbors.top().first) {
+            neighbors.pop();
+            neighbors.emplace(dsq, j);
+        }
+    };
+
+    std::size_t m{neighbors.size()};
+    NeighborQueues neighbors_(m);
+    for (std::size_t i = 0; i < centers.size(); ++i) {
+        for (std::size_t j = 0; j < i; ++j) {
+            float dsq{distanceSq(dim, &centers[i][0], &centers[j][0])};
+            updateNeighbors(i, j, dsq, neighbors_[i]);
+            updateNeighbors(j, i, dsq, neighbors_[j]);
+        }
+    }
+    for (std::size_t i = 0; i < neighbors_.size(); ++i) {
+        neighbors[i].resize(neighbors_[i].size());
+        std::size_t j{0};
+        while (!neighbors_[i].empty()) {
+            neighbors[i][j++] = neighbors_[i].top().second;
+            neighbors_[i].pop();
+        }
+    };
+}
 }
 
 HierarchicalKMeansResult kMeansLocal(std::size_t dim,
@@ -25,37 +61,10 @@ HierarchicalKMeansResult kMeansLocal(std::size_t dim,
     // Swap all points to their nearest cluster center.
     // For each cluster check the 10 nearest neighbour clusters as candidates.
 
-    auto updateNeighbors = [](std::size_t i,
-                              std::size_t j,
-                              float dsq,
-                              auto& candidates) {
-        if (candidates[i].size() < 10) {
-            candidates[i].emplace(dsq, j);
-        } else if (dsq < candidates[i].top().first) {
-            candidates[i].pop();
-            candidates[i].emplace(dsq, j);
-        }
-    };
-
     std::size_t n{dataset.size() / dim};
     std::size_t m{centers.size()};
     Neighbors neighbors(m);
-    NeighborQueues neighbors_(m);
-    for (std::size_t i = 0; i < centers.size(); ++i) {
-        for (std::size_t j = 0; j < i; ++j) {
-            float dsq{distanceSq(dim, &centers[i][0], &centers[j][0])};
-            updateNeighbors(i, j, dsq, neighbors_);
-            updateNeighbors(j, i, dsq, neighbors_);
-        }
-    }
-    for (std::size_t i = 0; i < neighbors_.size(); ++i) {
-        neighbors[i].resize(neighbors_[i].size());
-        std::size_t j{0};
-        while (!neighbors_[i].empty()) {
-            neighbors[i][j++] = neighbors_[i].top().second;
-            neighbors_[i].pop();
-        }
-    };
+    computeNeighborhoods(dim, centers, neighbors, clustersPerNeighborhood);
 
     bool converged{false};
     std::size_t iter{0};
