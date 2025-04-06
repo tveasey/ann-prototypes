@@ -1,5 +1,7 @@
+#include "baseline.h"
 #include "common.h"
 
+#include <numeric>
 #include <vector>
 
 namespace {
@@ -19,10 +21,10 @@ bool stepLloyd(std::size_t dim,
     for (std::size_t i = 0, id = 0; id < dataset.size(); ++i, id += dim) {
         std::size_t bestJd{0};
         float minDsq{std::numeric_limits<float>::max()};
-        for (std::size_t jd = 0; jd < centers.size(); jd += dim) {
-            float d_sq = distanceSq(dim, &dataset[id], &centers[jd]);
-            if (d_sq < minDsq) {
-                minDsq = d_sq;
+        for (std::size_t j = 0, jd = 0; jd < centers.size(); ++j, jd += dim) {
+            float dsq{distanceSq(dim, &dataset[id], &centers[jd])};
+            if (dsq < minDsq) {
+                minDsq = dsq;
                 bestJd = jd;
             }
         }
@@ -54,10 +56,24 @@ KMeansResult kMeans(std::size_t dim,
                     std::size_t k,
                     std::size_t maxIterations) {
 
-    // Initialize assignments
-    std::vector<std::size_t> a(dataset.size() / dim, 0);
+    std::size_t n{dataset.size() / dim};
+
+    std::vector<std::size_t> a(n, 0);
     Centers centers{std::move(initialCenters)}; // Current centers
     Centers nextCenters; // Next centers
+
+    if (k == 1) {
+        centroid(dim, dataset, &centers[0]);
+        return {k, std::move(centers), std::move(a), {}, true};
+    }
+    if (k >= n) {
+        k = n;
+        std::iota(a.begin(), a.end(), 0);
+        centers.resize(k * dim);
+        std::copy_n(dataset.begin(), dataset.size(), centers.begin());
+        return {k, std::move(centers), std::move(a), 0, true};
+    }
+
     std::size_t iter{0}; // Number of centers
     bool converged{false};
     std::vector<std::size_t> q(k, 0);
@@ -66,11 +82,6 @@ KMeansResult kMeans(std::size_t dim,
             converged = true;
             break;
         }
-    }
-
-    std::vector<std::size_t> counts(k, 0);
-    for (std::size_t i = 0; i < a.size(); ++i) {
-        ++counts[a[i] / dim];
     }
 
     return {k, std::move(centers), std::move(a), iter, converged};
