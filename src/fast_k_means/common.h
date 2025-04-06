@@ -61,7 +61,7 @@ public:
 
     std::size_t numClusters() const { return numClusters_; }
     std::vector<std::size_t> clusterSizes() const;
-    const std::vector<float>& finalCenters() const { return finalCenters_; }
+    const Centers& finalCenters() const { return finalCenters_; }
     const std::vector<std::size_t>& assignments() const { return assignments_; }
     std::size_t iterationsRun() const { return iterationsRun_; }
     bool converged() const { return converged_; }
@@ -74,7 +74,7 @@ public:
 
 private:
     std::size_t numClusters_{0};
-    std::vector<float> finalCenters_;
+    Centers finalCenters_;
     std::vector<std::size_t> assignments_;
     std::size_t iterationsRun_{0};
     bool converged_{false};
@@ -89,6 +89,8 @@ public:
 
     std::size_t numClusters() const { return finalCenters_.size(); }
     std::vector<std::size_t> clusterSizes() const;
+    const std::vector<Centers>& finalCenters() const { return finalCenters_; }
+    const std::vector<std::vector<std::size_t>>& assignments() const { return assignments_; }
     void copyClusterPoints(std::size_t dim,
                            std::size_t cluster,
                            const Dataset& dataset,
