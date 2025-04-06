@@ -92,11 +92,10 @@ HierarchicalKMeansResult kMeansHierarchical(std::size_t dim,
     }
 
     if (depth == 0) {
-        result = HierarchicalKMeansResult{
-            kMeansLocal(dim, dataset, result.finalCenters(),
-                        result.assignments(), clustersPerNeighborhood,
-                        maxIterations)
-        };
+        result = kMeansLocal(
+            dim, dataset, result.finalCenters(), result.assignments(),
+            clustersPerNeighborhood, maxIterations
+        );
     }
 
     return result;

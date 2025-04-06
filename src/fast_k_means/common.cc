@@ -137,24 +137,6 @@ std::string KMeansResult::print() const {
     return result;
 }
 
-LocalKMeansResult::LocalKMeansResult(std::vector<Centers> finalCenters,
-                                     std::vector<std::vector<std::size_t>> assignments,
-                                     std::size_t iterationsRun,
-                                     bool converged)
-    : finalCenters_(std::move(finalCenters)),
-      assignments_(std::move(assignments)),
-      iterationsRun_(iterationsRun),
-      converged_(converged) {
-}
-
-std::string LocalKMeansResult::print() const {
-    std::string result;
-    result += "\nConverged: ";
-    result += (converged_ ? "Yes" : "No");
-    result += "\nIterations Run: " + std::to_string(iterationsRun_);
-    return result;
-}
-
 HierarchicalKMeansResult::HierarchicalKMeansResult(const KMeansResult& result)
     : finalCenters_(result.numClusters()),
       assignments_(result.numClusters()) {
@@ -170,9 +152,10 @@ HierarchicalKMeansResult::HierarchicalKMeansResult(const KMeansResult& result)
     }
 }
 
-HierarchicalKMeansResult::HierarchicalKMeansResult(const LocalKMeansResult& result)
-    : finalCenters_(result.finalCenters()),
-      assignments_(result.assignments()) {
+HierarchicalKMeansResult::HierarchicalKMeansResult(std::vector<Centers> finalCenters,
+                                                   std::vector<std::vector<std::size_t>> assignments)
+    : finalCenters_(std::move(finalCenters)),
+      assignments_(std::move(assignments)) {
 }
 
 std::vector<std::size_t> HierarchicalKMeansResult::clusterSizes() const {

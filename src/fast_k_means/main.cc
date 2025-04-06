@@ -113,7 +113,6 @@ float ivfRecall(std::size_t dim,
     std::size_t numNearestClusters{
         std::max((3 * result.finalCenters().size()) / 100, 1UL)
     };
-    std::cout << numNearestClusters << " nearest clusters" << std::endl;
     for (std::size_t i = 0, id = 0; id < queries.size(); ++i, id += dim) {
         for (std::size_t j = 0; j < result.finalCenters().size(); ++j) {
             float dsq{distanceSq(dim, &queries[id], &result.finalCenters()[j][0])};
@@ -289,7 +288,7 @@ int main(int argc, char** argv) {
             std::cout << "Running K-Means with k=" << k << "..." << std::endl;
             std::cout << "Using Hamerly's algorithm" << std::endl;
             KMeansResult result;
-            time([&] { 
+            time([&] {
                 result = kMeansHamerly(dim, sample, initialCenters, k, 32);
                 result.assignRemainingPoints(dim, sample.size(), data);
             }, "K-Means Hamerly");
@@ -306,7 +305,6 @@ int main(int argc, char** argv) {
             std::cout << "Average distance to final centers: " << result.computeDispersion(dim, data) << std::endl;
             std::cout << "Testing IVF recall..." << std::endl;
             std::cout << "Average recall: " << ivfRecall(dim, data, result) << std::endl;
-
             break;
         }
     }
@@ -314,4 +312,3 @@ int main(int argc, char** argv) {
     std::cout << "--- End Results ---" << std::endl;
 }
 
-    
