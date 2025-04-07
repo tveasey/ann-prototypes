@@ -68,7 +68,9 @@ HierarchicalKMeansResult kMeansHierarchical(std::size_t dim,
 
     HierarchicalKMeansResult result;
     {
-        KMeansResult result_{kMeans(dim, sample, std::move(initialCenters), k, maxIterations)};
+        KMeansResult result_{kMeans(
+            dim, sample, std::move(initialCenters), k, maxIterations
+        )};
         result_.assignRemainingPoints(dim, sample.size(), dataset);
         result = HierarchicalKMeansResult(result_);
     }
@@ -92,10 +94,10 @@ HierarchicalKMeansResult kMeansHierarchical(std::size_t dim,
     }
 
     if (depth == 0) {
-        result = kMeansLocal(
-            dim, dataset, result.finalCenters(), result.assignments(),
+        result = HierarchicalKMeansResult{kMeansLocal(
+            dim, dataset, result.finalCentersFlat(), result.assignmentsFlat(),
             clustersPerNeighborhood, maxIterations
-        );
+        )};
     }
 
     return result;

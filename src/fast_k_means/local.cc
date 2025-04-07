@@ -10,135 +10,125 @@
 #include <vector>
 
 namespace {
-using Neighbors = std::vector<std::vector<std::size_t>>;
+using Neighborhoods = std::vector<std::vector<std::size_t>>;
 using NeighborQueues = std::vector<std::priority_queue<std::pair<float, std::size_t>>>;
 float INF{std::numeric_limits<float>::max()};
 
 void computeNeighborhoods(std::size_t dim,
-                          const std::vector<Centers>& centers,
-                          Neighbors& neighbors,
+                          const Centers& centers,
+                          Neighborhoods& neighborhoods,
                           std::size_t clustersPerNeighborhood) {
 
-    auto updateNeighbors = [&](std::size_t i,
-                              std::size_t j,
-                              float dsq,
-                              auto& neighbors) {
-        if (neighbors.size() < clustersPerNeighborhood) {
-            neighbors.emplace(dsq, j);
-        } else if (dsq < neighbors.top().first) {
-            neighbors.pop();
-            neighbors.emplace(dsq, j);
+    auto updateNeighbors = [&](std::size_t id,
+                               float dsq,
+                               auto& neighborhood) {
+        if (neighborhood.size() < clustersPerNeighborhood) {
+            neighborhood.emplace(dsq, id);
+        } else if (dsq < neighborhood.top().first) {
+            neighborhood.pop();
+            neighborhood.emplace(dsq, id);
         }
     };
 
-    std::size_t m{neighbors.size()};
-    NeighborQueues neighbors_(m);
-    for (std::size_t i = 0; i < centers.size(); ++i) {
-        for (std::size_t j = 0; j < i; ++j) {
-            float dsq{distanceSq(dim, &centers[i][0], &centers[j][0])};
-            updateNeighbors(i, j, dsq, neighbors_[i]);
-            updateNeighbors(j, i, dsq, neighbors_[j]);
+    std::size_t k{neighborhoods.size()};
+    NeighborQueues neighborhoods_(k);
+
+    for (std::size_t i = 0, id = 0; i < k; ++i, id += dim) {
+        for (std::size_t j = 0, jd = 0; j < i; ++j, jd += dim) {
+            float dsq{distanceSq(dim, &centers[id], &centers[jd])};
+            updateNeighbors(jd, dsq, neighborhoods_[i]);
+            updateNeighbors(id, dsq, neighborhoods_[j]);
         }
     }
-    for (std::size_t i = 0; i < neighbors_.size(); ++i) {
-        neighbors[i].resize(neighbors_[i].size());
+    for (std::size_t i = 0; i < k; ++i) {
+        neighborhoods[i].resize(neighborhoods_[i].size());
         std::size_t j{0};
-        while (!neighbors_[i].empty()) {
-            neighbors[i][j++] = neighbors_[i].top().second;
-            neighbors_[i].pop();
+        while (!neighborhoods_[i].empty()) {
+            neighborhoods[i][j++] = neighborhoods_[i].top().second;
+            neighborhoods_[i].pop();
         }
+        std::sort(neighborhoods[i].begin(), neighborhoods[i].end());
     };
+}
+
+bool stepLloyd(std::size_t dim,
+               const Dataset& dataset,
+               const Neighborhoods& neighborhoods,
+               Centers& centers,
+               Centers& nextCenters,
+               std::vector<std::size_t>& q,
+               std::vector<std::size_t>& a) {
+
+    bool changed{false};
+
+    nextCenters.assign(centers.size(), 0.0F);
+    q.assign(centers.size() / dim, 0);
+
+    for (std::size_t i = 0, id = 0; id < dataset.size(); ++i, id += dim) {
+        std::size_t currJd{a[i]};
+        std::size_t bestJd{currJd};
+        float minDsq{distanceSq(dim, &dataset[id], &centers[currJd])};
+        for (std::size_t jd : neighborhoods[currJd / dim]) {
+            float dsq{distanceSq(dim, &dataset[id], &centers[jd])};
+            if (dsq < minDsq) {
+                minDsq = dsq;
+                bestJd = jd;
+            }
+        }
+        changed |= (a[i] != bestJd);
+        a[i] = bestJd;
+        ++q[bestJd / dim];
+        #pragma omp simd
+        for (std::size_t d = 0; d < dim; ++d) {
+            nextCenters[bestJd + d] += dataset[id + d];
+        }
+    }
+
+    for (std::size_t i = 0, id = 0; id < centers.size(); ++i, id += dim) {
+        if (q[i] > 0) {
+            #pragma omp simd
+            for (std::size_t d = 0; d < dim; ++d) {
+                centers[id + d] = nextCenters[id + d] / q[i];
+            }
+        }
+    }
+
+    return changed;
 }
 }
 
-HierarchicalKMeansResult kMeansLocal(std::size_t dim,
-                                     const Dataset& dataset,
-                                     std::vector<Centers> centers,
-                                     std::vector<std::vector<std::size_t>> assignments,
-                                     std::size_t clustersPerNeighborhood,
-                                     std::size_t maxIterations) {
+KMeansResult kMeansLocal(std::size_t dim,
+                         const Dataset& dataset,
+                         Centers centers,
+                         std::vector<std::size_t> assignments,
+                         std::size_t clustersPerNeighborhood,
+                         std::size_t maxIterations) {
 
     // Swap all points to their nearest cluster center.
     // For each cluster check the 10 nearest neighbour clusters as candidates.
 
     std::size_t n{dataset.size() / dim};
     std::size_t m{centers.size()};
-    Neighbors neighbors(m);
-    computeNeighborhoods(dim, centers, neighbors, clustersPerNeighborhood);
+    std::size_t k{m / dim};
 
-    bool converged{false};
-    std::size_t iter{0};
-    std::vector<std::size_t> moved;
-    Centers nextCenter(dim);
-
-    for (; iter < maxIterations; ++iter) {
-
-        converged = true;
-
-        for (std::size_t i = 0; i < assignments.size(); ++i) {
-            auto& assignment = assignments[i];
-            if (assignment.size() == 0) {
-                continue;
-            }
-
-            moved.clear();
-            moved.reserve(assignment.size());
-
-            const auto& iNeighbors = neighbors[i];
-            for (std::size_t j : assignment) {
-                ConstPoint xj{&dataset[j * dim]};
-                float dsq{distanceSq(dim, &centers[i][0], xj)};
-                std::size_t bestK{i};
-                for (std::size_t k : iNeighbors) {
-                    float dsqk{distanceSq(dim, &centers[k][0], xj)};
-                    if (dsqk < dsq) {
-                        dsq = dsqk;
-                        bestK = k;
-                    }
-                }
-                if (bestK != i) {
-                    moved.push_back(j);
-                    assignments[bestK].push_back(j);
-                }
-            }
-
-            if (moved.size() > 0) {
-                std::sort(moved.begin(), moved.end());
-                assignment.erase(std::remove_if(
-                    assignment.begin(), assignment.end(),
-                    [&moved](std::size_t j) {
-                        return std::binary_search(moved.begin(), moved.end(), j);
-                    }), assignment.end());
-                converged = false;
-            }
-        }
-        if (converged) {
-            break;
-        }
-
-        for (std::size_t i = 0; i < assignments.size(); ++i) {
-            auto& assignment = assignments[i];
-            if (assignment.size() == 0) {
-                continue;
-            }
-            std::sort(assignment.begin(), assignment.end());
-            nextCenter.assign(dim, 0.0F);
-            for (std::size_t j : assignment) {
-                ConstPoint xj{&dataset[j * dim]};
-                #pragma omp simd
-                for (std::size_t d = 0; d < dim; ++d) {
-                    nextCenter[d] += xj[d];
-                }
-            }
-            std::size_t size{assignment.size()};
-            if (size > 0) {
-                #pragma omp simd
-                for (std::size_t d = 0; d < dim; ++d) {
-                    centers[i][d] = nextCenter[d] / size;
-                }
-            }
-        };
+    if (k == 1 || k >= n) {
+        return {k, std::move(centers), std::move(assignments), 0, true};
     }
 
-    return {std::move(centers), std::move(assignments)};
+    Neighborhoods neighborhoods(k);
+    computeNeighborhoods(dim, centers, neighborhoods, clustersPerNeighborhood);
+
+    std::size_t iter{0}; // Number of centers
+    bool converged{false};
+    std::vector<std::size_t> q(k, 0);
+    Centers nextCenters(m, 0.0F);
+    for (; iter < maxIterations; ++iter) {
+        if (!stepLloyd(dim, dataset, neighborhoods,
+                       centers, nextCenters, q, assignments)) {
+            converged = true;
+            break;
+        }
+    }
+
+    return {k, std::move(centers), std::move(assignments), iter, converged};
 }

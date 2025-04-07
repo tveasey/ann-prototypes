@@ -111,7 +111,7 @@ float ivfRecall(std::size_t dim,
 
     std::vector<Queue> nearestClusters(m);
     std::size_t numNearestClusters{
-        std::max((3 * result.finalCenters().size()) / 100, 1UL)
+        std::max((3 * result.finalCenters().size()) / 100, 30UL)
     };
     for (std::size_t i = 0, id = 0; id < queries.size(); ++i, id += dim) {
         for (std::size_t j = 0; j < result.finalCenters().size(); ++j) {

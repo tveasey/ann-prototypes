@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cassert>
 #include <limits>
+#include <numeric>
 #include <utility>
 
 float distanceSq(std::size_t dim,
@@ -152,18 +153,43 @@ HierarchicalKMeansResult::HierarchicalKMeansResult(const KMeansResult& result)
     }
 }
 
-HierarchicalKMeansResult::HierarchicalKMeansResult(std::vector<Centers> finalCenters,
-                                                   std::vector<std::vector<std::size_t>> assignments)
-    : finalCenters_(std::move(finalCenters)),
-      assignments_(std::move(assignments)) {
-}
-
 std::vector<std::size_t> HierarchicalKMeansResult::clusterSizes() const {
     std::vector<std::size_t> sizes(assignments_.size(), 0);
     for (std::size_t i = 0; i < assignments_.size(); ++i) {
         sizes[i] = assignments_[i].size();
     }
     return sizes;
+}
+
+Centers HierarchicalKMeansResult::finalCentersFlat() const {
+    if (finalCenters_.empty()) {
+        return {};
+    }
+    std::size_t dim{finalCenters_[0].size()};
+    Centers flatCenters(finalCenters_.size() * dim);
+    for (std::size_t i = 0, id = 0; i < finalCenters_.size(); ++i, id += dim) {
+        std::copy_n(&finalCenters_[i][0], dim, &flatCenters[id]);
+    }
+    return flatCenters;
+}
+
+std::vector<std::size_t> HierarchicalKMeansResult::assignmentsFlat() const {
+    if (assignments_.empty()) {
+        return {};
+    }
+    std::size_t n{std::accumulate(
+        assignments_.begin(), assignments_.end(), 0UL,
+        [](std::size_t sum, const std::vector<std::size_t>& cluster) {
+            return sum + cluster.size();
+        })};
+    std::size_t dim{finalCenters_[0].size()};
+    std::vector<std::size_t> flatAssignments(n);
+    for (std::size_t i = 0, id = 0; i < assignments_.size(); ++i, id += dim) {
+        for (std::size_t j : assignments_[i]) {
+            flatAssignments[j] = id;
+        }
+    }
+    return flatAssignments;
 }
 
 void HierarchicalKMeansResult::copyClusterPoints(std::size_t dim,

@@ -86,13 +86,13 @@ class HierarchicalKMeansResult {
 public:
     HierarchicalKMeansResult() = default;
     HierarchicalKMeansResult(const KMeansResult& result);
-    HierarchicalKMeansResult(std::vector<Centers> finalCenters,
-                             std::vector<std::vector<std::size_t>> assignments);
 
     std::size_t numClusters() const { return finalCenters_.size(); }
     std::vector<std::size_t> clusterSizes() const;
     const std::vector<Centers>& finalCenters() const { return finalCenters_; }
     const std::vector<std::vector<std::size_t>>& assignments() const { return assignments_; }
+    Centers finalCentersFlat() const;
+    std::vector<std::size_t> assignmentsFlat() const;
     void copyClusterPoints(std::size_t dim,
                            std::size_t cluster,
                            const Dataset& dataset,
