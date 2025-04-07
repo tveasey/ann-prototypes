@@ -5,36 +5,6 @@
 #include <string>
 #include <vector>
 
-/*#include <iostream>
-template<typename T>
-class SafeVector {
-public:
-    SafeVector() = default;
-    SafeVector(std::size_t size) : data_(size) {}
-    SafeVector(std::size_t size, T value) : data_(size, value) {}
-    SafeVector(std::vector<T> data) : data_(std::move(data)) {}
-    SafeVector(SafeVector&&) = default;
-    SafeVector(const SafeVector&) = default;
-    SafeVector& operator=(SafeVector&&) = default;
-    SafeVector& operator=(const SafeVector&) = default;
-
-    T& operator[](std::size_t index) { if (index >= data_.size()) {std::cout << "out of bounds" << std::endl;}; return data_[index]; }
-    const T& operator[](std::size_t index) const { if (index >= data_.size()) {std::cout << "out of bounds" << std::endl;}; return data_[index]; }
-    typename std::vector<T>::iterator begin() { return data_.begin(); }
-    typename std::vector<T>::iterator end() { return data_.end(); }
-    typename std::vector<T>::const_iterator begin() const { return data_.begin(); }
-    typename std::vector<T>::const_iterator end() const { return data_.end(); }
-    std::size_t size() const { return data_.size(); }
-    void resize(std::size_t size) { data_.resize(size); }
-    void clear() { data_.clear(); }
-    void push_back(const T& value) { data_.push_back(value); }
-    void assign(std::size_t size, float value) { data_.assign(size, value); }
-    void assign(std::size_t size) { data_.assign(size, 0.0F); }
-
-private:
-    std::vector<T> data_;
-};*/
-
 using Point = float*;
 using ConstPoint = const float*;
 using Dataset = std::vector<float>;
