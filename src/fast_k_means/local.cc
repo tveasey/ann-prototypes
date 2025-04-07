@@ -104,9 +104,6 @@ KMeansResult kMeansLocal(std::size_t dim,
                          std::size_t clustersPerNeighborhood,
                          std::size_t maxIterations) {
 
-    // Swap all points to their nearest cluster center.
-    // For each cluster check the 10 nearest neighbour clusters as candidates.
-
     std::size_t n{dataset.size() / dim};
     std::size_t m{centers.size()};
     std::size_t k{m / dim};
