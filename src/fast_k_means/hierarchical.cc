@@ -75,7 +75,7 @@ HierarchicalKMeansResult kMeansHierarchical(std::size_t dim,
         result = HierarchicalKMeansResult(result_);
     }
 
-    if (k == 1) {
+    if (result.effectiveK() == 1) {
         return result;
     }
 

@@ -153,6 +153,14 @@ HierarchicalKMeansResult::HierarchicalKMeansResult(const KMeansResult& result)
     }
 }
 
+std::size_t HierarchicalKMeansResult::effectiveK() const {
+    return std::count_if(
+        assignments_.begin(), assignments_.end(),
+        [](const std::vector<std::size_t>& cluster) {
+            return !cluster.empty();
+        });
+}
+
 std::vector<std::size_t> HierarchicalKMeansResult::clusterSizes() const {
     std::vector<std::size_t> sizes(assignments_.size(), 0);
     for (std::size_t i = 0; i < assignments_.size(); ++i) {

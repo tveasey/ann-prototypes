@@ -44,7 +44,7 @@ void pointAllCtrs(std::size_t dim,
 
 // --- Algorithm 2: Initialize ---
 // Initializes assignments, bounds, counts, and center sums.
-void initialize(std::size_t dim, 
+void initialize(std::size_t dim,
                 const Centers& centers,
                 const Dataset& dataset,
                 std::vector<std::size_t>& q,   // Out: counts per cluster

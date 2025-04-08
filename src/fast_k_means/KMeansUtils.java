@@ -396,7 +396,7 @@ public final class KMeansUtils {
             }
         }
 
-         // Private constructor for internal use (e.g., recursive splitting)
+        // Private constructor for internal use (e.g., recursive splitting)
         private HierarchicalKMeansResult(List<float[]> centers, List<long[]> assignments) {
             this.finalCenters = centers;
             this.assignments = assignments;

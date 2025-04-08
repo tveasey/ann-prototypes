@@ -10,4 +10,4 @@ KMeansResult kMeansLocal(std::size_t dim,
                          Centers centers,
                          std::vector<std::size_t> assignments,
                          std::size_t clustersPerNeighborhood = 16,
-                         std::size_t maxIterations = 300);
+                         std::size_t maxIterations = 8);
