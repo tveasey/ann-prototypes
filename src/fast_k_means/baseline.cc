@@ -64,14 +64,14 @@ KMeansResult kMeans(std::size_t dim,
 
     if (k == 1) {
         centroid(dim, dataset, &centers[0]);
-        return {k, std::move(centers), std::move(a), 0, true};
+        return {k, std::move(centers), std::move(a), {}, 0, true};
     }
     if (k >= n) {
         k = n;
         std::iota(a.begin(), a.end(), 0);
         centers.resize(k * dim);
         std::copy_n(dataset.begin(), dataset.size(), centers.begin());
-        return {k, std::move(centers), std::move(a), 0, true};
+        return {k, std::move(centers), std::move(a), {}, 0, true};
     }
 
     std::size_t iter{0}; // Number of centers
@@ -84,5 +84,5 @@ KMeansResult kMeans(std::size_t dim,
         }
     }
 
-    return {k, std::move(centers), std::move(a), iter, converged};
+    return {k, std::move(centers), std::move(a), {}, iter, converged};
 }

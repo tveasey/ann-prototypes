@@ -10,6 +10,7 @@
 #include <optional>
 #include <queue>
 #include <utility>
+#include <unordered_set>
 #include <vector>
 
 #include <sys/stat.h>
@@ -121,7 +122,7 @@ float ivfRecall(std::size_t dim,
 
     float averageRecall{0.0F};
     std::vector<std::size_t> nearest;
-    std::vector<std::size_t> ivf;
+    std::unordered_set<std::size_t> ivf;
     for (std::size_t i = 0; i < m; ++i) {
         nearest.clear();
         while (!nearestPoints[i].empty()) {
@@ -131,16 +132,14 @@ float ivfRecall(std::size_t dim,
         ivf.clear();
         while (!nearestClusters[i].empty()) {
             std::size_t cluster{nearestClusters[i].top().second};
-            ivf.insert(ivf.end(),
-                       result.assignments()[cluster].begin(),
+            ivf.insert(result.assignments()[cluster].begin(),
                        result.assignments()[cluster].end());
             nearestClusters[i].pop();
         }
-        std::sort(ivf.begin(), ivf.end());
         auto hits = std::count_if(
             nearest.begin(), nearest.end(),
             [&ivf](std::size_t j) {
-                return std::binary_search(ivf.begin(), ivf.end(), j);
+                return ivf.find(j) != ivf.end();
             });
         averageRecall += static_cast<float>(hits) / nearest.size();
     }

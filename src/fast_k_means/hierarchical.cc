@@ -81,8 +81,8 @@ HierarchicalKMeansResult kMeansHierarchical(std::size_t dim,
 
     std::vector<std::size_t> counts(result.clusterSizes());
     for (std::size_t c = 0; c < counts.size(); ++c) {
-        // Recurse for each cluster which is larger than targetSize.
-        // Give ourselves 30% margin for the target size.
+        // Recurse for each cluster which is larger than 130%
+        // of the targetSize.
         if (10 * counts[c] > 13 * targetSize) {
             result.copyClusterPoints(dim, c, dataset, sample);
             result.updateAssignmentsWithRecursiveSplit(

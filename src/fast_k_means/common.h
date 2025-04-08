@@ -26,6 +26,7 @@ public:
     KMeansResult(std::size_t numClusters,
                  Centers centers,
                  std::vector<std::size_t> assignments,
+                 std::vector<std::size_t> spilledAssignments,
                  std::size_t iterationsRun,
                  bool converged);
 
@@ -33,6 +34,7 @@ public:
     std::vector<std::size_t> clusterSizes() const;
     const Centers& finalCenters() const { return finalCenters_; }
     const std::vector<std::size_t>& assignments() const { return assignments_; }
+    const std::vector<std::size_t>& spilledAssignments() const { return spilledAssignments_; }
     std::size_t iterationsRun() const { return iterationsRun_; }
     bool converged() const { return converged_; }
     void assignRemainingPoints(std::size_t dim,
@@ -46,6 +48,7 @@ private:
     std::size_t numClusters_{0};
     Centers finalCenters_;
     std::vector<std::size_t> assignments_;
+    std::vector<std::size_t> spilledAssignments_;
     std::size_t iterationsRun_{0};
     bool converged_{false};
 };

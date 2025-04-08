@@ -38,11 +38,13 @@ void centroid(std::size_t dim, const Dataset& dataset, Point centroid) {
 KMeansResult::KMeansResult(std::size_t numClusters,
                            Centers centers,
                            std::vector<std::size_t> assignments,
+                           std::vector<std::size_t> spilledAssignments,
                            std::size_t iterationsRun,
                            bool converged)
     : numClusters_(numClusters),
       finalCenters_(std::move(centers)),
       assignments_(std::move(assignments)),
+      spilledAssignments_(std::move(spilledAssignments)),
       iterationsRun_(iterationsRun),
       converged_(converged) {
 }
@@ -146,6 +148,13 @@ HierarchicalKMeansResult::HierarchicalKMeansResult(const KMeansResult& result)
     for (std::size_t i = 0; i < result.assignments().size(); ++i) {
         std::size_t cluster{result.assignments()[i] / dim};
         assignments_[cluster].push_back(i);
+    }
+    for (std::size_t i = 0; i < result.spilledAssignments().size(); ++i) {
+        std::size_t spilled{result.spilledAssignments()[i] / dim};
+        assignments_[spilled].push_back(i);
+    }
+    for (auto& assignment : assignments_) {
+        std::sort(assignment.begin(), assignment.end());
     }
     for (std::size_t i = 0, id = 0; i < finalCenters_.size(); ++i, id += dim) {
         finalCenters_[i].resize(dim);

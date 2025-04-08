@@ -156,15 +156,15 @@ KMeansResult kMeansHamerly(std::size_t dim,
     if (n == 0 || k == 0 || dim == 0 ||
         initialCenters.size() != static_cast<std::size_t>(k * dim)) {
         std::cerr << "Error: Invalid input to kMeansHamerly (dataset size, k, dimensions, or initial centers mismatch)." << std::endl;
-        return {{}, {}, {0}, 0, false};
+        return {{}, {}, {0}, {}, 0, false};
     }
     if (initialCenters.size() % dim != 0) {
         std::cerr << "Error: Initial center dimension mismatch." << std::endl;
-        return {{}, {}, {0}, 0, false};
+        return {{}, {}, {0}, {}, 0, false};
     }
     if (dataset.size() % dim != 0) {
         std::cerr << "Error: Data point dimension mismatch." << std::endl;
-        return {{}, {}, {0},  0, false};
+        return {{}, {}, {0}, {}, 0, false};
     }
 
     // --- Data Structures ---
@@ -186,7 +186,7 @@ KMeansResult kMeansHamerly(std::size_t dim,
 
     if (k <= 1) {
         // Special case for k=1: assign all points to the first center
-        return {k, std::move(centers), std::move(a), 0, true};
+        return {k, std::move(centers), std::move(a), {}, 0, true};
     }
 
     // Bounds need initial update after first move
@@ -272,5 +272,5 @@ KMeansResult kMeansHamerly(std::size_t dim,
 
     } // End main loop (iterations)
 
-    return {k, std::move(centers), std::move(a), iter, converged};
+    return {k, std::move(centers), std::move(a), {}, iter, converged};
 }
