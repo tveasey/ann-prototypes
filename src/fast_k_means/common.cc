@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cassert>
-#include <limits>
 #include <numeric>
 #include <utility>
 
@@ -78,7 +77,7 @@ void KMeansResult::assignRemainingPoints(std::size_t dim,
          id < dataset.size();
          ++i, id += dim) {
         std::size_t bestJd{0};
-        float minDsq{std::numeric_limits<float>::max()};
+        float minDsq{INF};
         for (std::size_t jd = 0; jd < finalCenters_.size(); jd += dim) {
             float dsq{distanceSq(dim, &dataset[id], &finalCenters_[jd])};
             if (dsq < minDsq) {

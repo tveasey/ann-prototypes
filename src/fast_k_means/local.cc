@@ -4,17 +4,13 @@
 
 #include <algorithm>
 #include <cassert>
-#include <limits>
 #include <queue>
 #include <utility>
 #include <vector>
 
-#include <iostream>
-
 namespace {
 using Neighborhoods = std::vector<std::vector<std::size_t>>;
 using NeighborQueues = std::vector<std::priority_queue<std::pair<float, std::size_t>>>;
-float INF{std::numeric_limits<float>::max()};
 
 void computeNeighborhoods(std::size_t dim,
                           const Centers& centers,
@@ -115,7 +111,6 @@ void assignSpilled(std::size_t dim,
     // centroid the document was assigned to. The document is assigned to the
     // cluster with the smallest soar(x, c).
 
-    std::cout << "Assigning spilled documents..." << std::endl;
     sa.resize(a.size());
 
     std::vector<float> r1(dim);
@@ -154,7 +149,6 @@ void assignSpilled(std::size_t dim,
 
         sa[i] = bestJd;
     }
-    std::cout << "Done assigning spilled documents." << std::endl;
 }
 }
 

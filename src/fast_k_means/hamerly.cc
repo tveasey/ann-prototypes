@@ -3,13 +3,10 @@
 #include <algorithm>
 #include <cstdlib>
 #include <iostream>
-#include <limits>
 #include <utility>
 #include <vector>
 
 namespace {
-float INF{std::numeric_limits<float>::max()};
-
 // --- Algorithm 3: Point-All-Ctrs ---
 // Finds the closest and second closest centers for a point x_i.
 // Updates a_i (assignment), u_i (upper bound to closest), l_i (lower bound to second closest).

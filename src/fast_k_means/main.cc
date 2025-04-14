@@ -220,7 +220,9 @@ int main(int argc, char** argv) {
                               << ", maxIterations=" << maxIterations << std::endl;
                     HierarchicalKMeansResult result;
                     auto took = time([&] {
-                        result = kMeansHierarchical(dim, data, 512, maxIterations, maxK, samplesPerCluster);
+                        result = kMeansHierarchical(
+                            dim, data, 512, maxIterations, maxK, samplesPerCluster
+                    );
                     }, "K-Means Hierarchical").count();
                     float dispersion{result.computeDispersion(dim, data)};
                     std::cout << "Took " << took << " seconds, dispersion: " << dispersion << std::endl;
@@ -298,7 +300,7 @@ int main(int argc, char** argv) {
             std::cout << "Running K-Means..." << std::endl;
             std::cout << "Using Hierarchical K-Means" << std::endl;
             HierarchicalKMeansResult result;
-            time([&] { result = kMeansHierarchical(dim, data, 256, 8); }, "K-Means Hierarchical");
+            time([&] { result = kMeansHierarchical(dim, data); }, "K-Means Hierarchical");
             std::cout << "\n--- Results ---" << result.print() << std::endl;
             std::cout << "Average distance to final centers: " << result.computeDispersion(dim, data) << std::endl;
             std::cout << "Testing IVF recall..." << std::endl;

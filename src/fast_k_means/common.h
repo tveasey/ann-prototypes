@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cassert>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -9,6 +10,8 @@ using Point = float*;
 using ConstPoint = const float*;
 using Dataset = std::vector<float>;
 using Centers = std::vector<float>;
+
+constexpr float INF{std::numeric_limits<float>::max()};
 
 // Calculates the squared Euclidean distance between two points.
 // Assumes p1 and p2 have the same dimension.
