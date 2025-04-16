@@ -6,7 +6,8 @@
 
 namespace {
 
-bool stepLloyd(std::size_t dim,
+bool stepLloyd(std::size_t nd,
+               std::size_t dim,
                const Dataset& dataset,
                Centers& centers,
                Centers& nextCenters,
@@ -18,7 +19,7 @@ bool stepLloyd(std::size_t dim,
     nextCenters.assign(centers.size(), 0.0F);
     q.assign(centers.size() / dim, 0);
 
-    for (std::size_t i = 0, id = 0; id < dataset.size(); ++i, id += dim) {
+    for (std::size_t i = 0, id = 0; id < nd; ++i, id += dim) {
         std::size_t bestJd{0};
         float minDsq{INF};
         for (std::size_t jd = 0; jd < centers.size(); jd += dim) {
@@ -52,15 +53,16 @@ bool stepLloyd(std::size_t dim,
 
 KMeansResult kMeans(std::size_t dim,
                     const Dataset& dataset,
+                    std::size_t sampleSize,
                     Centers initialCenters,
-                    std::size_t k,
                     std::size_t maxIterations) {
-
+                        
+    std::size_t k{initialCenters.size() / dim};
     std::size_t n{dataset.size() / dim};
 
     std::vector<std::size_t> a(n, 0);
-    Centers centers{std::move(initialCenters)}; // Current centers
-    Centers nextCenters; // Next centers
+    Centers centers{std::move(initialCenters)};
+    Centers nextCenters;
 
     if (k == 1) {
         centroid(dim, dataset, &centers[0]);
@@ -74,15 +76,16 @@ KMeansResult kMeans(std::size_t dim,
         return {k, std::move(centers), std::move(a), {}, 0, true};
     }
 
-    std::size_t iter{0}; // Number of centers
+    std::size_t iter{0};
     bool converged{false};
     std::vector<std::size_t> q(k, 0);
-    for (; iter < maxIterations; ++iter) {
-        if (!stepLloyd(dim, dataset, centers, nextCenters, q, a)) {
+    for (; iter < maxIterations - 1; ++iter) {
+        if (!stepLloyd(sampleSize, dim, dataset, centers, nextCenters, q, a)) {
             converged = true;
             break;
         }
     }
+    stepLloyd(dataset.size(), dim, dataset, centers, nextCenters, q, a);
 
-    return {k, std::move(centers), std::move(a), {}, iter, converged};
+    return {k, std::move(centers), std::move(a), {}, iter + 1, converged};
 }

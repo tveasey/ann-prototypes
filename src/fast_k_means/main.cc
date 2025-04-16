@@ -19,7 +19,6 @@
 namespace {
 enum class Method {
     KMEANS_LLOYD,
-    KMEANS_HAMERLY,
     KMEANS_HIERARCHICAL
 };
 
@@ -72,9 +71,10 @@ std::pair<std::vector<float>, std::size_t> readFvecs(const std::filesystem::path
     return {std::move(vectors), static_cast<std::size_t>(dim)};
 }
 
-float ivfRecall(std::size_t dim,
-                const Dataset& data,
-                const HierarchicalKMeansResult& result) {
+std::pair<float, float> ivfRecall(std::size_t dim,
+                                  std::size_t percentage,
+                                  const Dataset& data,
+                                  const HierarchicalKMeansResult& result) {
 
     // Extimate average IVF recall.
 
@@ -111,7 +111,7 @@ float ivfRecall(std::size_t dim,
 
     std::vector<Queue> nearestClusters(m);
     std::size_t numNearestClusters{
-        std::max((3 * result.finalCenters().size()) / 100, 30UL)
+        (percentage * result.finalCenters().size()) / 100
     };
     for (std::size_t i = 0, id = 0; id < queries.size(); ++i, id += dim) {
         for (std::size_t j = 0; j < result.finalCenters().size(); ++j) {
@@ -121,6 +121,7 @@ float ivfRecall(std::size_t dim,
     }
 
     float averageRecall{0.0F};
+    std::size_t averageComparisons{0};
     std::vector<std::size_t> nearest;
     std::unordered_set<std::size_t> ivf;
     for (std::size_t i = 0; i < m; ++i) {
@@ -142,9 +143,11 @@ float ivfRecall(std::size_t dim,
                 return ivf.find(j) != ivf.end();
             });
         averageRecall += static_cast<float>(hits) / nearest.size();
+        averageComparisons += ivf.size();
     }
     averageRecall /= m;
-    return averageRecall;
+    averageComparisons /= m;
+    return {averageRecall, averageComparisons};
 }
 }
 
@@ -158,7 +161,7 @@ int main(int argc, char** argv) {
         if (std::string(argv[i]) == "-h") {
             std::cout << "Usage: " << argv[0] << std::endl;
             std::cout << " [-m <method>] [-p] [-k <clusters>] [-d <dim>] -f <file1> <file1> ..." << std::endl;
-            std::cout << "  -m <method>       : kmeans method (lloyd, hamerly, hierarchical)" << std::endl;
+            std::cout << "  -m <method>       : kmeans method (lloyd, hierarchical)" << std::endl;
             std::cout << "  -p                : parameter search" << std::endl;
             std::cout << "  -k <clusters>     : number of clusters (default: 100)" << std::endl;
             std::cout << "  -d <dim>          : dimension of vectors (default: auto)" << std::endl;
@@ -177,8 +180,6 @@ int main(int argc, char** argv) {
             std::string methodStr(argv[++i]);
             if (methodStr == "lloyd") {
                 method = Method::KMEANS_LLOYD;
-            } else if (methodStr == "hamerly") {
-                method = Method::KMEANS_HAMERLY;
             } else if (methodStr == "hierarchical") {
                 method = Method::KMEANS_HIERARCHICAL;
             } else {
@@ -221,7 +222,7 @@ int main(int argc, char** argv) {
                     HierarchicalKMeansResult result;
                     auto took = time([&] {
                         result = kMeansHierarchical(
-                            dim, data, 512, maxIterations, maxK, samplesPerCluster
+                            dim, data, 512, maxK, maxIterations, samplesPerCluster
                     );
                     }, "K-Means Hierarchical").count();
                     float dispersion{result.computeDispersion(dim, data)};
@@ -263,12 +264,11 @@ int main(int argc, char** argv) {
     }
 
     // --- Downsample for raw clustering ---
-    std::vector<float> sample(std::min(256 * k * dim, data.size()));
-    std::copy_n(data.begin(), sample.size(), sample.begin());
+    std::size_t sampleSize(std::min(256 * k * dim, data.size()));
 
     // --- Choose Initial Centers (e.g., first k points) ---
     Centers initialCenters;
-    k = pickInitialCenters(dim, sample, k, initialCenters);
+    k = pickInitialCenters(dim, data, sampleSize, k, initialCenters);
 
     // --- Run K-Means ---
     switch (method) {
@@ -277,21 +277,8 @@ int main(int argc, char** argv) {
             std::cout << "Using Lloyd's algorithm" << std::endl;
             KMeansResult result;
             time([&] {
-                result = kMeans(dim, sample, initialCenters, k, 8);
-                result.assignRemainingPoints(dim, sample.size(), data);
+                result = kMeans(dim, data, sampleSize, initialCenters, 8);
             }, "K-Means Lloyd");
-            std::cout << "\n--- Results ---" << result.print() << std::endl;
-            std::cout << "Average distance to final centers: " << result.computeDispersion(dim, data) << std::endl;
-            break;
-        }
-        case Method::KMEANS_HAMERLY: {
-            std::cout << "Running K-Means with k=" << k << "..." << std::endl;
-            std::cout << "Using Hamerly's algorithm" << std::endl;
-            KMeansResult result;
-            time([&] {
-                result = kMeansHamerly(dim, sample, initialCenters, k, 32);
-                result.assignRemainingPoints(dim, sample.size(), data);
-            }, "K-Means Hamerly");
             std::cout << "\n--- Results ---" << result.print() << std::endl;
             std::cout << "Average distance to final centers: " << result.computeDispersion(dim, data) << std::endl;
             break;
@@ -304,7 +291,15 @@ int main(int argc, char** argv) {
             std::cout << "\n--- Results ---" << result.print() << std::endl;
             std::cout << "Average distance to final centers: " << result.computeDispersion(dim, data) << std::endl;
             std::cout << "Testing IVF recall..." << std::endl;
-            std::cout << "Average recall: " << ivfRecall(dim, data, result) << std::endl;
+            std::vector<float> recalls;
+            std::vector<std::size_t> comparisons;
+            for (std::size_t percentage : {1, 2, 3, 4, 5, 6}) {
+                auto [recall, comparisons_] = ivfRecall(dim, percentage, data, result);
+                recalls.push_back(recall);
+                comparisons.push_back(comparisons_);
+            }
+            std::cout << "IVF recall: " << recalls << std::endl;
+            std::cout << "IVF comparisons: " << comparisons << std::endl;
             break;
         }
     }

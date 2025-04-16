@@ -7,8 +7,9 @@
 
 KMeansResult kMeansLocal(std::size_t dim,
                          const Dataset& dataset,
+                         std::size_t sampleSize, 
                          Centers centers,
                          std::vector<std::size_t> assignments,
-                         std::size_t clustersPerNeighborhood = 32,
+                         std::size_t maxK = 128,
                          std::size_t maxIterations = 8,
                          float lambda = 1.0F);

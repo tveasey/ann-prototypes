@@ -40,9 +40,6 @@ public:
     const std::vector<std::size_t>& spilledAssignments() const { return spilledAssignments_; }
     std::size_t iterationsRun() const { return iterationsRun_; }
     bool converged() const { return converged_; }
-    void assignRemainingPoints(std::size_t dim,
-                               std::size_t beginUnassigned,
-                               const Dataset& dataset);
     float computeDispersion(std::size_t dim, const Dataset& dataset) const;
     std::pair<float, float> clusterSizeMoments() const;
     std::string print() const;

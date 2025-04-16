@@ -57,51 +57,6 @@ std::vector<std::size_t> KMeansResult::clusterSizes() const {
     return sizes;
 }
 
-void KMeansResult::assignRemainingPoints(std::size_t dim,
-                                         std::size_t beginUnassigned,
-                                         const Dataset& dataset) {
-
-    if (beginUnassigned >= dataset.size()) {
-        return;
-    }
-
-    Centers newFinalCenters(finalCenters_);
-    std::vector<std::size_t> sizes(clusterSizes());
-    for (std::size_t i = 0, id = 0; i < sizes.size(); ++i, id += dim) {
-        for (std::size_t d = 0; d < dim; ++d) {
-            newFinalCenters[id + d] *= sizes[i];
-        }
-    }
-    assignments_.resize(dataset.size() / dim);
-    for (std::size_t i = beginUnassigned / dim, id = beginUnassigned;
-         id < dataset.size();
-         ++i, id += dim) {
-        std::size_t bestJd{0};
-        float minDsq{INF};
-        for (std::size_t jd = 0; jd < finalCenters_.size(); jd += dim) {
-            float dsq{distanceSq(dim, &dataset[id], &finalCenters_[jd])};
-            if (dsq < minDsq) {
-                minDsq = dsq;
-                bestJd = jd;
-            }
-        }
-        assignments_[i] = bestJd;
-        #pragma omp simd
-        for (std::size_t d = 0; d < dim; ++d) {
-            newFinalCenters[bestJd + d] += dataset[id + d];
-        }
-        ++sizes[bestJd / dim];
-    }
-    for (std::size_t i = 0, id = 0; id < finalCenters_.size(); ++i, id += dim) {
-        if (sizes[i] > 0) {
-            #pragma omp simd
-            for (std::size_t d = 0; d < dim; ++d) {
-                finalCenters_[id + d] = newFinalCenters[id + d] / sizes[i];
-            }
-        }
-    }
-}
-
 float KMeansResult::computeDispersion(std::size_t dim, const Dataset& dataset) const {
     float totalDispersion{0.0F};
     std::size_t n{assignments_.size()};

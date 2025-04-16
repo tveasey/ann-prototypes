@@ -14,8 +14,8 @@ using NeighborQueues = std::vector<std::priority_queue<std::pair<float, std::siz
 
 void computeNeighborhoods(std::size_t dim,
                           const Centers& centers,
-                          Neighborhoods& neighborhoods,
-                          std::size_t clustersPerNeighborhood) {
+                          std::size_t clustersPerNeighborhood,
+                          Neighborhoods& neighborhoods) {
 
     auto updateNeighbors = [&](std::size_t id,
                                float dsq,
@@ -49,7 +49,8 @@ void computeNeighborhoods(std::size_t dim,
     };
 }
 
-bool stepLloyd(std::size_t dim,
+bool stepLloyd(std::size_t nd,
+               std::size_t dim,
                const Dataset& dataset,
                const Neighborhoods& neighborhoods,
                Centers& centers,
@@ -62,7 +63,7 @@ bool stepLloyd(std::size_t dim,
     nextCenters.assign(centers.size(), 0.0F);
     q.assign(centers.size() / dim, 0);
 
-    for (std::size_t i = 0, id = 0; id < dataset.size(); ++i, id += dim) {
+    for (std::size_t i = 0, id = 0; id < nd; ++i, id += dim) {
         std::size_t currJd{a[i]};
         std::size_t bestJd{currJd};
         float minDsq{distanceSq(dim, &dataset[id], &centers[currJd])};
@@ -154,34 +155,37 @@ void assignSpilled(std::size_t dim,
 
 KMeansResult kMeansLocal(std::size_t dim,
                          const Dataset& dataset,
+                         std::size_t sampleSize, 
                          Centers centers,
                          std::vector<std::size_t> assignments,
-                         std::size_t clustersPerNeighborhood,
+                         std::size_t maxK,
                          std::size_t maxIterations,
                          float lambda) {
 
+    std::size_t kd{centers.size()};
     std::size_t n{dataset.size() / dim};
-    std::size_t m{centers.size()};
-    std::size_t k{m / dim};
+    std::size_t k{kd / dim};
 
     if (k == 1 || k >= n) {
         return {k, std::move(centers), std::move(assignments), {}, 0, true};
     }
 
     Neighborhoods neighborhoods(k);
-    computeNeighborhoods(dim, centers, neighborhoods, clustersPerNeighborhood);
+    computeNeighborhoods(dim, centers, maxK, neighborhoods);
 
     std::size_t iter{0}; // Number of centers
     bool converged{false};
     std::vector<std::size_t> q(k, 0);
-    Centers nextCenters(m, 0.0F);
-    for (; iter < maxIterations; ++iter) {
-        if (!stepLloyd(dim, dataset, neighborhoods,
+    Centers nextCenters(kd, 0.0F);
+    for (; iter < maxIterations - 1; ++iter) {
+        if (!stepLloyd(sampleSize, dim, dataset, neighborhoods,
                        centers, nextCenters, q, assignments)) {
             converged = true;
             break;
         }
     }
+    stepLloyd(dataset.size(), dim, dataset, neighborhoods,
+              centers, nextCenters, q, assignments);
 
     std::vector<std::size_t> spilledAssignments;
     assignSpilled(dim, dataset, neighborhoods, centers,
@@ -189,5 +193,5 @@ KMeansResult kMeansLocal(std::size_t dim,
 
     return {k, std::move(centers),
             std::move(assignments), std::move(spilledAssignments),
-            iter, converged};
+            iter + 1, converged};
 }
