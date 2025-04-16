@@ -147,7 +147,7 @@ std::pair<float, float> ivfRecall(std::size_t dim,
     }
     averageRecall /= m;
     averageComparisons /= m;
-    return {averageRecall, averageComparisons};
+    return {averageRecall, static_cast<float>(averageComparisons) / n};
 }
 }
 
@@ -292,7 +292,7 @@ int main(int argc, char** argv) {
             std::cout << "Average distance to final centers: " << result.computeDispersion(dim, data) << std::endl;
             std::cout << "Testing IVF recall..." << std::endl;
             std::vector<float> recalls;
-            std::vector<std::size_t> comparisons;
+            std::vector<float> comparisons;
             for (std::size_t percentage : {1, 2, 3, 4, 5, 6}) {
                 auto [recall, comparisons_] = ivfRecall(dim, percentage, data, result);
                 recalls.push_back(recall);
