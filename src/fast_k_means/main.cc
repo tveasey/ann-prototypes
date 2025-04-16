@@ -268,7 +268,7 @@ int main(int argc, char** argv) {
 
     // --- Choose Initial Centers (e.g., first k points) ---
     Centers initialCenters;
-    k = pickInitialCenters(dim, data, sampleSize, k, initialCenters);
+    pickInitialCenters(dim, data, sampleSize, k, initialCenters);
 
     // --- Run K-Means ---
     switch (method) {

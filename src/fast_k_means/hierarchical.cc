@@ -9,11 +9,11 @@
 #include <utility>
 #include <vector>
 
-std::size_t pickInitialCenters(std::size_t dim,
-                               const Dataset& dataset,
-                               std::size_t sampleSize,
-                               std::size_t k,
-                               Centers& centers) {
+void pickInitialCenters(std::size_t dim,
+                        const Dataset& dataset,
+                        std::size_t sampleSize,
+                        std::size_t k,
+                        Centers& centers) {
 
     // Choose data points as random ensuring we have distinct points.
 
@@ -35,7 +35,6 @@ std::size_t pickInitialCenters(std::size_t dim,
         std::copy_n(&dataset[cand], dim, &centers[k_++ * dim]);
     }
     centers.resize(k_ * dim);
-    return k_;
 }
 
 HierarchicalKMeansResult kMeansHierarchical(std::size_t dim,
@@ -56,7 +55,7 @@ HierarchicalKMeansResult kMeansHierarchical(std::size_t dim,
     std::size_t m{std::min(k * samplesPerCluster * dim, dataset.size())};
 
     Centers initialCenters;
-    k = pickInitialCenters(dim, dataset, m, k, initialCenters);
+    pickInitialCenters(dim, dataset, m, k, initialCenters);
 
     HierarchicalKMeansResult result{
         kMeans(dim, dataset, m, std::move(initialCenters), 2 * maxFixupIterations)
@@ -69,9 +68,9 @@ HierarchicalKMeansResult kMeansHierarchical(std::size_t dim,
     std::vector<std::size_t> counts(result.clusterSizes());
     Dataset cluster;
     for (std::size_t c = 0; c < counts.size(); ++c) {
-        // Recurse for each cluster which is larger than 1.33 x target. If
-        // size < 1.33 x target then |size / 2 - target| > |size - target|.
-        if (100 * counts[c] > 133 * targetSize) {
+        // Recurse for each cluster which is larger than 1.34 x target. If
+        // size < 1.34 x target then |size / 2 - target| > |size - target|.
+        if (100 * counts[c] > 134 * targetSize) {
             result.copyClusterPoints(dim, c, dataset, cluster);
             result.updateAssignmentsWithRecursiveSplit(
                 dim, c, kMeansHierarchical(dim, cluster, targetSize, maxK,
