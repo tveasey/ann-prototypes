@@ -1,6 +1,5 @@
 #include "baseline.h"
 #include "common.h"
-#include "hamerly.h"
 #include "hierarchical.h"
 #include "../common/utils.h"
 
@@ -71,7 +70,8 @@ std::pair<std::vector<float>, std::size_t> readFvecs(const std::filesystem::path
     return {std::move(vectors), static_cast<std::size_t>(dim)};
 }
 
-std::pair<float, float> ivfRecall(std::size_t dim,
+std::pair<float, float> ivfRecall(Metric metric,
+                                  std::size_t dim,
                                   std::size_t percentage,
                                   const Dataset& data,
                                   const HierarchicalKMeansResult& result) {
@@ -80,16 +80,27 @@ std::pair<float, float> ivfRecall(std::size_t dim,
 
     using Queue = std::priority_queue<std::pair<float, std::size_t>>;
 
+    auto distance = [&](ConstPoint p1, ConstPoint p2) {
+        switch (metric) {
+        case Cosine:
+            return 1.0F - dot(dim, p1, p2);
+        case Dot:
+            return -dot(dim, p1, p2);
+        case Euclidean:
+            return distanceSq(dim, p1, p2);
+        }
+    };
+
     auto updateTopk = [](std::size_t i,
                          std::size_t j,
-                         float dsq,
+                         float d,
                          std::size_t k,
                          auto& queue) {
         if (queue.size() < k) {
-            queue.emplace(dsq, j);
-        } else if (dsq < queue.top().first) {
+            queue.emplace(d, j);
+        } else if (d < queue.top().first) {
             queue.pop();
-            queue.emplace(dsq, j);
+            queue.emplace(d, j);
         }
     };
 
@@ -104,8 +115,7 @@ std::pair<float, float> ivfRecall(std::size_t dim,
             if (i == j) {
                 continue;
             }
-            float dsq{distanceSq(dim, &queries[id], &data[jd])};
-            updateTopk(i, j, dsq, 10, nearestPoints[i]);
+            updateTopk(i, j, distance(&queries[id], &data[jd]), 10, nearestPoints[i]);
         }
     }
 
@@ -115,8 +125,8 @@ std::pair<float, float> ivfRecall(std::size_t dim,
     };
     for (std::size_t i = 0, id = 0; id < queries.size(); ++i, id += dim) {
         for (std::size_t j = 0; j < result.finalCenters().size(); ++j) {
-            float dsq{distanceSq(dim, &queries[id], &result.finalCenters()[j][0])};
-            updateTopk(i, j, dsq, numNearestClusters, nearestClusters[i]);
+            updateTopk(i, j, distance(&queries[id], &result.finalCenters()[j][0]),
+                       numNearestClusters, nearestClusters[i]);
         }
     }
 
@@ -155,13 +165,15 @@ int main(int argc, char** argv) {
     std::optional<int> dim_;
     std::vector<std::string> files;
     std::size_t k{100};
+    Metric metric{Cosine};
     Method method{Method::KMEANS_HIERARCHICAL};
     bool parameterSearch{false};
     for (int i = 1; i < argc; ++i) {
         if (std::string(argv[i]) == "-h") {
             std::cout << "Usage: " << argv[0] << std::endl;
-            std::cout << " [-m <method>] [-p] [-k <clusters>] [-d <dim>] -f <file1> <file1> ..." << std::endl;
-            std::cout << "  -m <method>       : kmeans method (lloyd, hierarchical)" << std::endl;
+            std::cout << " [--metric <metric>] [--method <method>] [-p] [-k <clusters>] [-d <dim>] -f <file1> <file1> ..." << std::endl;
+            std::cout << "  --metric <metric> : distance metric (cosine, euclidean, mip)" << std::endl;
+            std::cout << "  --method <method> : kmeans method (lloyd, hierarchical)" << std::endl;
             std::cout << "  -p                : parameter search" << std::endl;
             std::cout << "  -k <clusters>     : number of clusters (default: 100)" << std::endl;
             std::cout << "  -d <dim>          : dimension of vectors (default: auto)" << std::endl;
@@ -176,7 +188,7 @@ int main(int argc, char** argv) {
             for (++i; i < argc; ++i) {
                 files.emplace_back(argv[i]);
             }
-        } else if (std::string(argv[i]) == "-m") {
+        } else if (std::string(argv[i]) == "--method") {
             std::string methodStr(argv[++i]);
             if (methodStr == "lloyd") {
                 method = Method::KMEANS_LLOYD;
@@ -184,6 +196,18 @@ int main(int argc, char** argv) {
                 method = Method::KMEANS_HIERARCHICAL;
             } else {
                 std::cout << "Unknown method: " << methodStr << std::endl;
+                return 1;
+            }
+        } else if (std::string(argv[i]) == "--metric") {
+            std::string metricStr(argv[++i]);
+            if (metricStr == "cosine") {
+                metric = Cosine;
+            } else if (metricStr == "mip") {
+                metric = Dot;
+            } else if (metricStr == "euclidean") {
+                metric = Euclidean;
+            } else {
+                std::cout << "Unknown metric: " << metricStr << std::endl;
                 return 1;
             }
         } else if (std::string(argv[i]) == "-p") {
@@ -208,6 +232,10 @@ int main(int argc, char** argv) {
     }
     std::cout << "Read " << data.size() / dim << " corpus vectors of dimension " << dim << std::endl;
 
+    if (metric == Cosine) {
+        std::cout << "Normalizing data..." << std::endl;
+        normalize(dim, data);
+    }
     if (parameterSearch) {
         std::vector<std::vector<std::size_t>> parameters;
         std::vector<float> dispersions;
@@ -263,6 +291,8 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    k = data.size() / dim / 512;
+
     // --- Downsample for raw clustering ---
     std::size_t sampleSize(std::min(256 * k * dim, data.size()));
 
@@ -294,7 +324,7 @@ int main(int argc, char** argv) {
             std::vector<float> recalls;
             std::vector<float> comparisons;
             for (std::size_t percentage : {1, 2, 3, 4, 5, 6}) {
-                auto [recall, comparisons_] = ivfRecall(dim, percentage, data, result);
+                auto [recall, comparisons_] = ivfRecall(metric, dim, percentage, data, result);
                 recalls.push_back(recall);
                 comparisons.push_back(comparisons_);
             }

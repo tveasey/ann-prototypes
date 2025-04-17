@@ -13,13 +13,29 @@ using Centers = std::vector<float>;
 
 constexpr float INF{std::numeric_limits<float>::max()};
 
+// Calculates the dot product of two points.
+// Assumes p1 and p2 have the same dimension.
+float dot(std::size_t dim,
+          ConstPoint __restrict p1,
+          ConstPoint __restrict p2);
+
 // Calculates the squared Euclidean distance between two points.
 // Assumes p1 and p2 have the same dimension.
 float distanceSq(std::size_t dim,
                  ConstPoint __restrict p1,
                  ConstPoint __restrict p2);
 
-/// Calculates the centroid of a dataset.
+// Calculates the SOAR distance between two points.
+// Assumes r, x, and c have the same dimension.
+// The rnorm parameter is the squared norm of the vector r.
+float distanceSoar(std::size_t dim,
+                   ConstPoint __restrict r,
+                   ConstPoint __restrict x,
+                   ConstPoint __restrict c,
+                   float rnorm,
+                   float lambda = 1.0F);
+
+// Calculates the centroid of a dataset.
 void centroid(std::size_t dim, const Dataset& dataset, Point centroid);
 
 // This class encapsulates the result of the k-means clustering algorithm.
@@ -41,6 +57,8 @@ public:
     std::size_t iterationsRun() const { return iterationsRun_; }
     bool converged() const { return converged_; }
     float computeDispersion(std::size_t dim, const Dataset& dataset) const;
+    std::vector<float> quantizationErrors(std::size_t dim,
+                                          const Dataset& dataset) const;
     std::pair<float, float> clusterSizeMoments() const;
     std::string print() const;
 
@@ -75,6 +93,8 @@ public:
                                              std::size_t cluster,
                                              HierarchicalKMeansResult splitClusters);
     float computeDispersion(std::size_t dim, const Dataset& dataset) const;
+    std::vector<float> quantizationErrors(std::size_t dim,
+                                          const Dataset& dataset) const;
     std::pair<float, float> clusterSizeMoments() const;
     std::string print() const;
 

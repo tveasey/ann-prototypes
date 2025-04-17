@@ -11,5 +11,4 @@ KMeansResult kMeansLocal(std::size_t dim,
                          Centers centers,
                          std::vector<std::size_t> assignments,
                          std::size_t maxK = 128,
-                         std::size_t maxIterations = 8,
-                         float lambda = 1.0F);
+                         std::size_t maxIterations = 8);

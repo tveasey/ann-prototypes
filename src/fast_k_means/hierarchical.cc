@@ -1,3 +1,4 @@
+#include "hierarchical.h"
 #include "common.h"
 #include "baseline.h"
 #include "local.h"

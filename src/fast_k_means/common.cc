@@ -5,6 +5,17 @@
 #include <numeric>
 #include <utility>
 
+float dot(std::size_t dim,
+          ConstPoint __restrict p1,
+          ConstPoint __restrict p2) {
+    float dot{0.0F};
+    #pragma omp simd reduction(+:dot)
+    for (std::size_t i = 0; i < dim; ++i) {
+        dot += p1[i] * p2[i];
+    }
+    return dot;
+}
+
 float distanceSq(std::size_t dim,
                  ConstPoint __restrict p1,
                  ConstPoint __restrict p2) {
@@ -15,6 +26,23 @@ float distanceSq(std::size_t dim,
         dsq += diff * diff;
     }
     return dsq;
+}
+
+float distanceSoar(std::size_t dim,
+                   ConstPoint __restrict r,
+                   ConstPoint __restrict x,
+                   ConstPoint __restrict c,
+                   float rnorm,
+                   float lambda) {
+    float dsq{0.0F};
+    float rproj{0.0F};
+    #pragma omp simd reduction(+:dsq, rproj)
+    for (std::size_t d = 0; d < dim; ++d) {
+        float diff{x[d] - c[d]};
+        dsq += diff * diff;
+        rproj += r[d] * diff;
+    }
+    return dsq + lambda * rproj * rproj / rnorm;
 }
 
 void centroid(std::size_t dim, const Dataset& dataset, Point centroid) {
@@ -65,6 +93,32 @@ float KMeansResult::computeDispersion(std::size_t dim, const Dataset& dataset) c
         totalDispersion +=  distanceSq(dim, &dataset[id], &finalCenters_[cluster]);
     }
     return totalDispersion / n;
+}
+
+std::vector<float> KMeansResult::quantizationErrors(std::size_t dim,
+                                                    const Dataset& dataset) const {
+    std::vector<float> result(numClusters_, 0.0F);
+    std::vector<std::size_t> sizes(numClusters_, 0);
+    for (std::size_t i = 0, id = 0; id < assignments_.size(); ++i, id += dim) {
+        float diffProj{0.0F};
+        float norm{0.0F};
+        std::size_t cd{assignments_[i]};
+        for (std::size_t d = 0; d < dim; ++d) {
+            float xc{finalCenters_[cd + d]};
+            float diff{dataset[id + d] - xc};
+            diffProj += xc * diff;
+            norm += xc * xc;
+        }
+        std::size_t c{cd / dim};
+        result[c] += diffProj * diffProj / norm;
+        ++sizes[c];
+    }
+    for (std::size_t i = 0; i < numClusters_; ++i) {
+        if (sizes[i] > 0) {
+            result[i] /= sizes[i];
+        }
+    }
+    return result;
 }
 
 std::pair<float, float> KMeansResult::clusterSizeMoments() const {
@@ -216,6 +270,32 @@ float HierarchicalKMeansResult::computeDispersion(std::size_t dim, const Dataset
         }
     }
     return totalDispersion / n;
+}
+
+std::vector<float> HierarchicalKMeansResult::quantizationErrors(std::size_t dim,
+                                                                const Dataset& dataset) const {
+    std::vector<float> result(finalCenters_.size(), 0.0F);
+    std::vector<std::size_t> sizes(finalCenters_.size(), 0);
+    for (std::size_t c = 0; c < assignments_.size(); ++c) {
+        for (std::size_t id : assignments_[c]) {
+            float diffProj{0.0F};
+            float norm{0.0F};
+            for (std::size_t d = 0; d < dim; ++d) {
+                float xc{finalCenters_[c][d]};
+                float diff{dataset[id + d] - xc};
+                diffProj += xc * diff;
+                norm += xc * xc;
+            }
+            result[c] += diffProj * diffProj / norm;
+            ++sizes[c];
+        }
+    }
+    for (std::size_t i = 0; i < finalCenters_.size(); ++i) {
+        if (sizes[i] > 0) {
+            result[i] /= sizes[i];
+        }
+    }
+    return result;
 }
 
 std::pair<float, float> HierarchicalKMeansResult::clusterSizeMoments() const {

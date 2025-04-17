@@ -99,7 +99,6 @@ void assignSpilled(std::size_t dim,
                    const std::vector<float>& dataset,
                    const Neighborhoods& neighborhoods,
                    const std::vector<float>& centers,
-                   float lambda,
                    const std::vector<std::size_t>& a,
                    std::vector<std::size_t>& sa) {
 
@@ -114,34 +113,27 @@ void assignSpilled(std::size_t dim,
 
     sa.resize(a.size());
 
-    std::vector<float> r1(dim);
+    std::vector<float> d1(dim);
     for (std::size_t i = 0, id = 0; id < dataset.size(); ++i, id += dim) {
         const auto* xi{&dataset[id]};
 
         std::size_t currJd{a[i]};
         const float* c1{&centers[currJd]};
-        float dsq1{0.0F};
-        #pragma omp simd reduction(+:dsq1)
+        float d1sq{0.0F};
+        #pragma omp simd reduction(+:d1sq)
         for (std::size_t j = 0; j < dim; ++j) {
             float diff{xi[j] - c1[j]};
-            r1[j] = diff;
-            dsq1 += diff * diff;
+            d1[j] = diff;
+            d1sq += diff * diff;
         }
 
         std::size_t bestJd{0};
         float minSoar{INF};
         for (std::size_t jd : neighborhoods[currJd / dim]) {
-            float dsq2{0.0F};
+            float d2sq{0.0F};
             float proj{0.0F};
             const float* cj{&centers[jd]};
-            #pragma omp simd reduction(+:dsq2, proj)
-            for (std::size_t k = 0; k < dim; ++k) {
-                float diff{xi[k] - cj[k]};
-                float diffProj{r1[k] * diff};
-                dsq2 += diff * diff;
-                proj += diffProj;
-            }
-            float soar{dsq2 + lambda * proj * proj / dsq1};
+            float soar{distanceSoar(dim, &d1[0], xi, cj, d1sq)};
             if (soar < minSoar) {
                 bestJd = jd;
                 minSoar = soar;
@@ -159,8 +151,7 @@ KMeansResult kMeansLocal(std::size_t dim,
                          Centers centers,
                          std::vector<std::size_t> assignments,
                          std::size_t maxK,
-                         std::size_t maxIterations,
-                         float lambda) {
+                         std::size_t maxIterations) {
 
     std::size_t kd{centers.size()};
     std::size_t n{dataset.size() / dim};
@@ -173,7 +164,7 @@ KMeansResult kMeansLocal(std::size_t dim,
     Neighborhoods neighborhoods(k);
     computeNeighborhoods(dim, centers, maxK, neighborhoods);
 
-    std::size_t iter{0}; // Number of centers
+    std::size_t iter{0};
     bool converged{false};
     std::vector<std::size_t> q(k, 0);
     Centers nextCenters(kd, 0.0F);
@@ -188,8 +179,7 @@ KMeansResult kMeansLocal(std::size_t dim,
               centers, nextCenters, q, assignments);
 
     std::vector<std::size_t> spilledAssignments;
-    assignSpilled(dim, dataset, neighborhoods, centers,
-                  lambda, assignments, spilledAssignments);
+    assignSpilled(dim, dataset, neighborhoods, centers, assignments, spilledAssignments);
 
     return {k, std::move(centers),
             std::move(assignments), std::move(spilledAssignments),
