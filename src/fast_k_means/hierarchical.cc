@@ -27,10 +27,14 @@ void pickInitialCenters(std::size_t dim,
     std::size_t k_{0};
     for (std::size_t i = 0; i < candidates.size() && k_ < k; ++i) {
         std::size_t cand{candidates[i] * dim};
-        if (std::any_of(centers.begin(), centers.begin() + k_ * dim,
-                        [&dataset, dim, cand](const float& center) {
-                            return distanceSq(dim, &dataset[cand], &center) == 0.0F;
-                        })) {
+        if ([&] {
+                for (std::size_t j = 0; j < k_; ++j) {
+                    if (distanceSq(dim, &dataset[cand], &centers[j * dim]) == 0.0F) {
+                        return true;
+                    }
+                }
+                return false;
+            }()) {
             continue;
         }
         std::copy_n(&dataset[cand], dim, &centers[k_++ * dim]);
