@@ -8,6 +8,7 @@
 #include <iostream>
 #include <optional>
 #include <queue>
+#include <random>
 #include <utility>
 #include <unordered_set>
 #include <vector>
@@ -105,9 +106,14 @@ std::pair<float, float> ivfRecall(Metric metric,
     };
 
     std::size_t n{data.size() / dim};
-    std::size_t m{std::min(n, 50UL)};
+    std::size_t m{std::min(n, 75UL)};
     std::vector<float> queries(m * dim);
-    std::copy_n(data.begin(), m * dim, queries.begin());
+    std::minstd_rand rng;
+    std::uniform_int_distribution<std::size_t> dist(0, n - 1);
+    for (std::size_t i = 0; i < m; ++i) {
+        std::size_t j{dist(rng)};
+        std::copy_n(&data[j * dim], dim, &queries[i * dim]);
+    }
 
     std::vector<Queue> nearestPoints(m);
     for (std::size_t i = 0, id = 0; id < queries.size(); ++i, id += dim) {
@@ -317,7 +323,7 @@ int main(int argc, char** argv) {
             std::cout << "Running K-Means..." << std::endl;
             std::cout << "Using Hierarchical K-Means" << std::endl;
             HierarchicalKMeansResult result;
-            time([&] { result = kMeansHierarchical(dim, data); }, "K-Means Hierarchical");
+            time([&] { result = kMeansHierarchical(dim, data, 384); }, "K-Means Hierarchical");
             std::cout << "\n--- Results ---" << result.print() << std::endl;
             std::cout << "Average distance to final centers: " << result.computeDispersion(dim, data) << std::endl;
             std::cout << "Testing IVF recall..." << std::endl;
