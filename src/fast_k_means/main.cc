@@ -170,6 +170,7 @@ std::pair<float, float> ivfRecall(Metric metric,
 int main(int argc, char** argv) {
     std::optional<int> dim_;
     std::vector<std::string> files;
+    std::size_t target{384};
     std::size_t k{100};
     Metric metric{Cosine};
     Method method{Method::KMEANS_HIERARCHICAL};
@@ -180,6 +181,7 @@ int main(int argc, char** argv) {
             std::cout << " [--metric <metric>] [--method <method>] [-p] [-k <clusters>] [-d <dim>] -f <file1> <file1> ..." << std::endl;
             std::cout << "  --metric <metric> : distance metric (cosine, euclidean, mip)" << std::endl;
             std::cout << "  --method <method> : kmeans method (lloyd, hierarchical)" << std::endl;
+            std::cout << "  -s                : target cluster size" << std::endl;
             std::cout << "  -p                : parameter search" << std::endl;
             std::cout << "  -k <clusters>     : number of clusters (default: 100)" << std::endl;
             std::cout << "  -d <dim>          : dimension of vectors (default: auto)" << std::endl;
@@ -194,6 +196,8 @@ int main(int argc, char** argv) {
             for (++i; i < argc; ++i) {
                 files.emplace_back(argv[i]);
             }
+        } else if (std::string(argv[i]) == "-s") {
+            target = std::stoul(argv[++i]);
         } else if (std::string(argv[i]) == "--method") {
             std::string methodStr(argv[++i]);
             if (methodStr == "lloyd") {
@@ -323,7 +327,7 @@ int main(int argc, char** argv) {
             std::cout << "Running K-Means..." << std::endl;
             std::cout << "Using Hierarchical K-Means" << std::endl;
             HierarchicalKMeansResult result;
-            time([&] { result = kMeansHierarchical(dim, data, 384); }, "K-Means Hierarchical");
+            time([&] { result = kMeansHierarchical(dim, data, target); }, "K-Means Hierarchical");
             std::cout << "\n--- Results ---" << result.print() << std::endl;
             std::cout << "Average distance to final centers: " << result.computeDispersion(dim, data) << std::endl;
             std::cout << "Testing IVF recall..." << std::endl;
