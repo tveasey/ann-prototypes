@@ -1,0 +1,5 @@
+outs:
+- md5: 8e492a269aa0ae206e1fd96a8d451252
+  size: 951545256
+  hash: md5
+  path: corpus-glove-200.fvec

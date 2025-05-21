@@ -1,0 +1,5 @@
+outs:
+- md5: 709631cd6182b4b9dff4c30ac8a99ccf
+  size: 8040000
+  hash: md5
+  path: queries-glove-200.fvec
