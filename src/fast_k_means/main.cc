@@ -133,7 +133,8 @@ void ivfRecall(Metric metric,
     }
 
     CQuantizedIvfIndex index{metric, dim, data, target, bits, 32};
-    
+
+    std::cout << "\n--- Results ---" << std::endl;
     std::vector<float> query(dim);
     std::unordered_set<std::size_t> found;
     std::size_t comparisons{0};
@@ -161,7 +162,7 @@ void ivfRecall(Metric metric,
         averageComparisons /= m;
         std::cout << "IVF: recall = " << averageRecall
                   << ", comparisons = " << averageComparisons
-                  << ", % compared = " << static_cast<float>(averageComparisons) / n << std::endl;
+                  << ", % compared = " << static_cast<float>(100 * averageComparisons) / n << std::endl;
     }
 }
 
