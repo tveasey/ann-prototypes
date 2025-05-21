@@ -1,6 +1,7 @@
 #include "baseline.h"
 #include "common.h"
 #include "hierarchical.h"
+#include "ivf.h"
 #include "../common/utils.h"
 
 #include <algorithm>
@@ -9,6 +10,7 @@
 #include <optional>
 #include <queue>
 #include <random>
+#include <unordered_map>
 #include <utility>
 #include <unordered_set>
 #include <vector>
@@ -19,7 +21,8 @@
 namespace {
 enum class Method {
     KMEANS_LLOYD,
-    KMEANS_HIERARCHICAL
+    KMEANS_HIERARCHICAL,
+    IVF
 };
 
 std::pair<std::vector<float>, std::size_t> readFvecs(const std::filesystem::path& file,
@@ -71,13 +74,13 @@ std::pair<std::vector<float>, std::size_t> readFvecs(const std::filesystem::path
     return {std::move(vectors), static_cast<std::size_t>(dim)};
 }
 
-std::pair<float, float> ivfRecall(Metric metric,
-                                  std::size_t dim,
-                                  std::size_t percentage,
-                                  const Dataset& data,
-                                  const HierarchicalKMeansResult& result) {
-
-    // Extimate average IVF recall.
+void ivfRecall(Metric metric,
+               std::size_t dim,
+               std::vector<std::size_t> percentages,
+               std::size_t target,
+               std::size_t bits,
+               std::size_t rerank,
+               const Dataset& data) {
 
     using Queue = std::priority_queue<std::pair<float, std::size_t>>;
 
@@ -92,79 +95,75 @@ std::pair<float, float> ivfRecall(Metric metric,
         }
     };
 
-    auto updateTopk = [](std::size_t i,
-                         std::size_t j,
+    auto updateTopk = [](std::size_t k,
                          float d,
-                         std::size_t k,
+                         std::size_t i,
                          auto& queue) {
         if (queue.size() < k) {
-            queue.emplace(d, j);
+            queue.emplace(d, i);
         } else if (d < queue.top().first) {
             queue.pop();
-            queue.emplace(d, j);
+            queue.emplace(d, i);
         }
     };
 
+    std::size_t k{10};
+
+    // Pick at most 75 random queries.
     std::size_t n{data.size() / dim};
     std::size_t m{std::min(n, 75UL)};
     std::vector<float> queries(m * dim);
     std::minstd_rand rng;
-    std::uniform_int_distribution<std::size_t> dist(0, n - 1);
+    std::uniform_int_distribution<std::size_t> u0n(0, n - 1);
     for (std::size_t i = 0; i < m; ++i) {
-        std::size_t j{dist(rng)};
+        std::size_t j{u0n(rng)};
         std::copy_n(&data[j * dim], dim, &queries[i * dim]);
     }
 
-    std::vector<Queue> nearestPoints(m);
+    // Brute force search.
+    std::vector<std::vector<std::size_t>> actual(m);
+    Queue topk;
     for (std::size_t i = 0, id = 0; id < queries.size(); ++i, id += dim) {
         for (std::size_t j = 0, jd = 0; jd < data.size(); ++j, jd += dim) {
-            if (i == j) {
-                continue;
-            }
-            updateTopk(i, j, distance(&queries[id], &data[jd]), 10, nearestPoints[i]);
+            updateTopk(k, distance(&queries[id], &data[jd]), j, topk);
+        }
+        while (!topk.empty()) {
+            actual[i].push_back(topk.top().second);
+            topk.pop();
         }
     }
 
-    std::vector<Queue> nearestClusters(m);
-    std::size_t numNearestClusters{
-        (percentage * result.finalCenters().size()) / 100
-    };
-    for (std::size_t i = 0, id = 0; id < queries.size(); ++i, id += dim) {
-        for (std::size_t j = 0; j < result.finalCenters().size(); ++j) {
-            updateTopk(i, j, distance(&queries[id], &result.finalCenters()[j][0]),
-                       numNearestClusters, nearestClusters[i]);
-        }
-    }
+    CQuantizedIvfIndex index{metric, dim, data, target, bits, 32};
+    
+    std::vector<float> query(dim);
+    std::unordered_set<std::size_t> found;
+    std::size_t comparisons{0};
+    for (auto percentage : percentages) {
+        std::size_t probes{
+            (percentage * index.numClusters()) / 100
+        };
+        float averageRecall{0.0F};
+        std::size_t averageComparisons{0};
 
-    float averageRecall{0.0F};
-    std::size_t averageComparisons{0};
-    std::vector<std::size_t> nearest;
-    std::unordered_set<std::size_t> ivf;
-    for (std::size_t i = 0; i < m; ++i) {
-        nearest.clear();
-        while (!nearestPoints[i].empty()) {
-            nearest.push_back(nearestPoints[i].top().second);
-            nearestPoints[i].pop();
+        for (std::size_t i = 0, id = 0; i < m; ++i, id += dim) {
+            std::copy_n(&queries[id], dim, &query[0]);
+            std::tie(found, comparisons) = index.search(probes, k, rerank, query, data);
+            auto hits = std::count_if(
+                actual[i].begin(), actual[i].end(),
+                [&found](std::size_t j) {
+                    return found.find(j) != found.end();
+                });
+            averageRecall += static_cast<float>(hits) / actual[i].size();
+            averageComparisons += comparisons;
         }
-        ivf.clear();
-        while (!nearestClusters[i].empty()) {
-            std::size_t cluster{nearestClusters[i].top().second};
-            ivf.insert(result.assignments()[cluster].begin(),
-                       result.assignments()[cluster].end());
-            nearestClusters[i].pop();
-        }
-        auto hits = std::count_if(
-            nearest.begin(), nearest.end(),
-            [&ivf](std::size_t j) {
-                return ivf.find(j) != ivf.end();
-            });
-        averageRecall += static_cast<float>(hits) / nearest.size();
-        averageComparisons += ivf.size();
+        averageRecall /= m;
+        averageComparisons /= m;
+        std::cout << "IVF: recall = " << averageRecall
+                  << ", comparisons = " << averageComparisons
+                  << ", % compared = " << static_cast<float>(averageComparisons) / n << std::endl;
     }
-    averageRecall /= m;
-    averageComparisons /= m;
-    return {averageRecall, static_cast<float>(averageComparisons) / n};
 }
+
 }
 
 int main(int argc, char** argv) {
@@ -172,18 +171,23 @@ int main(int argc, char** argv) {
     std::vector<std::string> files;
     std::size_t target{384};
     std::size_t k{100};
+    std::size_t bits{1};
+    std::size_t rerank{5};
     Metric metric{Cosine};
     Method method{Method::KMEANS_HIERARCHICAL};
     bool parameterSearch{false};
     for (int i = 1; i < argc; ++i) {
         if (std::string(argv[i]) == "-h") {
             std::cout << "Usage: " << argv[0] << std::endl;
-            std::cout << " [--metric <metric>] [--method <method>] [-p] [-k <clusters>] [-d <dim>] -f <file1> <file1> ..." << std::endl;
+            std::cout << " [--metric <metric>] [--method <method>] [-p] [-k <clusters>] [-b <bits>] "
+                      << "[-r <rerank>] [-d <dim>] -f <file1> <file1> ..." << std::endl;
             std::cout << "  --metric <metric> : distance metric (cosine, euclidean, mip)" << std::endl;
             std::cout << "  --method <method> : kmeans method (lloyd, hierarchical)" << std::endl;
             std::cout << "  -s                : target cluster size" << std::endl;
             std::cout << "  -p                : parameter search" << std::endl;
             std::cout << "  -k <clusters>     : number of clusters (default: 100)" << std::endl;
+            std::cout << "  -b <bits>         : number of quantization bits (default: 1)" << std::endl;
+            std::cout << "  -r <rerank>       : the multiple of k to rerank (default: 5)" << std::endl;
             std::cout << "  -d <dim>          : dimension of vectors (default: auto)" << std::endl;
             std::cout << "  -f <file1> <file2>: input files (required)" << std::endl;
             std::cout << "  -h                : help" << std::endl;
@@ -192,6 +196,10 @@ int main(int argc, char** argv) {
             dim_ = std::stoul(argv[++i]);
         } else if (std::string(argv[i]) == "-k") {
             k = std::stoul(argv[++i]);
+        } else if (std::string(argv[i]) == "-b") {
+            bits = std::stoul(argv[++i]);
+        } else if (std::string(argv[i]) == "-r") {
+            rerank = std::stoul(argv[++i]);
         } else if (std::string(argv[i]) == "-f") {
             for (++i; i < argc; ++i) {
                 files.emplace_back(argv[i]);
@@ -204,6 +212,8 @@ int main(int argc, char** argv) {
                 method = Method::KMEANS_LLOYD;
             } else if (methodStr == "hierarchical") {
                 method = Method::KMEANS_HIERARCHICAL;
+            } else if (methodStr == "ivf") {
+                method = Method::IVF;
             } else {
                 std::cout << "Unknown method: " << methodStr << std::endl;
                 return 1;
@@ -330,16 +340,11 @@ int main(int argc, char** argv) {
             time([&] { result = kMeansHierarchical(dim, data, target); }, "K-Means Hierarchical");
             std::cout << "\n--- Results ---" << result.print() << std::endl;
             std::cout << "Average distance to final centers: " << result.computeDispersion(dim, data) << std::endl;
+            break;
+        }
+        case Method::IVF: {
             std::cout << "Testing IVF recall..." << std::endl;
-            std::vector<float> recalls;
-            std::vector<float> comparisons;
-            for (std::size_t percentage : {1, 2, 3, 4, 5, 6}) {
-                auto [recall, comparisons_] = ivfRecall(metric, dim, percentage, data, result);
-                recalls.push_back(recall);
-                comparisons.push_back(comparisons_);
-            }
-            std::cout << "IVF recall: " << recalls << std::endl;
-            std::cout << "IVF comparisons: " << comparisons << std::endl;
+            ivfRecall(metric, dim, {1, 2, 3, 4, 5, 6}, target, bits, rerank, data);
             break;
         }
     }
