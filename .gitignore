@@ -2,3 +2,4 @@ build
 python
 .cache
 .vscode
+data/*.fvec
