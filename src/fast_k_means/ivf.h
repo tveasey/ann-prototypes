@@ -47,10 +47,18 @@ public:
            const Dataset& corpus) const;
 
 private:
-    void searchCluster(std::size_t cluster, std::size_t k, const Point& query, Topk& topk) const;
-    void buildIndex(std::size_t dim, const Dataset& corpus, std::size_t target, std::size_t bits);
-    void updateTopk(std::size_t k, float d, std::size_t i, Topk& topk) const;
+    void searchCluster(std::size_t cluster,
+                       std::size_t k,
+                       const Point& query,
+                       Topk& topk,
+                       std::unordered_set<std::size_t> &uniques) const;
+    void buildIndex(const Dataset& corpus, std::size_t target, std::size_t bits);
     float distance(const float* x, const float* y) const;
+    void updateTopk(std::size_t k,
+                    float d,
+                    std::size_t i,
+                    Topk& topk,
+                    std::unordered_set<std::size_t>* uniques = nullptr) const;
 
 private:
     Metric metric_;

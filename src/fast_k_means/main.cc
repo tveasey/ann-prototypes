@@ -87,7 +87,6 @@ void ivfRecall(Metric metric,
     auto distance = [&](ConstPoint p1, ConstPoint p2) {
         switch (metric) {
         case Cosine:
-            return 1.0F - dot(dim, p1, p2);
         case Dot:
             return -dot(dim, p1, p2);
         case Euclidean:
@@ -142,6 +141,7 @@ void ivfRecall(Metric metric,
         std::size_t probes{
             (percentage * index.numClusters()) / 100
         };
+
         float averageRecall{0.0F};
         std::size_t averageComparisons{0};
 
@@ -156,6 +156,7 @@ void ivfRecall(Metric metric,
             averageRecall += static_cast<float>(hits) / actual[i].size();
             averageComparisons += comparisons;
         }
+
         averageRecall /= m;
         averageComparisons /= m;
         std::cout << "IVF: recall = " << averageRecall

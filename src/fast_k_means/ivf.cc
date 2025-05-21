@@ -30,13 +30,6 @@ QuantizationState quantize(Metric metric,
                            std::size_t bits) {
 
     std::size_t n(vectors.size() / dim);
-
-    // For cosine the best strategy is to normlise the vectors before quantization.
-    // This can be done on-the-fly if desired:
-    //   1. The centre calculation needs to use normalised vectors.
-    //   2. Each vector needs to be normalised before computing its dot product with
-    //      the mean and its intervals.
-
     auto centeredVectors = vectors;
     centeredVectors = center(dim, std::move(centeredVectors), mean);
 
@@ -74,13 +67,12 @@ CQuantizedIvfIndex::CQuantizedIvfIndex(Metric metric,
                                        std::size_t blockDim) :
         metric_{metric}, dim_{dim}, bits_{bits} {
 
-    // Compute preconditioner.
     time([&] {
         std::tie(blocks_, dimBlocks_) = randomOrthogonal(dim, blockDim);
         permutationMatrix_ = permutationMatrix(dim, dimBlocks_, corpus);
-    }, "Preconditioning");
+    }, "Compute Preconditioner");
 
-    buildIndex(dim, corpus, target, bits);
+    buildIndex(corpus, target, bits);
 }
 
 std::pair<std::unordered_set<std::size_t>, std::size_t>
@@ -99,48 +91,40 @@ CQuantizedIvfIndex::search(std::size_t nProbes,
         updateTopk(nProbes, distance(&centers_[i][0], &transformedQuery[0]), i, closest);
     }
 
-    // Rerank candidates.
+    // Top-k candidates.
     Topk candidates;
+    std::unordered_set<std::size_t> uniqueCandidates;
     std::size_t comparisons{0};
     while (!closest.empty()) {
-        std::size_t i{closest.top().second};
+        std::size_t cluster{closest.top().second};
+        searchCluster(cluster, k * rerank, transformedQuery, candidates, uniqueCandidates);
+        comparisons += assignments_[cluster].size();
         closest.pop();
-        searchCluster(i, k * rerank, transformedQuery, candidates);
-        comparisons += assignments_[i].size();
     }
-
-    // Top-k after reranking.
-    // 
-    // Note I handle duplicates in a dumb way by gather 2*k. This is just for convenience.
-    // In practice you'd just wouldn't add duplicates to the top-k set. I just wanted to
-    // reuse updateTopk, I'm not testing performance and the outcome is the same.
+    
+    // Rerank candidates.
     Topk topk;
-    while (!candidates.empty()) {
-        auto [d, i] = candidates.top();
+    std::unordered_set<std::size_t> uniqueTopk;
+    for (std::size_t i : uniqueCandidates) {
+        updateTopk(k, distance(&query[0], &corpus[i * dim_]), i, topk, &uniqueTopk);
         candidates.pop();
-        updateTopk(2 * k, distance(&query[0], &corpus[i * dim_]), i, topk);
     }
 
-    std::unordered_set<std::size_t> result;
-    result.reserve(k);
-    while (result.size() < k && !topk.empty()) {
-        auto [d, i] = topk.top();
-        topk.pop();
-        result.insert(i);
-    }
-    return {std::move(result), comparisons};
+    return {uniqueTopk, comparisons};
 }
 
 void CQuantizedIvfIndex::searchCluster(std::size_t cluster,
                                        std::size_t k,
                                        const Point& query,
-                                       Topk& topk) const {
+                                       Topk& topk,
+                                       std::unordered_set<std::size_t> &uniques) const {
 
-    auto q = quantize(metric_, dim_, centers_[cluster], query, bits_ + 3);
+    std::size_t qbits{bits_ + 3};
+    auto q = quantize(metric_, dim_, centers_[cluster], query, qbits);
     const auto& d = clusters_[cluster];
     auto dot = estimateDot(dim_, q.quantizedVectors, d.quantizedVectors,
                            q.L1Norms, d.L1Norms, q.limits, d.limits,
-                           bits_ + 3, bits_);
+                           qbits, bits_);
 
     // Note that these are not unbiased estimates of the true similarity.
     // However, since only the order matters constant factors can be ignored.
@@ -149,63 +133,88 @@ void CQuantizedIvfIndex::searchCluster(std::size_t cluster,
     // convert everything to distances.
 
     switch (metric_) {
-    case Dot:
     case Cosine:
+    case Dot: {
+        float qbias{q.bias - q.localBias[0]};
         for (std::size_t i = 0; i < dot.size(); ++i) {
-            float dist{d.bias - q.localBias[i] - d.localBias[i] - dot[i]};
-            updateTopk(k, dist, assignments_[cluster][i], topk);
-        }
-        break;
-    case Euclidean:
-        for (std::size_t i = 0; i < dot.size(); ++i) {
-            float dist{q.localBias[i] + d.localBias[i] - 2.0F * dot[i]};
-            updateTopk(k, dist, assignments_[cluster][i], topk);
+            float dist{qbias - d.localBias[i] - dot[i]};
+            updateTopk(k, dist, assignments_[cluster][i], topk, &uniques);
         }
         break;
     }
+    case Euclidean: {
+        float qbias{q.localBias[0]};
+        for (std::size_t i = 0; i < dot.size(); ++i) {
+            float dist{qbias + d.localBias[i] - 2.0F * dot[i]};
+            updateTopk(k, dist, assignments_[cluster][i], topk, &uniques);
+        }
+        break;
+    }
+    }
 }
 
-void CQuantizedIvfIndex::buildIndex(std::size_t dim,
-                                    const Dataset& corpus,
+void CQuantizedIvfIndex::buildIndex(const Dataset& corpus,
                                     std::size_t target,
                                     std::size_t bits) {
 
+    // For cosine the best strategy is to normlise the vectors before quantization.
+    // This can be done on-the-fly if desired:
+    //   1. The centre calculation needs to use normalised vectors.
+    //   2. Each vector needs to be normalised before computing its dot product with
+    //      the mean and its intervals.
+    //
+    // We assume this happens elsewhere.
+
     HierarchicalKMeansResult result;
-    time([&] { result = kMeansHierarchical(dim, corpus, target); }, "K-Means Hierarchical");
-    std::cout << "Average distance to final centers: " << result.computeDispersion(dim, corpus) << std::endl;
+    time([&] { result = kMeansHierarchical(dim_, corpus, target); }, "K-Means Hierarchical");
+    std::cout << "Average distance to final centers: " << result.computeDispersion(dim_, corpus) << std::endl;
 
     centers_ = result.finalCenters();
     assignments_ = result.assignments();
     Dataset cluster;
     time([&] {
         for (std::size_t i = 0; i < centers_.size(); ++i) {
-            applyTransform(dim, permutationMatrix_, blocks_, dimBlocks_, centers_[i]);
-            cluster.resize(assignments_[i].size() * dim);
+            applyTransform(dim_, permutationMatrix_, blocks_, dimBlocks_, centers_[i]);
+            cluster.resize(assignments_[i].size() * dim_);
             for (std::size_t j = 0; j < assignments_[i].size(); ++j) {
-                std::copy_n(&corpus[0] + assignments_[i][j] * dim, dim, &cluster[j * dim]);
+                std::copy_n(&corpus[assignments_[i][j] * dim_], dim_, &cluster[j * dim_]);
             }
-            applyTransform(dim, permutationMatrix_, blocks_, dimBlocks_, cluster);
+            applyTransform(dim_, permutationMatrix_, blocks_, dimBlocks_, cluster);
             clusters_.emplace_back(quantize(metric_, dim_, centers_[i], cluster, bits));
         }
     }, "Quantization");
 }
 
-void CQuantizedIvfIndex::updateTopk(std::size_t k, float d, std::size_t i, Topk& topk) const {
-    if (topk.size() < k) {
-        topk.emplace(d, i);
-    } else if (d < topk.top().first) {
-        topk.pop();
-        topk.emplace(d, i);
-    }
-}
-
 float CQuantizedIvfIndex::distance(const float* x, const float* y) const {
     switch (metric_) {
     case Cosine:
-        return 1.0F - dot(dim_, x, y);
     case Dot:
         return -dot(dim_, x, y);
     case Euclidean:
         return distanceSq(dim_, x, y);
+    }
+}
+
+void CQuantizedIvfIndex::updateTopk(std::size_t k,
+                                    float d,
+                                    std::size_t i,
+                                    Topk& topk,
+                                    std::unordered_set<std::size_t>* uniques) const {
+    if (topk.size() < k) {
+        if (uniques && uniques->insert(i).second) {
+            topk.emplace(d, i);
+        } else if (uniques == nullptr) {
+            topk.emplace(d, i);
+        }
+    } else if (d < topk.top().first) {
+        if (uniques && uniques->insert(i).second) {
+            std::size_t j{topk.top().second};
+            uniques->erase(j);
+            topk.pop();
+            topk.emplace(d, i);
+        } else if (uniques == nullptr) {
+            topk.pop();
+            topk.emplace(d, i);
+        }
     }
 }

@@ -173,7 +173,6 @@ std::vector<float> l2Norms(std::size_t dim,
         for (std::size_t j = 0; j < dim; ++j) {
             norms[i] += x[i * dim + j] * x[i * dim + j];
         }
-        norms[i] = std::sqrtf(norm);
     }
     return norms;
 }
@@ -187,23 +186,21 @@ std::vector<float> estimateDot(std::size_t dim,
                                const std::vector<Interval>& ylimits,
                                std::size_t xbits,
                                std::size_t ybits) {
-    float xscale(1.0F / static_cast<float>((1 << xbits) - 1));
-    float yscale(1.0F / static_cast<float>((1 << ybits) - 1));
+    float xscale{1.0F / static_cast<float>((1 << xbits) - 1)};
+    float yscale{1.0F / static_cast<float>((1 << ybits) - 1)};
     std::vector<float> dots;
     dots.reserve((x.size() / dim) * (y.size() / dim));
-    for (std::size_t i = 0; i < x.size(); i += dim) {
-        auto vi = i / dim;
-        float ax(xlimits[vi].min());
-        float lx(xscale * xlimits[vi].length());
-        float x1(xL1[vi]);
-        for (std::size_t j = 0; j < y.size(); j += dim) {
-            auto vj = j / dim;
-            float ay(ylimits[vj].min());
-            float ly(yscale * ylimits[vj].length());
-            float dot_(ax * ay * static_cast<float>(dim) +
+    for (std::size_t i = 0, id = 0; id < x.size(); ++i, id += dim) {
+        float ax{xlimits[i].min()};
+        float lx{xscale * xlimits[i].length()};
+        int x1{xL1[i]};
+        for (std::size_t j = 0, jd = 0; jd < y.size(); ++j, jd += dim) {
+            float ay{ylimits[j].min()};
+            float ly{yscale * ylimits[j].length()};
+            float dot_{ax * ay * static_cast<float>(dim) +
                        ay * lx * static_cast<float>(x1) +
-                       ax * ly * static_cast<float>(yL1[vj]) +
-                       lx * ly * static_cast<float>(dotAllowAlias(dim, x.data() + i, y.data() + j)));
+                       ax * ly * static_cast<float>(yL1[j]) +
+                       lx * ly * static_cast<float>(dotAllowAlias(dim, &x[i], &y[jd]))};
             dots.push_back(dot_);
         }
     }
