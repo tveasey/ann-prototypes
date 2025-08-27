@@ -1,6 +1,7 @@
 
 #include "local.h"
 #include "common.h"
+#include "../common/utils.h"
 
 #include <algorithm>
 #include <cassert>
@@ -163,24 +164,30 @@ KMeansResult kMeansLocal(std::size_t dim,
     }
 
     Neighborhoods neighborhoods(k);
-    computeNeighborhoods(dim, centers, maxK, neighborhoods);
+    time([&] {
+        computeNeighborhoods(dim, centers, maxK, neighborhoods);
+    }, "Compute Neighborhoods");
 
     std::size_t iter{0};
     bool converged{false};
-    std::vector<std::size_t> q(k, 0);
-    Centers nextCenters(kd, 0.0F);
-    for (; iter < maxIterations - 1; ++iter) {
-        if (!stepLloyd(sampleSize, dim, dataset, neighborhoods,
-                       centers, nextCenters, q, assignments)) {
-            converged = true;
-            break;
+    time([&] {
+        std::vector<std::size_t> q(k, 0);
+        Centers nextCenters(kd, 0.0F);
+        for (; iter < maxIterations - 1; ++iter) {
+            if (!stepLloyd(sampleSize, dim, dataset, neighborhoods,
+                        centers, nextCenters, q, assignments)) {
+                converged = true;
+                break;
+            }
         }
-    }
-    stepLloyd(dataset.size(), dim, dataset, neighborhoods,
-              centers, nextCenters, q, assignments);
+        stepLloyd(dataset.size(), dim, dataset, neighborhoods,
+                centers, nextCenters, q, assignments);
+    }, "Fixup");
 
     std::vector<std::size_t> spilledAssignments;
-    assignSpilled(dim, dataset, neighborhoods, centers, assignments, spilledAssignments);
+    time([&] {
+        assignSpilled(dim, dataset, neighborhoods, centers, assignments, spilledAssignments);
+    }, "SOAR");
 
     return {k, std::move(centers),
             std::move(assignments), std::move(spilledAssignments),

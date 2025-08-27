@@ -10,7 +10,6 @@
 #include <optional>
 #include <queue>
 #include <random>
-#include <unordered_map>
 #include <utility>
 #include <unordered_set>
 #include <vector>
@@ -43,10 +42,10 @@ std::pair<std::vector<float>, std::size_t> readFvecs(const std::filesystem::path
         dimPadded = dim + 1;
         std::fseek(f, 0, SEEK_SET);
     }
-        struct stat st;
-        fstat(fileno(f), &st);
-        std::size_t sz = st.st_size;
-        if (sz % (dimPadded * 4) != 0) {
+    struct stat st;
+    fstat(fileno(f), &st);
+    std::size_t sz = st.st_size;
+    if (sz % (dimPadded * 4) != 0) {
         std::cout << "File must contain a whole number of vectors" << std::endl;
         return {};
     }
@@ -76,11 +75,12 @@ std::pair<std::vector<float>, std::size_t> readFvecs(const std::filesystem::path
 
 void ivfRecall(Metric metric,
                std::size_t dim,
-               std::vector<std::size_t> percentages,
+               std::vector<float> percentages,
                std::size_t target,
                std::size_t bits,
                std::size_t rerank,
-               const Dataset& data) {
+               Dataset queries,
+               const Dataset& corpus) {
 
     using Queue = std::priority_queue<std::pair<float, std::size_t>>;
 
@@ -108,23 +108,25 @@ void ivfRecall(Metric metric,
 
     std::size_t k{10};
 
-    // Pick at most 75 random queries.
-    std::size_t n{data.size() / dim};
-    std::size_t m{std::min(n, 75UL)};
-    std::vector<float> queries(m * dim);
-    std::minstd_rand rng;
-    std::uniform_int_distribution<std::size_t> u0n(0, n - 1);
-    for (std::size_t i = 0; i < m; ++i) {
-        std::size_t j{u0n(rng)};
-        std::copy_n(&data[j * dim], dim, &queries[i * dim]);
+    std::size_t n{corpus.size() / dim};
+    if (queries.empty()) {
+        // Pick at most 75 random queries.
+        queries.resize(std::min(n, 75UL) * dim);
+        std::minstd_rand rng;
+        std::uniform_int_distribution<std::size_t> u0n(0, n - 1);
+        for (std::size_t id = 0; id < queries.size(); id += dim) {
+            std::size_t j{u0n(rng)};
+            std::copy_n(&corpus[j * dim], dim, &queries[id]);
+        }
     }
+    std::size_t m{queries.size() / dim};
 
     // Brute force search.
     std::vector<std::vector<std::size_t>> actual(m);
     Queue topk;
     for (std::size_t i = 0, id = 0; id < queries.size(); ++i, id += dim) {
-        for (std::size_t j = 0, jd = 0; jd < data.size(); ++j, jd += dim) {
-            updateTopk(k, distance(&queries[id], &data[jd]), j, topk);
+        for (std::size_t j = 0, jd = 0; jd < corpus.size(); ++j, jd += dim) {
+            updateTopk(k, distance(&queries[id], &corpus[jd]), j, topk);
         }
         while (!topk.empty()) {
             actual[i].push_back(topk.top().second);
@@ -132,7 +134,7 @@ void ivfRecall(Metric metric,
         }
     }
 
-    CQuantizedIvfIndex index{metric, dim, data, target, bits, 32};
+    CQuantizedIvfIndex index{metric, dim, corpus, target, bits, 32};
 
     std::cout << "\n--- Results ---" << std::endl;
     std::vector<float> query(dim);
@@ -140,15 +142,15 @@ void ivfRecall(Metric metric,
     std::size_t comparisons{0};
     for (auto percentage : percentages) {
         std::size_t probes{
-            (percentage * index.numClusters()) / 100
+            static_cast<std::size_t>((percentage * index.numClusters()) / 100.0F)
         };
 
         float averageRecall{0.0F};
         std::size_t averageComparisons{0};
 
-        for (std::size_t i = 0, id = 0; i < m; ++i, id += dim) {
+        for (std::size_t i = 0, id = 0; id < queries.size(); ++i, id += dim) {
             std::copy_n(&queries[id], dim, &query[0]);
-            std::tie(found, comparisons) = index.search(probes, k, rerank, query, data);
+            std::tie(found, comparisons) = index.search(probes, k, rerank, query, corpus, bits <= 8);
             auto hits = std::count_if(
                 actual[i].begin(), actual[i].end(),
                 [&found](std::size_t j) {
@@ -170,8 +172,9 @@ void ivfRecall(Metric metric,
 
 int main(int argc, char** argv) {
     std::optional<int> dim_;
-    std::vector<std::string> files;
-    std::size_t target{384};
+    std::string queriesFile;
+    std::vector<std::string> corpusFiles;
+    std::size_t target{64};
     std::size_t k{100};
     std::size_t bits{1};
     std::size_t rerank{5};
@@ -191,7 +194,8 @@ int main(int argc, char** argv) {
             std::cout << "  -b <bits>         : number of quantization bits (default: 1)" << std::endl;
             std::cout << "  -r <rerank>       : the multiple of k to rerank (default: 5)" << std::endl;
             std::cout << "  -d <dim>          : dimension of vectors (default: auto)" << std::endl;
-            std::cout << "  -f <file1> <file2>: input files (required)" << std::endl;
+            std::cout << "  -q <file>         : queries file (required)" << std::endl;
+            std::cout << "  -c <file1> <file2>: corpus files (required)" << std::endl;
             std::cout << "  -h                : help" << std::endl;
             return 0;
         } else if (std::string(argv[i]) == "-d") {
@@ -202,9 +206,11 @@ int main(int argc, char** argv) {
             bits = std::stoul(argv[++i]);
         } else if (std::string(argv[i]) == "-r") {
             rerank = std::stoul(argv[++i]);
-        } else if (std::string(argv[i]) == "-f") {
+        } else if (std::string(argv[i]) == "-q") {
+            queriesFile = argv[++i];
+        } else if (std::string(argv[i]) == "-c") {
             for (++i; i < argc; ++i) {
-                files.emplace_back(argv[i]);
+                corpusFiles.emplace_back(argv[i]);
             }
         } else if (std::string(argv[i]) == "-s") {
             target = std::stoul(argv[++i]);
@@ -241,22 +247,29 @@ int main(int argc, char** argv) {
     }
 
     std::size_t dim;
-    Dataset data;
-    for (const auto& file : files) {
+    Dataset queries;
+    if (!queriesFile.empty()) {
+        std::cout << "Loading queries from " << queriesFile << std::endl;
+        std::tie(queries, dim) = readFvecs(queriesFile, dim_);
+        std::cout << "Read " << queries.size() / dim << " queries of dimension " << dim << std::endl;
+    }
+    Dataset corpus;
+    for (const auto& file : corpusFiles) {
         auto [x, d] = readFvecs(file, dim_);
         std::cout << "Read " << x.size() / d << " vectors of dimension " << d << std::endl;
         if (x.empty()) {
             std::cout << "Failed to read corpus from " << file << std::endl;
             return 1;
         }
-        data.insert(data.end(), x.begin(), x.end());
+        corpus.insert(corpus.end(), x.begin(), x.end());
         dim = d;
     }
-    std::cout << "Read " << data.size() / dim << " corpus vectors of dimension " << dim << std::endl;
+    std::cout << "Read " << corpus.size() / dim << " corpus vectors of dimension " << dim << std::endl;
 
     if (metric == Cosine) {
-        std::cout << "Normalizing data..." << std::endl;
-        normalize(dim, data);
+        std::cout << "Normalizing..." << std::endl;
+        normalize(dim, queries);
+        normalize(dim, corpus);
     }
     if (parameterSearch) {
         std::vector<std::vector<std::size_t>> parameters;
@@ -272,10 +285,10 @@ int main(int argc, char** argv) {
                     HierarchicalKMeansResult result;
                     auto took = time([&] {
                         result = kMeansHierarchical(
-                            dim, data, 512, maxK, maxIterations, samplesPerCluster
+                            dim, corpus, 512, maxK, maxIterations, samplesPerCluster
                     );
                     }, "K-Means Hierarchical").count();
-                    float dispersion{result.computeDispersion(dim, data)};
+                    float dispersion{result.computeDispersion(dim, corpus)};
                     std::cout << "Took " << took << " seconds, dispersion: " << dispersion << std::endl;
                     parameters.push_back({maxK, samplesPerCluster, maxIterations});
                     seconds.push_back(took);
@@ -313,14 +326,16 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    k = data.size() / dim / 512;
+    std::cout << "Target cluster size: " << target << std::endl;
+
+    k = corpus.size() / dim / 512;
 
     // --- Downsample for raw clustering ---
-    std::size_t sampleSize(std::min(256 * k * dim, data.size()));
+    std::size_t sampleSize(std::min(256 * k * dim, corpus.size()));
 
     // --- Choose Initial Centers (e.g., first k points) ---
     Centers initialCenters;
-    pickInitialCenters(dim, data, sampleSize, k, initialCenters);
+    pickInitialCenters(dim, corpus, sampleSize, k, initialCenters);
 
     // --- Run K-Means ---
     switch (method) {
@@ -329,24 +344,24 @@ int main(int argc, char** argv) {
             std::cout << "Using Lloyd's algorithm" << std::endl;
             KMeansResult result;
             time([&] {
-                result = kMeans(dim, data, sampleSize, initialCenters, 8);
+                result = kMeans(dim, corpus, sampleSize, initialCenters, 8);
             }, "K-Means Lloyd");
             std::cout << "\n--- Results ---" << result.print() << std::endl;
-            std::cout << "Average distance to final centers: " << result.computeDispersion(dim, data) << std::endl;
+            std::cout << "Average distance to final centers: " << result.computeDispersion(dim, corpus) << std::endl;
             break;
         }
         case Method::KMEANS_HIERARCHICAL: {
             std::cout << "Running K-Means..." << std::endl;
             std::cout << "Using Hierarchical K-Means" << std::endl;
             HierarchicalKMeansResult result;
-            time([&] { result = kMeansHierarchical(dim, data, target); }, "K-Means Hierarchical");
+            time([&] { result = kMeansHierarchical(dim, corpus, target); }, "K-Means Hierarchical");
             std::cout << "\n--- Results ---" << result.print() << std::endl;
-            std::cout << "Average distance to final centers: " << result.computeDispersion(dim, data) << std::endl;
+            std::cout << "Average distance to final centers: " << result.computeDispersion(dim, corpus) << std::endl;
             break;
         }
         case Method::IVF: {
             std::cout << "Testing IVF recall..." << std::endl;
-            ivfRecall(metric, dim, {1, 2, 3, 4, 5, 6}, target, bits, rerank, data);
+            ivfRecall(metric, dim, {0.25F, 0.5F, 0.75F, 1.0F, 1.5F, 2.0F}, target, bits, rerank, queries, corpus);
             break;
         }
     }

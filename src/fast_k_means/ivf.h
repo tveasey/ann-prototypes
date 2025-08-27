@@ -44,7 +44,8 @@ public:
            std::size_t k,
            std::size_t rerank,
            const Point& query,
-           const Dataset& corpus) const;
+           const Dataset& corpus,
+           bool useQuantization = true) const;
 
 private:
     void searchCluster(std::size_t cluster,

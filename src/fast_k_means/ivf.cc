@@ -76,11 +76,12 @@ CQuantizedIvfIndex::CQuantizedIvfIndex(Metric metric,
 }
 
 std::pair<std::unordered_set<std::size_t>, std::size_t>
-CQuantizedIvfIndex::search(std::size_t nProbes,
+CQuantizedIvfIndex::search(std::size_t probes,
                            std::size_t k,
                            std::size_t rerank,
                            const Point& query,
-                           const Dataset& corpus) const {
+                           const Dataset& corpus,
+                           bool useQuantization) const {
 
     Point transformedQuery(query);
     applyTransform(dim_, permutationMatrix_, blocks_, dimBlocks_, transformedQuery);
@@ -88,7 +89,25 @@ CQuantizedIvfIndex::search(std::size_t nProbes,
     // Closest centers to the query.
     Topk closest;
     for (std::size_t i = 0; i < centers_.size(); ++i) {
-        updateTopk(nProbes, distance(&centers_[i][0], &transformedQuery[0]), i, closest);
+        updateTopk(probes, distance(&centers_[i][0], &transformedQuery[0]), i, closest);
+    }
+
+    if (!useQuantization) {
+        // Search using true distances and no reranking.
+        Topk topk;
+        std::unordered_set<std::size_t> uniqueTopk;
+        std::size_t comparisons{0};
+        while (!closest.empty()) {
+            std::size_t cluster{closest.top().second};
+            comparisons += assignments_[cluster].size();
+            // Brute force search.
+            for (auto i : assignments_[cluster]) {
+                updateTopk(k, distance(&query[0], &corpus[i * dim_]), i, topk, &uniqueTopk);
+            }
+            closest.pop();
+        }
+
+        return {uniqueTopk, comparisons};
     }
 
     // Top-k candidates.
@@ -201,13 +220,13 @@ void CQuantizedIvfIndex::updateTopk(std::size_t k,
                                     Topk& topk,
                                     std::unordered_set<std::size_t>* uniques) const {
     if (topk.size() < k) {
-        if (uniques && uniques->insert(i).second) {
+        if (uniques != nullptr && uniques->insert(i).second) {
             topk.emplace(d, i);
         } else if (uniques == nullptr) {
             topk.emplace(d, i);
         }
     } else if (d < topk.top().first) {
-        if (uniques && uniques->insert(i).second) {
+        if (uniques != nullptr && uniques->insert(i).second) {
             std::size_t j{topk.top().second};
             uniques->erase(j);
             topk.pop();
