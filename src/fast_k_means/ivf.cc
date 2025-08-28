@@ -6,6 +6,7 @@
 #include "hierarchical.h"
 #include "../common/utils.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdlib>
 #include <iostream>
@@ -13,6 +14,29 @@
 #include <unordered_set>
 
 namespace {
+
+class CEarlyExit {
+public:
+    void add(float d) {
+        moments_.add(d);
+    }
+
+    bool exit(std::size_t remaining, float distanceToK) const {
+        if (moments_.n() < 12) {
+            return false;
+        }
+        float mean{static_cast<float>(moments_.mean())};
+        float var{static_cast<float>(moments_.var())};
+        if (var == 0) {
+            return mean <= distanceToK;
+        }
+        float z{(distanceToK - mean) / std::sqrtf(2.0F * var)};
+        return 0.5F * (1.0F + std::erff(z)) * remaining < 0.1;
+    }
+
+private:
+    OnlineMeanAndVariance moments_;
+};
 
 std::vector<float> dotAll(const std::vector<float>& x, const std::vector<float>& y) {
     std::size_t dim{x.size()};
@@ -56,7 +80,6 @@ QuantizationState quantize(Metric metric,
             std::move(limits),
             std::move(quantizedVectors)};   
 }
-
 }
 
 CQuantizedIvfIndex::CQuantizedIvfIndex(Metric metric,
@@ -100,7 +123,6 @@ CQuantizedIvfIndex::search(std::size_t probes,
         while (!closest.empty()) {
             std::size_t cluster{closest.top().second};
             comparisons += assignments_[cluster].size();
-            // Brute force search.
             for (auto i : assignments_[cluster]) {
                 updateTopk(k, distance(&query[0], &corpus[i * dim_]), i, topk, &uniqueTopk);
             }
@@ -110,7 +132,7 @@ CQuantizedIvfIndex::search(std::size_t probes,
         return {uniqueTopk, comparisons};
     }
 
-    // Top-k candidates.
+    // Top-"rerank * k" candidates.
     Topk candidates;
     std::unordered_set<std::size_t> uniqueCandidates;
     std::size_t comparisons{0};

@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <queue>
 #include <random>
@@ -177,7 +178,8 @@ int main(int argc, char** argv) {
     std::size_t target{64};
     std::size_t k{100};
     std::size_t bits{1};
-    std::size_t rerank{5};
+    std::size_t rerank{3};
+    float fraction{1.0F};
     Metric metric{Cosine};
     Method method{Method::KMEANS_HIERARCHICAL};
     bool parameterSearch{false};
@@ -188,6 +190,7 @@ int main(int argc, char** argv) {
                       << "[-r <rerank>] [-d <dim>] -f <file1> <file1> ..." << std::endl;
             std::cout << "  --metric <metric> : distance metric (cosine, euclidean, mip)" << std::endl;
             std::cout << "  --method <method> : kmeans method (lloyd, hierarchical)" << std::endl;
+            std::cout << "  --fraction.       : the fraction of the corpus to use" << std::endl;
             std::cout << "  -s                : target cluster size" << std::endl;
             std::cout << "  -p                : parameter search" << std::endl;
             std::cout << "  -k <clusters>     : number of clusters (default: 100)" << std::endl;
@@ -214,6 +217,8 @@ int main(int argc, char** argv) {
             }
         } else if (std::string(argv[i]) == "-s") {
             target = std::stoul(argv[++i]);
+        } else if (std::string(argv[i]) == "--fraction") {
+            fraction = std::stof(argv[++i]);
         } else if (std::string(argv[i]) == "--method") {
             std::string methodStr(argv[++i]);
             if (methodStr == "lloyd") {
@@ -251,6 +256,7 @@ int main(int argc, char** argv) {
     if (!queriesFile.empty()) {
         std::cout << "Loading queries from " << queriesFile << std::endl;
         std::tie(queries, dim) = readFvecs(queriesFile, dim_);
+        queries.resize(std::min(1000UL, queries.size()) * dim);
         std::cout << "Read " << queries.size() / dim << " queries of dimension " << dim << std::endl;
     }
     Dataset corpus;
@@ -265,6 +271,26 @@ int main(int argc, char** argv) {
         dim = d;
     }
     std::cout << "Read " << corpus.size() / dim << " corpus vectors of dimension " << dim << std::endl;
+
+    // Randomly sample a subset of the corpus.
+    if (fraction < 1.0F) {
+        std::cout << "Sampling corpus..." << std::endl;
+        auto sample = [&](const Dataset& dataset) {
+            std::vector<std::size_t> samples;
+            std::vector<std::size_t> candidates(corpus.size() / dim);
+            std::iota(candidates.begin(), candidates.end(), 0);
+            std::sample(candidates.begin(), candidates.end(), std::back_inserter(samples),
+                        static_cast<std::size_t>(fraction * candidates.size()),
+                        std::mt19937{std::random_device{}()});
+            Dataset sampledDataset(samples.size() * dim);
+            for (std::size_t i = 0; i < samples.size(); ++i) {
+                std::copy_n(dataset.begin() + samples[i] * dim, dim, sampledDataset.begin() + i * dim);
+            }
+            return sampledDataset;
+        };
+        corpus = sample(corpus);
+    }
+    std::cout << "Using " << corpus.size() / dim << " corpus vectors" << std::endl;
 
     if (metric == Cosine) {
         std::cout << "Normalizing..." << std::endl;
@@ -361,7 +387,7 @@ int main(int argc, char** argv) {
         }
         case Method::IVF: {
             std::cout << "Testing IVF recall..." << std::endl;
-            ivfRecall(metric, dim, {0.25F, 0.5F, 0.75F, 1.0F, 1.5F, 2.0F}, target, bits, rerank, queries, corpus);
+            ivfRecall(metric, dim, {0.6F, 0.8F, 1.0F, 1.2F, 1.4F}, target, bits, rerank, queries, corpus);
             break;
         }
     }
