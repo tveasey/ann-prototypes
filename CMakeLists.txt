@@ -10,6 +10,11 @@ add_library(common SHARED
     src/common/utils.cc
 )
 
+add_library(centroid_ordering SHARED
+    src/centroid_ordering/annealing.cc
+    src/centroid_ordering/hilbert_encode.cc
+)
+
 add_library(fast_k_means SHARED
     src/fast_k_means/osq/limits_optimization.cc
     src/fast_k_means/osq/preconditioner.cc
@@ -20,8 +25,9 @@ add_library(fast_k_means SHARED
     src/fast_k_means/hierarchical.cc
     src/fast_k_means/ivf.cc
     src/fast_k_means/local.cc
+    src/fast_k_means/optimal_order.cc
 )
-target_link_libraries(fast_k_means common)
+target_link_libraries(fast_k_means common centroid_ordering)
 
 add_library(pq SHARED
     src/pq/benchmark.cc
