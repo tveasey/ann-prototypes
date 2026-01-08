@@ -2,6 +2,7 @@
 #include "common.h"
 #include "hierarchical.h"
 #include "ivf.h"
+#include "optimal_order.h"
 #include "../common/utils.h"
 
 #include <algorithm>
@@ -19,10 +20,11 @@
 #include <sys/types.h>
 
 namespace {
-enum class Method {
+enum class Experiment {
+    CENTROID_REORDERING,
     KMEANS_LLOYD,
     KMEANS_HIERARCHICAL,
-    IVF
+    IVF,
 };
 
 std::pair<std::vector<float>, std::size_t> readFvecs(const std::filesystem::path& file,
@@ -181,7 +183,7 @@ int main(int argc, char** argv) {
     std::size_t rerank{3};
     float fraction{1.0F};
     Metric metric{Cosine};
-    Method method{Method::KMEANS_HIERARCHICAL};
+    Experiment experiment{Experiment::IVF};
     bool parameterSearch{false};
     for (int i = 1; i < argc; ++i) {
         if (std::string(argv[i]) == "-h") {
@@ -189,7 +191,7 @@ int main(int argc, char** argv) {
             std::cout << " [--metric <metric>] [--method <method>] [-p] [-k <clusters>] [-b <bits>] "
                       << "[-r <rerank>] [-d <dim>] -f <file1> <file1> ..." << std::endl;
             std::cout << "  --metric <metric> : distance metric (cosine, euclidean, mip)" << std::endl;
-            std::cout << "  --method <method> : kmeans method (lloyd, hierarchical)" << std::endl;
+            std::cout << "  --experiment <experiment> : experiment to run (lloyd, hierarchical, ivf, centroid_reordering)" << std::endl;
             std::cout << "  --fraction.       : the fraction of the corpus to use" << std::endl;
             std::cout << "  -s                : target cluster size" << std::endl;
             std::cout << "  -p                : parameter search" << std::endl;
@@ -219,16 +221,18 @@ int main(int argc, char** argv) {
             target = std::stoul(argv[++i]);
         } else if (std::string(argv[i]) == "--fraction") {
             fraction = std::stof(argv[++i]);
-        } else if (std::string(argv[i]) == "--method") {
-            std::string methodStr(argv[++i]);
-            if (methodStr == "lloyd") {
-                method = Method::KMEANS_LLOYD;
-            } else if (methodStr == "hierarchical") {
-                method = Method::KMEANS_HIERARCHICAL;
-            } else if (methodStr == "ivf") {
-                method = Method::IVF;
+        } else if (std::string(argv[i]) == "--experiment") {
+            std::string experimentStr(argv[++i]);
+            if (experimentStr == "lloyd") {
+                experiment = Experiment::KMEANS_LLOYD;
+            } else if (experimentStr == "hierarchical") {
+                experiment = Experiment::KMEANS_HIERARCHICAL;
+            } else if (experimentStr == "ivf") {
+                experiment = Experiment::IVF;
+            } else if (experimentStr == "centroid_reordering") {
+                experiment = Experiment::CENTROID_REORDERING;
             } else {
-                std::cout << "Unknown method: " << methodStr << std::endl;
+                std::cout << "Unknown experiment: " << experimentStr << std::endl;
                 return 1;
             }
         } else if (std::string(argv[i]) == "--metric") {
@@ -364,8 +368,8 @@ int main(int argc, char** argv) {
     pickInitialCenters(dim, corpus, sampleSize, k, initialCenters);
 
     // --- Run K-Means ---
-    switch (method) {
-        case Method::KMEANS_LLOYD: {
+    switch (experiment) {
+        case Experiment::KMEANS_LLOYD: {
             std::cout << "Running K-Means with k=" << k << "..." << std::endl;
             std::cout << "Using Lloyd's algorithm" << std::endl;
             KMeansResult result;
@@ -376,7 +380,7 @@ int main(int argc, char** argv) {
             std::cout << "Average distance to final centers: " << result.computeDispersion(dim, corpus) << std::endl;
             break;
         }
-        case Method::KMEANS_HIERARCHICAL: {
+        case Experiment::KMEANS_HIERARCHICAL: {
             std::cout << "Running K-Means..." << std::endl;
             std::cout << "Using Hierarchical K-Means" << std::endl;
             HierarchicalKMeansResult result;
@@ -385,9 +389,14 @@ int main(int argc, char** argv) {
             std::cout << "Average distance to final centers: " << result.computeDispersion(dim, corpus) << std::endl;
             break;
         }
-        case Method::IVF: {
+        case Experiment::IVF: {
             std::cout << "Testing IVF recall..." << std::endl;
             ivfRecall(metric, dim, {0.6F, 0.8F, 1.0F, 1.2F, 1.4F}, target, bits, rerank, queries, corpus);
+            break;
+        }
+        case Experiment::CENTROID_REORDERING: {
+            std::cout << "Running Centroid Reordering Experiment..." << std::endl;
+            reorderCentroids(dim, corpus, target);
             break;
         }
     }
