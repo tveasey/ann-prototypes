@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <iostream>
 #include <numeric>
 #include <queue>
 #include <unordered_map>
@@ -155,7 +156,8 @@ float localSearchRefinement(std::size_t dim,
 
     // For efficiency we approximate use the distance from the centroid
     // as a proxy for delta cost.
-    auto approxMinSwapCostSearch = [](const auto& centroids, auto a, auto b, auto lhs) {
+    auto approxMinSwapCostSearch = [](const auto& centroids,
+                                      auto a, auto b, auto lhs) {
         float minDCost{INF};
         std::size_t rhs{lhs};
         for (std::size_t j = a; j < b; ++j) {
@@ -196,7 +198,7 @@ float localSearchRefinement(std::size_t dim,
     //   5. Move the window position and repeat.
 
     std::vector<std::size_t> candidiates;
-    std::vector<float> maxCosts;
+    std::vector<float> costs;
     std::vector<float> centroids;
 
     float totalCostReduction{0.0F};
@@ -206,7 +208,7 @@ float localSearchRefinement(std::size_t dim,
 
         candidiates.resize(b - a);
         std::iota(candidiates.begin(), candidiates.end(), 0);
-        maxCosts.resize(b - a, 0.0F);
+        costs.resize(b - a, 0.0F);
         centroids.resize(b - a, 0.0F);
 
         for (std::size_t j = a; j < b; ++j) {
@@ -219,20 +221,23 @@ float localSearchRefinement(std::size_t dim,
                 centroid += weight * k;
                 Z += weight;
             }
-            maxCosts[j - a] = cost;
+            costs[j - a] = cost;
             centroids[j - a] = centroid / Z;
         }
 
-        // Find the highest four cost candidates.
+        // Find the highest cost candidates.
         std::partial_sort(
             candidiates.begin(), candidiates.begin() + window / 16,
             candidiates.end(),
             [&](std::size_t lhs, std::size_t rhs) {
-                return maxCosts[lhs] > maxCosts[rhs];
+                return costs[lhs] > costs[rhs];
             }
         );
 
-        // We ignore stale centroids since we always validate the swap cost.
+        // We ignore indirect impact on costs and centroids even though these
+        // can change because we always validate using up-to-date costs when
+        // deciding if a swap.
+
         for (std::size_t j = 0; j < window / 16; ++j) {
             std::size_t maxPos{candidiates[j]};
             if (centroids[maxPos] < static_cast<float>(a + maxPos)) {
@@ -241,9 +246,8 @@ float localSearchRefinement(std::size_t dim,
                 };
                 float dcost{swapCost(a + maxPos, a + cand)};
                 if (dcost < 0.0F) {
-                    std::size_t temp{a + maxPos};
-                    permutation[a + maxPos] = permutation[a + cand];
-                    permutation[a + cand] = permutation[temp];
+                    std::swap(permutation[a + maxPos], permutation[a + cand]);
+                    std::swap(centroids[maxPos], centroids[cand]);
                     totalCostReduction -= dcost;
                 }
             } else if (centroids[maxPos] > static_cast<float>(a + maxPos)) {
@@ -252,9 +256,8 @@ float localSearchRefinement(std::size_t dim,
                 };
                 float dcost{swapCost(a + maxPos, a + cand)};
                 if (dcost < 0.0F) {
-                    std::size_t temp{a + maxPos};
-                    permutation[a + maxPos] = permutation[a + cand];
-                    permutation[a + cand] = permutation[temp];
+                    std::swap(permutation[a + maxPos], permutation[a + cand]);
+                    std::swap(centroids[maxPos], centroids[cand]);
                     totalCostReduction -= dcost;
                 }
             }
@@ -283,12 +286,11 @@ Permutation annealingOrder(std::size_t dim,
 
     recursiveBinaryPartition(dim, 0, n, refinements, neighbourhoods_, permutation);
 
+    // Annealing style local search refinements with decreasing window sizes.
     for (auto window : {128, 64, 32, 16}) {
         float costReduction{localSearchRefinement(dim, window, neighbourhoods_, permutation)};
-        if (costReduction < 1e-5F) {
-            // Local minimum reached.
-            break;
-        }
+        std::cout << "Window size: " << window
+                  << ", cost reduction: " << costReduction << std::endl;
     }
 
     return permutation;
