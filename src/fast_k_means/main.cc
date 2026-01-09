@@ -177,7 +177,7 @@ int main(int argc, char** argv) {
     std::optional<int> dim_;
     std::string queriesFile;
     std::vector<std::string> corpusFiles;
-    std::size_t target{64};
+    std::size_t target{256};
     std::size_t k{100};
     std::size_t bits{1};
     std::size_t rerank{3};

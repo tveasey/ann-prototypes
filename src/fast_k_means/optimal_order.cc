@@ -20,7 +20,8 @@ void reorderCentroids(std::size_t dim,
     std::cout << "Average distance to final centers: " << result.computeDispersion(dim, corpus) << std::endl;
 
     std::cout << "Computing optimal centroid ordering..." << std::endl;
-    auto permutation = annealingOrder(dim, result.finalCentersFlat());
+    Permutation permutation;
+    time([&] { permutation = annealingOrder(dim, result.finalCentersFlat()); }, "Annealing Order");
 
     // Compute cosine similarity martix before and after reordering.
 
