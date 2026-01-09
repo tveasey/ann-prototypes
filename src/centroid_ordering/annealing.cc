@@ -1,23 +1,43 @@
 #include "annealing.h"
 
+#include "../common/utils.h"
+
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <iostream>
 #include <numeric>
 #include <queue>
+#include <random>
 #include <unordered_map>
 #include <vector>
 
 using Points = std::vector<float>;
 using ConstPoint = const float*;
-using Neighbourhood = std::unordered_map<std::size_t, float>;
-using Neighbourhoods = std::vector<Neighbourhood>;
+using NodeEdges = std::unordered_map<std::size_t, float>;
+using GraphEdges = std::vector<NodeEdges>;
 using Distances = std::vector<float>;
 using Permutation = std::vector<std::size_t>;
 
 namespace {
 
 float INF{std::numeric_limits<float>::max()};
+
+float sign(float x) {
+    return (x > 0) - (x < 0);
+}
+
+float pow2(std::size_t x) {
+    return static_cast<float>(x * x);
+}
+
+float pow2(float x) {
+    return x * x;
+}
+
+float sigmoid(float x) {
+    return 1.0F / (1.0F + std::expf(-x));
+}
 
 float euclidean2(std::size_t dim,
                  ConstPoint x,
@@ -30,11 +50,9 @@ float euclidean2(std::size_t dim,
     return dist;
 }
 
-Neighbourhoods neighbourhoods(std::size_t dim,
-                              const Points& x,
-                              std::size_t k) {
+GraphEdges knnEdges(std::size_t dim, const Points& x, std::size_t k) {
     std::size_t n{x.size() / dim};
-    Neighbourhoods result(n);
+    GraphEdges edges(n);
     std::priority_queue<std::pair<float, std::size_t>> knn;
     for (std::size_t i = 0, id = 0; id < x.size(); ++i, id += dim) {
         for (std::size_t j = 0, jd = 0; jd < n * dim; ++j, jd += dim) {
@@ -43,111 +61,175 @@ Neighbourhoods neighbourhoods(std::size_t dim,
             }
             float dist{euclidean2(dim, &x[id], &x[jd])};
             if (knn.size() < k) {
-                knn.emplace(dist, jd);
+                knn.emplace(dist, j);
             } else if (dist < knn.top().first) {
                 knn.pop();
-                knn.emplace(dist, jd);
+                knn.emplace(dist, j);
             }
         }
         while (!knn.empty()) {
-            result[i].emplace(knn.top().second, 0.0F);
+            edges[i].emplace(knn.top().second, std::sqrtf(knn.top().first));
             knn.pop();
         }
     }
-    return result;
+
+    // Add an edge to j for each edge from i to j.
+    for (std::size_t i = 0; i < n; ++i) {
+        for (const auto& [j, dist] : edges[i]) {
+            edges[j].emplace(i, dist);
+        }
+    }
+
+    return edges;
 }
 
-Distances avgKnnDistance(std::size_t dim,
-                         const Points& x,
-                         const Neighbourhoods& neighbourhoods) {
-    std::size_t n{x.size() / dim};
-    Distances avgDistances(n, 0.0F);
-    for (std::size_t i = 0, id = 0; id < x.size(); ++i, id += dim) {
+Distances avgEdgeLengthByVertex(const GraphEdges& edges) {
+    Distances avgDistances(edges.size(), 0.0F);
+    for (std::size_t i = 0; i < edges.size(); ++i) {
         float totalDist{0.0F};
-        for (const auto& [jd, _] : neighbourhoods[i]) {
-            totalDist += std::sqrtf(euclidean2(dim, &x[id], &x[jd]));
+        for (const auto& [_, dist] : edges[i]) {
+            totalDist += dist;
         }
-        avgDistances[i] = totalDist / static_cast<float>(neighbourhoods[i].size());
+        avgDistances[i] = totalDist / static_cast<float>(edges[i].size());
     }
     return avgDistances;
 }
 
-void computeWeights(std::size_t dim,
-                    const Points& x,
-                    const Distances& avgDistances,
-                    Neighbourhoods& neighbourhoods) {
+void computeEdgeWeights(std::size_t dim,
+                        const Points& x,
+                        const Distances& avgDistances,
+                        GraphEdges& edges) {
     std::size_t n{x.size() / dim};
-    for (std::size_t i = 0, id = 0; id < x.size(); ++i, id += dim) {
-        float cost{0.0F};
-        std::size_t j{0};
-        for (auto& [jd, weight] : neighbourhoods[i]) {
-            float avg{0.5F * (avgDistances[i] + avgDistances[jd / dim])};
-            weight = avg / (1e-8 * avg + std::sqrtf(euclidean2(dim, &x[id], &x[jd])));
+    for (std::size_t i = 0; i < n; ++i) {
+        for (auto& [j, weight] : edges[i]) {
+            float avg{0.5F * (avgDistances[i] + avgDistances[j])};
+            // Cap the maximum weight to 5.
+            weight = avg == 0.0 ? 5.0F : avg / (0.2F * avg + weight);
         }
     }
 }
 
-void recursiveBinaryPartition(std::size_t dim, 
+float averageVertexEdgeWeight(const GraphEdges& edges) {
+    float totalWeight{0.0F};
+    std::size_t vertexCount{0};
+    for (std::size_t i = 0; i < edges.size(); ++i) {
+        for (const auto& [_, weight] : edges[i]) {
+            totalWeight += weight;
+        }
+        ++vertexCount;
+    }
+    return totalWeight / static_cast<float>(vertexCount);
+}
+
+float permutationCost(std::size_t dim,
+                      std::size_t k,
+                      const GraphEdges& edges,
+                      const Permutation& permutation) {
+    float cost{0.0F};
+    std::size_t n{permutation.size()};
+    for (std::size_t i = 0; i < n; ++i) {
+        for (const auto& [j_, weight] : edges[permutation[i]]) {
+            std::size_t j{permutation[j_]};
+            cost += weight * pow2(j - i);
+        }
+    }
+    cost *= 0.5F / static_cast<float>(n * k);
+    return cost;
+}
+
+void recursiveMinCutPartition(std::size_t dim, 
                               std::size_t a,
                               std::size_t b,
-                              std::size_t refinements,
-                              const Neighbourhoods& neighbourhoods,
-                              Permutation& permutation) {
+                              const GraphEdges& edges,
+                              Permutation& permutation,
+                              std::size_t minPartitionSize = 16) {
 
-    // Recursive binary partition assigning points to one of the intervals
-    // [a, (a+b)/2) or [(a+b)/2, b) based on their neighbourhood assignments.
-    // This provides a good global ordering that can be further refined.
+    // Recursive binary partitioning that tries to minimize the cut cost
+    // between the two halves. This is calculated based on the initial
+    // positions of the vertices in permutation. Vertices that move between
+    // halves are inserted at the position determined by the weighted
+    // centroid of their neighbours.
 
-    if (b - a <= 1) {
+    if (b - a <= minPartitionSize) {
         return;
     }
+    
+    std::mt19937 rng(21696172);
+    auto uniform01 = [&] {
+        std::uniform_real_distribution<float> dist(0.0F, 1.0F);
+        return dist(rng);
+    };
 
+    // This uses an iterative refinement approach to improve the cut. Costs
+    // are computed with all vertices at their current positions. Pairs are
+    // identified to swap between the two halves and are made with probability
+    // monotonic increasing with reduction in cost. Costs are updated after a
+    // single round of swaps and the process is repeated for a number for
+    // decreasing temperature. It's essentially an annealing variant of the
+    // Kernighan–Lin algorithm.
     std::vector<std::size_t> order(b - a);
-    std::vector<float> biases(b - a, 0.0F);
-    for (std::size_t i = 0; i < refinements; ++i) {
-        // If a neighbour of the i'th point is in
-        //   - [a, (a+b)/2) it contributes -weight to cost
-        //   - [(a+b)/2, b) it contributes +weight to cost
-        //   - else it contributes 0 to cost
+    std::vector<float> dcosts(b - a);
+    std::vector<std::tuple<float, std::size_t>> centroids(b - a);
+    std::vector<std::tuple<std::size_t, std::size_t>> swapped;
+    float margin{0.08F * averageVertexEdgeWeight(edges)};
+    for (float T : {2.0F, 1.0F, 0.5F, 0.25F, 0.125F}) {
+        // For each vertex compute the cost of assigning a vertex to the left
+        // partition minus the cost of assigning it to the right partition.
+        float totalCost{0.0F};
+        //swapped.clear();
         for (std::size_t j = a; j < b; ++j) {
-            float bias{0.0F};
-            for (const auto& [kd, weight] : neighbourhoods[permutation[j]]) {
-                // Get current position of neighbour.
-                std::size_t k{permutation[kd / dim]}; 
-                if (k >= a && k < (a + b) / 2) {
-                    bias -= weight;
-                } else if (k >= (a + b) / 2 && k < b) {
-                    bias += weight;
+            float rcost{0.0F};
+            float lcost{0.0F};
+            for (const auto& [k_, weight] : edges[permutation[j]]) {
+                std::size_t k{permutation[k_]};
+                if (k < (a + b) / 2) {
+                    rcost += weight;
+                } else {
+                    lcost += weight;
                 }
             }
-            biases[j - a] = bias;
+            // Store the bias in centroids temporarily.
+            dcosts[j - a] = lcost - rcost;
+            totalCost += j < (a + b) / 2 ? lcost : rcost;
         }
 
-        // Points are currently at permutation[a .. b-1]. Reorder them
-        // based on bias (negative means point prefers the first half).
-        // Break ties by the current order.
-        std::iota(order.begin(), order.end(), 0);
-        std::sort(order.begin(), order.end(),
-                  [&](std::size_t lhs, std::size_t rhs) {
-                      if (biases[lhs] != biases[rhs]) {
-                          return biases[lhs] < biases[rhs];
-                      }
-                      return permutation[a + lhs] < permutation[a + rhs];
-                  });
+        //std::cout << "  Partition [" << a << ", " << b << ") at temperature "
+        //          << T << " cost: "
+        //          << totalCost / static_cast<float>(b - a) << std::endl;
 
-        // Update the permutation.
-        for (std::size_t j = a; j < b; ++j) {
-            permutation[j] = permutation[a + order[j - a]];
+        // dcosts is in current vertex order so the left partition is the first
+        // (a+b)/2 elements and the right partition is the last (a+b)/2 elements.
+        // We want to swap vertices (i, j) for i in left and j in right where
+        // d[i] > d[j] to reduce cost.
+        std::iota(order.begin(), order.end(), 0);
+        std::sort(order.begin(), order.begin() + (b - a) / 2,
+                  [&](std::size_t lhs, std::size_t rhs) {
+                      return dcosts[lhs] > dcosts[rhs];
+                  });
+        std::sort(order.begin() + (b - a) / 2, order.end(),
+                  [&](std::size_t lhs, std::size_t rhs) {
+                      return dcosts[lhs] < dcosts[rhs];
+                  });
+        for (std::size_t j = 0; j < (b - a) / 2; ++j) {
+            std::size_t lhs{order[j]};
+            std::size_t rhs{order[(b - a) / 2 + j]};
+            float acceptanceLogit{
+                (dcosts[lhs] - dcosts[rhs] - margin) / (T * margin)
+            };
+            if (uniform01() < sigmoid(acceptanceLogit)) {
+                std::swap(permutation[a + lhs], permutation[a + rhs]);
+                //swapped.emplace_back(lhs, rhs);
+            }
         }
     }
 
     // Recurse on the two halves.
     std::size_t mid{(a + b) / 2};
-    recursiveBinaryPartition(dim, a, mid, refinements, neighbourhoods, permutation);
-    recursiveBinaryPartition(dim, mid, b, refinements, neighbourhoods, permutation);
+    recursiveMinCutPartition(dim, a, mid, refinements, edges, permutation);
+    recursiveMinCutPartition(dim, mid, b, refinements, edges, permutation);
 }
 
-float localSearchRefinement(std::size_t dim,
+/*float localSearchRefinement(std::size_t dim,
                             std::size_t window,
                             const Neighbourhoods& neighbourhoods,
                             Permutation& permutation) {
@@ -177,13 +259,13 @@ float localSearchRefinement(std::size_t dim,
             return 0.0F;
         }
         float dcost{0.0F};
-        for (const auto& [kd, weight] : neighbourhoods[permutation[lhs]]) {
-            std::size_t k{permutation[kd / dim]};
+        for (const auto& [k_, weight] : neighbourhoods[permutation[lhs]]) {
+            std::size_t k{permutation[k_]};
             dcost += weight * (  (std::max(rhs, k) - std::min(rhs, k))
                                - (std::max(lhs, k) - std::min(lhs, k)));
         }
-        for (const auto& [kd, weight] : neighbourhoods[permutation[rhs]]) {
-            std::size_t k{permutation[kd / dim]};
+        for (const auto& [k_, weight] : neighbourhoods[permutation[rhs]]) {
+            std::size_t k{permutation[k_]};
             dcost += weight * (  (std::max(lhs, k) - std::min(lhs, k))
                                - (std::max(rhs, k) - std::min(rhs, k)));
         }
@@ -227,7 +309,7 @@ float localSearchRefinement(std::size_t dim,
 
         // Find the highest cost candidates.
         std::partial_sort(
-            candidiates.begin(), candidiates.begin() + window / 16,
+            candidiates.begin(), candidiates.begin() + window / 8,
             candidiates.end(),
             [&](std::size_t lhs, std::size_t rhs) {
                 return costs[lhs] > costs[rhs];
@@ -238,7 +320,7 @@ float localSearchRefinement(std::size_t dim,
         // can change because we always validate using up-to-date costs when
         // deciding if a swap.
 
-        for (std::size_t j = 0; j < window / 16; ++j) {
+        for (std::size_t j = 0; j < window / 8; ++j) {
             std::size_t maxPos{candidiates[j]};
             if (centroids[maxPos] < static_cast<float>(a + maxPos)) {
                 std::size_t cand{
@@ -265,7 +347,7 @@ float localSearchRefinement(std::size_t dim,
     }
 
     return totalCostReduction;
-}
+}*/
 
 } // namespace
 
@@ -274,24 +356,23 @@ Permutation annealingOrder(std::size_t dim,
                            std::size_t k,
                            std::size_t refinements) {
 
-    Neighbourhoods neighbourhoods_{neighbourhoods(dim, x, k)};
+    GraphEdges edges{knnEdges(dim, x, k)};
 
-    Distances avgDistances{avgKnnDistance(dim, x, neighbourhoods_)};
+    Distances avgDistances{avgEdgeLengthByVertex(edges)};
 
-    computeWeights(dim, x, avgDistances, neighbourhoods_);
+    computeEdgeWeights(dim, x, avgDistances, edges);
 
     std::size_t n{x.size() / dim};
     Permutation permutation(n);
     std::iota(permutation.begin(), permutation.end(), 0);
 
-    recursiveBinaryPartition(dim, 0, n, refinements, neighbourhoods_, permutation);
+    std::cout << "Average cost before partitioning: "
+              << permutationCost(dim, k, edges, permutation) << std::endl;
 
-    // Annealing style local search refinements with decreasing window sizes.
-    for (auto window : {128, 64, 32, 16}) {
-        float costReduction{localSearchRefinement(dim, window, neighbourhoods_, permutation)};
-        std::cout << "Window size: " << window
-                  << ", cost reduction: " << costReduction << std::endl;
-    }
+    recursiveMinCutPartition(dim, 0, n, edges, permutation);
+
+    std::cout << "Average cost after partitioning: "
+              << permutationCost(dim, k, edges, permutation) << std::endl;
 
     return permutation;
 }

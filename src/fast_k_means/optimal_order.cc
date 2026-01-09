@@ -48,7 +48,7 @@ void reorderCentroids(std::size_t dim,
     Permutation identityPermutation(permutation.size());
     std::iota(identityPermutation.begin(), identityPermutation.end(), 0UL);
 
-    auto simMatrixBefore{computeCosineSimilarity(identityPermutation, normalizedCenters)};
+    /*auto simMatrixBefore{computeCosineSimilarity(identityPermutation, normalizedCenters)};
     std::cout << "Cosine Similarity Matrix Before Reordering:" << std::endl;
     std::cout << std::fixed << std::setprecision(4);
     std::cout << "before = [" << std::endl;
@@ -71,5 +71,5 @@ void reorderCentroids(std::size_t dim,
         }
         std::cout << "]" << std::endl;
     }
-    std::cout << "];" << std::endl;
+    std::cout << "];" << std::endl;*/
 }
