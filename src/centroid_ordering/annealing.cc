@@ -292,7 +292,7 @@ Permutation annealingOrder(std::size_t dim,
             minPtov = ptov;
             minVtop = vtop;
         }
-        if (4 * i / 3 < probes) {
+        if (2 * i < probes) {
             std::iota(ptov.begin(), ptov.end(), 0);
             std::iota(vtop.begin(), vtop.end(), 0);
         } else {
