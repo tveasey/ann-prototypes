@@ -14,6 +14,7 @@ add_library(centroid_ordering SHARED
     src/centroid_ordering/annealing.cc
     src/centroid_ordering/hilbert_encode.cc
 )
+target_link_libraries(centroid_ordering common)
 
 add_library(fast_k_means SHARED
     src/fast_k_means/osq/limits_optimization.cc

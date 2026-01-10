@@ -9,12 +9,11 @@
 #include <numeric>
 #include <queue>
 #include <random>
-#include <unordered_map>
 #include <vector>
 
 using Points = std::vector<float>;
 using ConstPoint = const float*;
-using NodeEdges = std::unordered_map<std::size_t, float>;
+using NodeEdges = std::vector<std::pair<std::size_t, float>>;
 using GraphEdges = std::vector<NodeEdges>;
 using Distances = std::vector<float>;
 using Permutation = std::vector<std::size_t>;
@@ -23,21 +22,15 @@ namespace {
 
 float INF{std::numeric_limits<float>::max()};
 
-float sign(float x) {
-    return (x > 0) - (x < 0);
+inline float diff(std::size_t i, std::size_t j) {
+    return static_cast<float>(i < j ? j - i : i - j);
 }
 
-float diff(std::size_t i, std::size_t j) {
-    return static_cast<float>(std::max(i, j) - std::min(i, j));
-}
-
-float sigmoid(float x) {
+inline float sigmoid(float x) {
     return 1.0F / (1.0F + std::expf(-x));
 }
 
-float euclidean2(std::size_t dim,
-                 ConstPoint x,
-                 ConstPoint y) {
+float euclidean2(std::size_t dim, ConstPoint x, ConstPoint y) {
     float dist{0.0F};
     for (std::size_t d = 0; d < dim; ++d) {
         float diff{x[d] - y[d]};
@@ -49,31 +42,45 @@ float euclidean2(std::size_t dim,
 GraphEdges knnEdges(std::size_t dim, const Points& x, std::size_t k) {
     std::size_t n{x.size() / dim};
     GraphEdges edges(n);
-    std::priority_queue<std::pair<float, std::size_t>> knn;
-    for (std::size_t i = 0, id = 0; id < x.size(); ++i, id += dim) {
-        for (std::size_t j = 0, jd = 0; jd < n * dim; ++j, jd += dim) {
-            if (i == j) {
-                continue;
-            }
+    std::vector<std::priority_queue<std::pair<float, std::size_t>>> knn(n);
+    for (std::size_t i = 0, id = 0; i < n; ++i, id += dim) {
+        for (std::size_t j = 0, jd = 0; j < i; ++j, jd += dim) {
             float dist{euclidean2(dim, &x[id], &x[jd])};
-            if (knn.size() < k) {
-                knn.emplace(dist, j);
-            } else if (dist < knn.top().first) {
-                knn.pop();
-                knn.emplace(dist, j);
+            if (knn[i].size() < k) {
+                knn[i].emplace(dist, j);
+            } else if (dist < knn[i].top().first) {
+                knn[i].pop();
+                knn[i].emplace(dist, j);
+            }
+            if (knn[j].size() < k) {
+                knn[j].emplace(dist, i);
+            } else if (dist < knn[j].top().first) {
+                knn[j].pop();
+                knn[j].emplace(dist, i);
             }
         }
-        while (!knn.empty()) {
-            edges[i].emplace(knn.top().second, std::sqrtf(knn.top().first));
-            knn.pop();
+    }
+    for (std::size_t i = 0; i < n; ++i) {
+        while (!knn[i].empty()) {
+            auto [dist2, j] = knn[i].top();
+            edges[i].emplace_back(j, std::sqrtf(dist2));
+            knn[i].pop();
         }
     }
 
     // Add an edge to j for each edge from i to j.
     for (std::size_t i = 0; i < n; ++i) {
         for (const auto& [j, dist] : edges[i]) {
-            edges[j].emplace(i, dist);
+            edges[j].emplace_back(i, dist);
         }
+    }
+    // If i -> j and j -> i don't duplicate the edge.
+    for (std::size_t i = 0; i < n; ++i) {
+        std::sort(edges[i].begin(), edges[i].end());
+        edges[i].erase(std::unique(edges[i].begin(), edges[i].end(),
+                                   [](const auto& lhs, const auto& rhs) {
+                                       return lhs.first == rhs.first;
+                                   }), edges[i].end());
     }
 
     return edges;
@@ -122,8 +129,9 @@ float permutationCost(const GraphEdges& edges,
                       const Permutation& vtop) {
     float cost{0.0F};
     std::size_t endpoints{0};
-    for (std::size_t i = 0; i < ptov.size(); ++i) {
-        for (const auto& [j_, weight] : edges[ptov[i]]) {
+    for (std::size_t i_ = 0; i_ < edges.size(); ++i_) {
+        std::size_t i{vtop[i_]};
+        for (const auto& [j_, weight] : edges[i_]) {
             std::size_t j{vtop[j_]};
             cost += weight * diff(i, j);
             ++endpoints;
@@ -267,6 +275,7 @@ Permutation annealingOrder(std::size_t dim,
     Distances avgDistances{avgEdgeLengthByVertex(edges)};
 
     computeEdgeWeights(dim, x, avgDistances, edges);
+
     // This should be parameterised by degree if it varies significantly
     // between vertices.
     float margin{0.08F * averageVertexEdgeWeight(edges)};
@@ -283,33 +292,34 @@ Permutation annealingOrder(std::size_t dim,
     std::random_device rd;
     std::mt19937 rng(rd());
 
-    float minCost{INF};
     Permutation minPtov{ptov};
     Permutation minVtop{vtop};
-    for (std::size_t i = 0; i < probes; ++i) { 
-        recursiveMinCutPartition(rng, 0, n, edges, ptov, vtop, margin);
-        float cost{permutationCost(edges, ptov, vtop)};
-        //std::cout << "  Cost after probe " << (i + 1) << ": " << cost << std::endl;
-        if (cost < minCost) {
-            minCost = cost;
-            minPtov = ptov;
-            minVtop = vtop;
+    time([&] {
+        float minCost{INF};
+        for (std::size_t i = 0; i < probes; ++i) { 
+            recursiveMinCutPartition(rng, 0, n, edges, ptov, vtop, margin);
+            float cost{permutationCost(edges, ptov, vtop)};
+            //std::cout << "  Cost after probe " << (i + 1) << ": " << cost << std::endl;
+            if (cost < minCost) {
+                minCost = cost;
+                minPtov = ptov;
+                minVtop = vtop;
+            }
+            if (2 * i < probes) {
+                std::iota(ptov.begin(), ptov.end(), 0);
+                std::iota(vtop.begin(), vtop.end(), 0);
+            } else {
+                ptov = minPtov;
+                vtop = minVtop;
+            }
         }
-        if (2 * i < probes) {
-            std::iota(ptov.begin(), ptov.end(), 0);
-            std::iota(vtop.begin(), vtop.end(), 0);
-        } else {
-            ptov = minPtov;
-            vtop = minVtop;
-        }
-    }
-    std::cout << "Average cost after partitioning: "
-              << permutationCost(edges, minPtov, minVtop) << std::endl;
+        std::cout << "Average cost after partitioning: "
+                  << permutationCost(edges, minPtov, minVtop) << std::endl;
+    }, "Recursive Min-Cut Partitioning");
 
-    local1Opt(edges, minPtov, minVtop);
+    time([&] { local1Opt(edges, minPtov, minVtop); }, "Local 1-Opt Refinement");
     std::cout << "Average cost after local 1-opt: "
               << permutationCost(edges, minPtov, minVtop) << std::endl;
 
     return minPtov;
 }
-
