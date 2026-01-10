@@ -220,7 +220,7 @@ void recursiveMinCutPartition(std::mt19937 &rng,
     recursiveMinCutPartition(rng, mid, b, edges, ptov, vtop);
 }
 
-void local2Opt(const GraphEdges& edges,
+void local1Opt(const GraphEdges& edges,
                Permutation& ptov,
                Permutation& vtop,
                std::size_t maxRounds = 128) {
@@ -292,14 +292,19 @@ Permutation annealingOrder(std::size_t dim,
             minPtov = ptov;
             minVtop = vtop;
         }
-        std::iota(ptov.begin(), ptov.end(), 0);
-        std::iota(vtop.begin(), vtop.end(), 0);
+        if (4 * i / 3 < probes) {
+            std::iota(ptov.begin(), ptov.end(), 0);
+            std::iota(vtop.begin(), vtop.end(), 0);
+        } else {
+            ptov = minPtov;
+            vtop = minVtop;
+        }
     }
     std::cout << "Average cost after partitioning: "
               << permutationCost(edges, minPtov, minVtop) << std::endl;
 
-    local2Opt(edges, minPtov, minVtop);
-    std::cout << "Average cost after local 2-opt: "
+    local1Opt(edges, minPtov, minVtop);
+    std::cout << "Average cost after local 1-opt: "
               << permutationCost(edges, minPtov, minVtop) << std::endl;
 
     return minPtov;

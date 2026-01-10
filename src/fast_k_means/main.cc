@@ -401,6 +401,6 @@ int main(int argc, char** argv) {
         }
     }
 
-    std::cout << "--- End Results ---" << std::endl;
+    std::cout << "--- End Results ---\n" << std::endl;
 }
 
