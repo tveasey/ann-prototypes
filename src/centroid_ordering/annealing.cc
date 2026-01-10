@@ -138,7 +138,8 @@ void recursiveMinCutPartition(std::mt19937 &rng,
                               const GraphEdges& edges,
                               Permutation& ptov,
                               Permutation& vtop,
-                              std::size_t minPartitionSize = 4) {
+                              float margin,
+                              std::size_t minPartitionSize = 8) {
 
     // Recursive binary partitioning to minimize the cut weight at each level.
 
@@ -146,10 +147,8 @@ void recursiveMinCutPartition(std::mt19937 &rng,
         return;
     }
 
-    auto uniform01 = [&] {
-        std::uniform_real_distribution<float> dist(0.0F, 1.0F);
-        return dist(rng);
-    };
+    std::uniform_real_distribution<float> dist(0.0F, 1.0F);
+    auto uniform01 = [&] { return dist(rng); };
 
     // This uses an iterative refinement approach to improve the cut. Weights
     // are computed with all vertices at their current positions. Pair swaps
@@ -160,64 +159,65 @@ void recursiveMinCutPartition(std::mt19937 &rng,
     // allow stale weights because swapping choices are made probabilistically
     // anyway.
 
-    std::vector<std::size_t> costOrder(b - a);
+    std::size_t mid{(a + b) / 2};
+
+    std::vector<std::size_t> dcostOrder(b - a);
     std::vector<float> dcosts(b - a);
-    float margin{0.08F * averageVertexEdgeWeight(edges)};
     for (float T : {8.0F, 4.0F, 2.0F, 1.0F, 0.5F, 0.25F}) {
+
         // For each vertex compute the cost of assigning a vertex to the left
         // partition minus the cost of assigning it to the right partition.
-        float totalCost{0.0F};
+        //float totalCost{0.0F};
         for (std::size_t j = a; j < b; ++j) {
             float rcost{0.0F};
             float lcost{0.0F};
             for (const auto& [k_, weight] : edges[ptov[j]]) {
-                std::size_t k{vtop[k_]};
-                if (k < (a + b) / 2) {
-                    rcost += weight;
-                } else {
-                    lcost += weight;
-                }
+                (vtop[k_] < mid ? rcost : lcost) += weight;
             }
             dcosts[j - a] = lcost - rcost;
-            totalCost += j < (a + b) / 2 ? lcost : rcost;
+            //totalCost += j < mid ? lcost : rcost;
         }
-
         //std::cout << "  Partition [" << a << ", " << b << ") at temperature "
         //          << T << " cost: "
         //          << totalCost / static_cast<float>(b - a) << std::endl;
 
         // dcosts is in current vertex order so the left partition is the first
         // (a+b)/2 elements and the right partition is the last (a+b)/2 elements.
-        std::iota(costOrder.begin(), costOrder.end(), 0);
-        std::sort(costOrder.begin(), costOrder.begin() + (b - a) / 2,
+        std::iota(dcostOrder.begin(), dcostOrder.end(), 0);
+        std::sort(dcostOrder.begin(), dcostOrder.begin() + (mid - a),
                   [&](std::size_t lhs, std::size_t rhs) {
                       return dcosts[lhs] > dcosts[rhs];
                   });
-        std::sort(costOrder.begin() + (b - a) / 2, costOrder.end(),
+        std::sort(dcostOrder.begin() + (mid - a), dcostOrder.end(),
                   [&](std::size_t lhs, std::size_t rhs) {
                       return dcosts[lhs] < dcosts[rhs];
                   });
 
         // We want to swap vertices (i, j) for i in left and j in right where
         // d[i] > d[j] to reduce the cut cost.
-        for (std::size_t j = 0; j < (b - a) / 2; ++j) {
-            std::size_t lhs{costOrder[j]};
-            std::size_t rhs{costOrder[(b - a) / 2 + j]};
+        for (std::size_t j = 0; j < mid - a; ++j) {
+            std::size_t lhs{dcostOrder[j]};
+            std::size_t rhs{dcostOrder[mid - a + j]};
             float acceptanceLogit{
                 (dcosts[lhs] - dcosts[rhs] - margin) / (T * margin)
             };
             if (uniform01() < sigmoid(acceptanceLogit)) {
-                std::swap(ptov[a + lhs], ptov[a + rhs]);
-                vtop[ptov[a + lhs]] = a + lhs;
-                vtop[ptov[a + rhs]] = a + rhs;
+                lhs += a;
+                rhs += a;
+                std::swap(ptov[lhs], ptov[rhs]);
+                vtop[ptov[lhs]] = lhs;
+                vtop[ptov[rhs]] = rhs;
+            }
+            if (acceptanceLogit < -10.0F) {
+                // Early exit since further swaps are very unlikely.
+                break;
             }
         }
     }
 
-    // Recurse on the two split.
-    std::size_t mid{(a + b) / 2};
-    recursiveMinCutPartition(rng, a, mid, edges, ptov, vtop);
-    recursiveMinCutPartition(rng, mid, b, edges, ptov, vtop);
+    // Recurse on the 2-split.
+    recursiveMinCutPartition(rng, a, mid, edges, ptov, vtop, margin);
+    recursiveMinCutPartition(rng, mid, b, edges, ptov, vtop, margin);
 }
 
 void local1Opt(const GraphEdges& edges,
@@ -267,6 +267,9 @@ Permutation annealingOrder(std::size_t dim,
     Distances avgDistances{avgEdgeLengthByVertex(edges)};
 
     computeEdgeWeights(dim, x, avgDistances, edges);
+    // This should be parameterised by degree if it varies significantly
+    // between vertices.
+    float margin{0.08F * averageVertexEdgeWeight(edges)};
 
     std::size_t n{x.size() / dim};
     // position -> vertex and vertex -> position maps initialized to identity.
@@ -284,7 +287,7 @@ Permutation annealingOrder(std::size_t dim,
     Permutation minPtov{ptov};
     Permutation minVtop{vtop};
     for (std::size_t i = 0; i < probes; ++i) { 
-        recursiveMinCutPartition(rng, 0, n, edges, ptov, vtop);
+        recursiveMinCutPartition(rng, 0, n, edges, ptov, vtop, margin);
         float cost{permutationCost(edges, ptov, vtop)};
         //std::cout << "  Cost after probe " << (i + 1) << ": " << cost << std::endl;
         if (cost < minCost) {
