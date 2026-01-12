@@ -1,5 +1,6 @@
 #include "annealing.h"
 
+#include "hilbert_curve.h"
 #include "../common/utils.h"
 
 #include <algorithm>
@@ -265,10 +266,11 @@ void local1Opt(const GraphEdges& edges,
 
 } // namespace
 
-Permutation annealingOrder(std::size_t dim, 
-                           const Points& x,
-                           std::size_t k,
-                           std::size_t probes) {
+PermutationCost annealingOrder(std::size_t dim,
+                               const Points& x,
+                               bool hilbertInitialization,
+                               std::size_t k,
+                               std::size_t probes) {
 
     GraphEdges edges{knnEdges(dim, x, k)};
 
@@ -284,19 +286,36 @@ Permutation annealingOrder(std::size_t dim,
     // position -> vertex and vertex -> position maps initialized to identity.
     Permutation ptov(n);
     Permutation vtop(n);
-    std::iota(ptov.begin(), ptov.end(), 0);
-    std::iota(vtop.begin(), vtop.end(), 0);
-    std::cout << "Average cost before partitioning: "
-              << permutationCost(edges, ptov, vtop) << std::endl;
+    if (false) {
+        // Debug: random initial ordering.
+        std::random_device rd;
+        std::mt19937 rng(rd());
+        std::iota(ptov.begin(), ptov.end(), 0);
+        std::shuffle(ptov.begin(), ptov.end(), rng);
+        for (std::size_t i = 0; i < n; ++i) {
+            vtop[ptov[i]] = i;
+        }
+
+    } else if (hilbertInitialization) {
+        time([&] { ptov = hilbertOrder(dim, 16, x); }, "Initial Hilbert Ordering");
+        for (std::size_t i = 0; i < n; ++i) {
+            vtop[ptov[i]] = i;
+        }
+    } else {
+        std::iota(ptov.begin(), ptov.end(), 0);
+        std::iota(vtop.begin(), vtop.end(), 0);
+    }
 
     std::random_device rd;
     std::mt19937 rng(rd());
 
     Permutation minPtov{ptov};
     Permutation minVtop{vtop};
+    float minCost{permutationCost(edges, ptov, vtop)};
+    std::cout << "Average cost before partitioning: " << minCost << std::endl;
+
     time([&] {
-        float minCost{INF};
-        for (std::size_t i = 0; i < probes; ++i) { 
+        for (std::size_t i = 0; i < probes; ++i) {
             recursiveMinCutPartition(rng, 0, n, edges, ptov, vtop, margin);
             float cost{permutationCost(edges, ptov, vtop)};
             //std::cout << "  Cost after probe " << (i + 1) << ": " << cost << std::endl;
@@ -313,13 +332,12 @@ Permutation annealingOrder(std::size_t dim,
                 vtop = minVtop;
             }
         }
-        std::cout << "Average cost after partitioning: "
-                  << permutationCost(edges, minPtov, minVtop) << std::endl;
+        std::cout << "Average cost after partitioning: " << minCost << std::endl;
     }, "Recursive Min-Cut Partitioning");
 
     time([&] { local1Opt(edges, minPtov, minVtop); }, "Local 1-Opt Refinement");
-    std::cout << "Average cost after local 1-opt: "
-              << permutationCost(edges, minPtov, minVtop) << std::endl;
+    minCost = permutationCost(edges, minPtov, minVtop);
+    std::cout << "Average cost after local 1-opt: " << minCost << std::endl;
 
-    return minPtov;
+    return {std::move(minPtov), minCost};
 }

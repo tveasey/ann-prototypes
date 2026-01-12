@@ -185,11 +185,13 @@ int main(int argc, char** argv) {
     Metric metric{Cosine};
     Experiment experiment{Experiment::IVF};
     bool parameterSearch{false};
+    bool hilbertInitialization{false};
     for (int i = 1; i < argc; ++i) {
         if (std::string(argv[i]) == "-h") {
             std::cout << "Usage: " << argv[0] << std::endl;
-            std::cout << " [--metric <metric>] [--method <method>] [-p] [-k <clusters>] [-b <bits>] "
-                      << "[-r <rerank>] [-d <dim>] -f <file1> <file1> ..." << std::endl;
+            std::cout << " [--metric <metric>] [--experiment <experiment>] --fraction <fraction>"
+                      << " [-s] [-p] [-k <clusters>] [-b <bits>] [-r <rerank>] [-d <dim>]"
+                      << " [--hilbert] -q <file> -c <file1> <file2> ..." << std::endl;
             std::cout << "  --metric <metric> : distance metric (cosine, euclidean, mip)" << std::endl;
             std::cout << "  --experiment <experiment> : experiment to run (lloyd, hierarchical, ivf, centroid_reordering)" << std::endl;
             std::cout << "  --fraction.       : the fraction of the corpus to use" << std::endl;
@@ -199,6 +201,7 @@ int main(int argc, char** argv) {
             std::cout << "  -b <bits>         : number of quantization bits (default: 1)" << std::endl;
             std::cout << "  -r <rerank>       : the multiple of k to rerank (default: 5)" << std::endl;
             std::cout << "  -d <dim>          : dimension of vectors (default: auto)" << std::endl;
+            std::cout << "  --hilbert         : Use Hilbert initialization for centroid ordering" << std::endl;
             std::cout << "  -q <file>         : queries file (required)" << std::endl;
             std::cout << "  -c <file1> <file2>: corpus files (required)" << std::endl;
             std::cout << "  -h                : help" << std::endl;
@@ -235,6 +238,8 @@ int main(int argc, char** argv) {
                 std::cout << "Unknown experiment: " << experimentStr << std::endl;
                 return 1;
             }
+        } else if (std::string(argv[i]) == "--hilbert") {
+            hilbertInitialization = true;
         } else if (std::string(argv[i]) == "--metric") {
             std::string metricStr(argv[++i]);
             if (metricStr == "cosine") {
@@ -396,7 +401,7 @@ int main(int argc, char** argv) {
         }
         case Experiment::CENTROID_REORDERING: {
             std::cout << "Running Centroid Reordering Experiment..." << std::endl;
-            reorderCentroids(dim, corpus, target);
+            reorderCentroids(dim, corpus, target, hilbertInitialization);
             break;
         }
     }

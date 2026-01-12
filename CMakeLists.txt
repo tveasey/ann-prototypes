@@ -12,7 +12,7 @@ add_library(common SHARED
 
 add_library(centroid_ordering SHARED
     src/centroid_ordering/annealing.cc
-    src/centroid_ordering/hilbert_encode.cc
+    src/centroid_ordering/hilbert_curve.cc
 )
 target_link_libraries(centroid_ordering common)
 

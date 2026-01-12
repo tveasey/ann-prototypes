@@ -2,7 +2,9 @@
 
 #include "common.h"
 
-Permutation annealingOrder(std::size_t dim, 
-                           const Points& x,
-                           std::size_t k = 32,
-                           std::size_t probes = 24);
+
+PermutationCost annealingOrder(std::size_t dim,
+                               const Points& x,
+                               bool hilbertInitialization = false,
+                               std::size_t k = 32,
+                               std::size_t probes = 24);

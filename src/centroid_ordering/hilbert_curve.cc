@@ -8,7 +8,7 @@ namespace {
 // The following code is adapted from:
 //   https://www.dcs.bbk.ac.uk/oldsite/research/techreps/2000/bbkcs-00-01.pdf
 
-// This is optimized for clarity not performance.
+// This is optimized for clarity not performance. (Just use BigInteger in Java.)
 class BitVector {
 private:
     std::vector<std::uint64_t> bits;
@@ -28,10 +28,10 @@ public:
     }
 
     bool less_than_3() const {
-        for (std::uint32_t i = 2; i < length; i++) {
-            if (get_bit(i)) { return false; }
+        for (std::size_t i = 1; i < bits.size(); ++i) {
+            if (bits[i] != 0) { return false; }
         }
-        return !(get_bit(1) && get_bit(0));
+        return bits[0] < 3;
     }
 
     void set_bit(std::uint32_t i, bool val) {
@@ -46,7 +46,7 @@ public:
     }
 
     void xor_vector(const BitVector& other) {
-        for (size_t i = 0; i < bits.size(); ++i) { 
+        for (size_t i = 0; i < bits.size(); ++i) {
             bits[i] ^= other.bits[i];
         }
     }
@@ -85,7 +85,7 @@ public:
     std::uint32_t get_length() const { return length; }
 };
 
-// Inverse Gray Code: Converts coordinate bits to Hilbert position bits
+// Inverse Gray Code: converts coordinate bits to Hilbert position bits
 BitVector calc_P(const BitVector& S, std::uint32_t dim) {
     BitVector P(dim);
     bool last_p = false;
@@ -114,7 +114,7 @@ BitVector calc_T(BitVector P, std::uint32_t dim) {
         return BitVector(dim);
     }
     if (P.get_bit(0)) {
-        P.decrement(1); 
+        P.decrement(1);
     } else {
         P.decrement(2);
     }
@@ -142,7 +142,7 @@ BitVector hilbertEncode(const std::vector<std::uint32_t>& pt,
 
         // tS = A ^ W (note that A can be elided since it is never after this point)
         tS.xor_vector(W);
-        
+
         // S = rotate(tS, xJ) (we elide storing S explicitly)
         tS.rotate_right(xJ);
         P = calc_P(tS, dim);
@@ -168,10 +168,6 @@ BitVector hilbertEncode(const std::vector<std::uint32_t>& pt,
 } // namespace
 
 Permutation hilbertOrder(int dim, int order, const Points& x) {
-
-    if (x.size()) {
-        return {};
-    }
 
     // Scale coordinates to "curve order" bit vector.
     float min{*std::min_element(x.begin(), x.end())};
