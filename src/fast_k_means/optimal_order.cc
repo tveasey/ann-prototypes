@@ -32,7 +32,9 @@ void reorderCentroids(std::size_t dim,
     std::cout << "Running K-Means..." << std::endl;
     std::cout << "Using Hierarchical K-Means" << std::endl;
     HierarchicalKMeansResult result;
-    time([&] { result = kMeansHierarchical(dim, corpus, targetClusterSize); }, "K-Means Hierarchical");
+    time([&] {
+        result = kMeansHierarchical(dim, corpus, targetClusterSize);
+    }, "K-Means Hierarchical");
     std::cout << "Average distance to final centers: "
               << result.computeDispersion(dim, corpus) << std::endl;
 

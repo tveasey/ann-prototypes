@@ -108,7 +108,7 @@ void computeEdgeWeights(std::size_t dim,
         for (auto& [j, weight] : edges[i]) {
             float avg{0.5F * (avgDistances[i] + avgDistances[j])};
             // Cap the maximum weight to 5.
-            weight = avg == 0.0 ? 5.0F : avg / (0.2F * avg + weight);
+            weight = avg == 0.0 ? 5.0F : 5.0F * avg / (avg + 4.0F * weight);
         }
     }
 }
@@ -282,8 +282,8 @@ PermutationCost annealingOrder(std::size_t dim,
     // between vertices.
     float margin{0.08F * averageVertexEdgeWeight(edges)};
 
-    std::size_t n{x.size() / dim};
     // position -> vertex and vertex -> position maps initialized to identity.
+    std::size_t n{x.size() / dim};
     Permutation ptov(n);
     Permutation vtop(n);
     if (false) {
@@ -295,23 +295,24 @@ PermutationCost annealingOrder(std::size_t dim,
         for (std::size_t i = 0; i < n; ++i) {
             vtop[ptov[i]] = i;
         }
-
-    } else if (hilbertInitialization) {
-        time([&] { ptov = hilbertOrder(dim, 16, x); }, "Initial Hilbert Ordering");
-        for (std::size_t i = 0; i < n; ++i) {
-            vtop[ptov[i]] = i;
-        }
     } else {
         std::iota(ptov.begin(), ptov.end(), 0);
         std::iota(vtop.begin(), vtop.end(), 0);
     }
 
+    Permutation ptovHilbert(n);
+    Permutation vtopHilbert(n);
+    time([&] { ptovHilbert = hilbertOrder(dim, 16, x); }, "Initial Hilbert Ordering");
+    for (std::size_t i = 0; i < n; ++i) {
+        vtopHilbert[ptovHilbert[i]] = i;
+    }
+
     std::random_device rd;
     std::mt19937 rng(rd());
 
-    Permutation minPtov{ptov};
-    Permutation minVtop{vtop};
-    float minCost{permutationCost(edges, ptov, vtop)};
+    Permutation minPtov(ptov);
+    Permutation minVtop(vtop);
+    float minCost{permutationCost(edges, minPtov, minVtop)};
     std::cout << "Average cost before partitioning: " << minCost << std::endl;
 
     time([&] {
@@ -324,9 +325,15 @@ PermutationCost annealingOrder(std::size_t dim,
                 minPtov = ptov;
                 minVtop = vtop;
             }
-            if (2 * i < probes) {
+            if (4 * i < probes) {
                 std::iota(ptov.begin(), ptov.end(), 0);
                 std::iota(vtop.begin(), vtop.end(), 0);
+            } else if (!hilbertInitialization && 2 * i < probes) {
+                std::iota(ptov.begin(), ptov.end(), 0);
+                std::iota(vtop.begin(), vtop.end(), 0);
+            } else if (hilbertInitialization && 2 * i < probes) {
+                ptov = ptovHilbert;
+                vtop = vtopHilbert;
             } else {
                 ptov = minPtov;
                 vtop = minVtop;
