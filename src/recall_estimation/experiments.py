@@ -1,9 +1,11 @@
 import itertools
+import json
 import os
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pandas as pd
 from dotenv import load_dotenv
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
@@ -122,7 +124,7 @@ class ExperimentFramework:
                           fvec_file_name: str,
                           sample_sizes: list[int | None],
                           field_mapping: dict,
-                          query_params: list[dict]) -> list[float] | None:
+                          query_params: list[dict]) -> list[dict] | None:
         """Indexes vectors from a .fvec file into the specified Elasticsearch index.
 
         :param index_name: The name of the Elasticsearch index.
@@ -134,7 +136,7 @@ class ExperimentFramework:
         """
         average_recalls = []
         for sample_size in sample_sizes:
-            print(f"Running recall experiment with sample size: {sample_size}")
+            print(f"Running recall experiments with sample size: {sample_size}")
 
             sample_index_name = (f"{index_name}_{sample_size}"
                                  if sample_size is not None else index_name)
@@ -154,10 +156,9 @@ class ExperimentFramework:
                 queries, corpus, similarity=field_mapping["similarity"], k=10
             )
 
-            for query_param in query_params:
-                print(f"Using query parameters: {query_param}")
+            for params in query_params:
                 ann_top_k = self._ann_indices(
-                    sample_index_name, queries, query_param
+                    sample_index_name, queries, params
                 )
 
                 # Calculate recall
@@ -171,8 +172,14 @@ class ExperimentFramework:
                     total_recall += recall
 
                 average_recall = total_recall / num_queries
-                print(f"Average recall: {average_recall:.4f}")
-                average_recalls.append(average_recall)
+                result = {
+                    "index_name": sample_index_name,
+                    "index_params": field_mapping["index_options"],
+                    "query_params": params,
+                    "sample_size": sample_size,
+                    "average_recall": average_recall
+                }
+                average_recalls.append(result)
 
         return average_recalls
 
@@ -339,16 +346,16 @@ class ExperimentFramework:
             raise ValueError(f"Unsupported similarity metric: {similarity}")
         return topk_indices
 
-def _run_experiment(fvec_file_name: str,
-                    similarity: str,
-                    index_type: str,
-                    clear_caches: bool,
-                    m: int | None = None,
-                    ef_construction: int | None = None,
-                    cluster_size: int | None = None,
-                    k: int | None = None,
-                    visit_percentage: list[float] | None = None,
-                    oversample: list[float] | None = None) -> None:
+def _run_experiments(fvec_file_name: str,
+                     similarity: str,
+                     index_type: str,
+                     clear_caches: bool,
+                     m: int | None = None,
+                     ef_construction: int | None = None,
+                     cluster_size: int | None = None,
+                     k: int | None = None,
+                     visit_percentage: list[float] | None = None,
+                     oversample: list[float] | None = None) -> list[dict]:
     client = ExperimentFramework()
 
     if clear_caches:
@@ -387,8 +394,13 @@ def _run_experiment(fvec_file_name: str,
         field_mapping=field_mapping,
         query_params=query_params
     )
-    print(f"Experiment completed for index '{index_name}'/{index_type}.")
-    print(f"Recalls: {recalls}")
+    if recalls is None:
+        print(f"Experiment failed for index '{index_name}' ('{index_type}').")
+        return []
+
+    print(f"Experiments completed for index '{index_name}' ('{index_type}').")
+    print(f"Recalls: {json.dumps(recalls, indent=2)}")
+    return recalls
 
 def main(fvec_file_name: str,
          similarity: str,
@@ -415,7 +427,11 @@ def main(fvec_file_name: str,
     :return: None
     """
     if run_all:
-        # Create an outer product of all parameter combinations iterator
+        output_file = Path(fvec_file_name).stem + "_experiment_results.csv"
+        if Path(output_file).exists():
+            print(f"Output file '{output_file}' already exists. "
+                  "Remove it if you want to rerun all experiments.")
+            return
 
         hnsw_experiments = itertools.product(
             ["hnsw", "int8_hnsw", "int4_hnsw", "bbq_hnsw"],
@@ -429,8 +445,9 @@ def main(fvec_file_name: str,
             ["bbq_disk"],
             ExperimentFramework.CANDIDATE_CLUSTER_SIZE
         )
+        results: list[dict] = []
         for index_type_, m_, ef_construction_ in hnsw_experiments:
-            _run_experiment(
+            results += _run_experiments(
                 fvec_file_name=fvec_file_name,
                 similarity=similarity,
                 index_type=index_type_,
@@ -443,7 +460,7 @@ def main(fvec_file_name: str,
                 oversample=ExperimentFramework.CANDIDATE_OVERSAMPLE,
             )
         for index_type_ in flat_experiments:
-            _run_experiment(
+            results += _run_experiments(
                 fvec_file_name=fvec_file_name,
                 similarity=similarity,
                 index_type=index_type_,
@@ -456,7 +473,7 @@ def main(fvec_file_name: str,
                 oversample=ExperimentFramework.CANDIDATE_OVERSAMPLE,
             )
         for index_type_, cluster_size_ in disk_experiments:
-            _run_experiment(
+            results += _run_experiments(
                 fvec_file_name=fvec_file_name,
                 similarity=similarity,
                 index_type=index_type_,
@@ -468,9 +485,15 @@ def main(fvec_file_name: str,
                 visit_percentage=ExperimentFramework.CANDIDATE_DEFAULT_VISIT_PERCENTAGE,
                 oversample=ExperimentFramework.CANDIDATE_OVERSAMPLE,
             )
+        print(f"All experiments completed. Have {len(results)} results")
+
+        # Write out as a pandas DataFrame
+        df = pd.DataFrame(results)
+        df.to_csv(output_file, index=False)
+        print(f"Results saved to {output_file}")
         return
 
-    _run_experiment(
+    _run_experiments(
         fvec_file_name=fvec_file_name,
         similarity=similarity,
         index_type=index_type,
