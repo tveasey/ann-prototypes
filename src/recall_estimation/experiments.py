@@ -140,17 +140,20 @@ class ExperimentFramework:
 
             sample_index_name = (f"{index_name}_{sample_size}"
                                  if sample_size is not None else index_name)
-            if not self._create_index(sample_index_name, field_mapping):
+            created, already_exists = self._create_index(sample_index_name, field_mapping)
+            if not created:
                 print(f"Skipping indexing for '{sample_index_name}' due to index creation failure.")
                 return None
 
             corpus = self._read_fvecs(fvec_file_name, sample_size)
+            print("Corpus shape:", corpus.shape)
 
-            if not self._index_vectors(sample_index_name, corpus):
+            if not already_exists and not self._index_vectors(sample_index_name, corpus):
                 print(f"Indexing failed for index '{sample_index_name}'.")
                 return None
 
             queries = self._random_samples(corpus, num_samples=500)
+            print("Queries shape:", queries.shape)
 
             brute_force_top_k = self._brute_force_indices(
                 queries, corpus, similarity=field_mapping["similarity"], k=10
@@ -183,21 +186,42 @@ class ExperimentFramework:
 
         return average_recalls
 
-    def delete_all_indices(self) -> None:
+    def delete_all_indices(self, dry_run: bool = False) -> None:
         """Deletes all indices in the Elasticsearch cluster."""
         try:
-            indices = self.es.indices.get_alias(name="*")
-            for index in indices:
-                self.es.indices.delete(index=index)
-                print(f"Deleted index: {index}")
-            print("All indices have been deleted.")
+            # Fetch all indices
+            # We use "*" to get everything, then filter in Python
+            all_indices = self.es.indices.get_alias(index="*").keys()
+
+            indices_to_delete = []
+            for index in all_indices:
+                # standard convention: system indices start with a dot (.)
+                if not index.startswith('.'):
+                    indices_to_delete.append(index)
+
+            if not indices_to_delete:
+                print("\nNo non-system indices found to delete.")
+                return
+            if dry_run:
+                print("Dry run mode: The following indices would be deleted:")
+                for index in indices_to_delete:
+                    print(f"  {index}")
+                return
+            for idx in indices_to_delete:
+                try:
+                    self.es.indices.delete(index=idx)
+                    print(f"✔ Deleted: {idx}")
+                except Exception as e:
+                    print(f"✖ Failed to delete {idx}: {e}")
         except Exception as e:
-            print(f"Error deleting indices: {e}")
+            print(f"Error fetching indices: {e}")
 
     def _https(self) -> str:
         return f"https://{self.host}:{self.port}"
 
-    def _create_index(self, index_name: str, field_mapping: dict) -> bool:
+    def _create_index(self,
+                      index_name: str,
+                      field_mapping: dict) -> tuple[bool, bool]:
         # Create the mappings for the index
         mappings = {
             "properties": {
@@ -216,19 +240,19 @@ class ExperimentFramework:
             print(f"Create index response: {response}")
             if "acknowledged" in response and response["acknowledged"]:
                 print(f"Index '{index_name}' created successfully.")
-                return True
+                return True, False
             if "error" in response:
                 if response["error"].get("type") == "resource_already_exists_exception":
                     print(f"Index '{index_name}' already exists. Skipping creation.")
-                    return True
+                    return True, True
                 print(f"Error creating index '{index_name}': {response['error']}")
-                return False
+                return False, False
             print(f"Unknown response while creating index: {response}")
-            return False
+            return False, False
         except Exception as e:
             # Catch other errors and skip this index
             print(f"Error creating index: {e}")
-            return False
+            return False, False
 
     def _read_fvecs(self,
                     fvec_file_name: str,
@@ -306,10 +330,9 @@ class ExperimentFramework:
                 "size": query_params.get("k", 10),
                 "query": {
                     "knn": {
-                        "vec": {
-                            "vector": query.tolist(),
-                            **query_params
-                        }
+                        "field": "vec",
+                        "query_vector": query.tolist(),
+                        **query_params
                     }
                 }
             }
@@ -335,12 +358,13 @@ class ExperimentFramework:
             dists = cdist(queries, corpus, metric='sqeuclidean')
             topk_indices = np.argpartition(dists, k, axis=1)[:, :k]
         elif similarity == "cosine":
-            similarities = corpus @ queries / (
-                np.linalg.norm(corpus, axis=1) * np.linalg.norm(queries, axis=1) + 1e-10
-            )
+            # Compute the outer product of the vector norms
+            norm_product = np.outer(np.linalg.norm(corpus, axis=1),
+                                    np.linalg.norm(queries, axis=1)) + 1e-10
+            similarities = corpus @ queries.T / norm_product
             topk_indices = np.argpartition(-similarities, k, axis=1)[:, :k]
         elif similarity == "max_inner_product":
-            inner_products = corpus @ queries
+            inner_products = corpus @ queries.T
             topk_indices = np.argpartition(-inner_products, k, axis=1)[:, :k]
         else:
             raise ValueError(f"Unsupported similarity metric: {similarity}")
@@ -365,7 +389,7 @@ def _run_experiments(fvec_file_name: str,
     # (If the build parameters are different we shouldn't reuse the same index name.)
     index_name = (
         f"{Path(fvec_file_name).stem}_{index_type}_{m}_{ef_construction}_{cluster_size}"
-    )
+    ).lower()
 
     field_mapping = client.make_field_mapping(
         similarity=similarity,
@@ -420,7 +444,7 @@ def main(fvec_file_name: str,
         fvec_file_name: The path to the .fvec file containing the vectors.
         similarity: The similarity metric to use.
         k: The number of nearest neighbors to retrieve.
-        all_params: Whether to run the search experiments.
+        all_params: Whether to run experiments for all parameter combinations.
         visualize: Whether to visualize existing experiment results.
         clear_caches: Whether to clear all existing indices before running the experiment.
         index_type: The index type to use.
@@ -510,6 +534,11 @@ def main(fvec_file_name: str,
         print(f"Results saved to {output_file}")
         return
 
+    # Single run with specified parameter
+    print("Running single experiment with specified parameters.")
+    print(f"Index type: {index_type}, m: {m}, ef_construction: {ef_construction}, "
+          f"cluster_size: {cluster_size}, visit_percentage: {visit_percentage}, "
+          f"oversample: {oversample}")
     _run_experiments(
         fvec_file_name=fvec_file_name,
         similarity=similarity,
