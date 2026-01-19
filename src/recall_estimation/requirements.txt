@@ -1,6 +1,7 @@
 dotenv
 elasticsearch
-jsonargparse
+jsonargparse[signatures]
 numpy
+pandas
 scipy
 tqdm

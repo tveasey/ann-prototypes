@@ -405,7 +405,8 @@ def _run_experiments(fvec_file_name: str,
 def main(fvec_file_name: str,
          similarity: str,
          k: int | None = 10,
-         run_all: bool = True,
+         all_params: bool = True,
+         visualize: bool = False,
          clear_caches: bool = True,
          index_type: str = "hnsw",
          m: int | None = None,
@@ -415,18 +416,34 @@ def main(fvec_file_name: str,
          oversample: float | None = None) -> None:
     """Main function to run recall estimation experiments.
 
-    :param fvec_file_name: The path to the .fvec file containing the vectors.
-    :param similarity: The similarity metric to use.
-    :param run_all: Whether to run experiments for all parameter combinations.
-    :param clear_caches: Whether to clear all existing indices before running the experiment.
-    :param index_type: The index type to use.
-    :param m: The 'm' parameter for HNSW indices.
-    :param ef_construction: The 'ef_construction' parameter for HNSW indices.
-    :param cluster_size: The 'cluster_size' parameter for BBQ indices.
-    :param k: The number of nearest neighbors to retrieve.
-    :return: None
+    Args:
+        fvec_file_name: The path to the .fvec file containing the vectors.
+        similarity: The similarity metric to use.
+        k: The number of nearest neighbors to retrieve.
+        all_params: Whether to run the search experiments.
+        visualize: Whether to visualize existing experiment results.
+        clear_caches: Whether to clear all existing indices before running the experiment.
+        index_type: The index type to use.
+        m: The 'm' parameter for HNSW indices.
+        ef_construction: The 'ef_construction' parameter for HNSW indices.
+        cluster_size: The 'cluster_size' parameter for BBQ indices.
+        visit_percentage: The percentage of the index to visit during the search.
+        oversample: The oversampling factor for the search.
     """
-    if run_all:
+    if visualize:
+        output_file = Path(fvec_file_name).stem + "_experiment_results.csv"
+        if not Path(output_file).exists():
+            print(f"Output file '{output_file}' does not exist. "
+                  "Run experiments first to generate results.")
+            return
+        df = pd.read_csv(output_file)
+
+        # We're interested in visualizing how the recall varies as a function of
+        # the sample size compared to the full dataset.
+        # TODO
+        return
+
+    if all_params:
         output_file = Path(fvec_file_name).stem + "_experiment_results.csv"
         if Path(output_file).exists():
             print(f"Output file '{output_file}' already exists. "
