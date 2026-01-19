@@ -1,0 +1,6 @@
+dotenv
+elasticsearch
+jsonargparse
+numpy
+scipy
+tqdm
