@@ -3,3 +3,6 @@ python
 .cache
 .vscode
 data/*.fvec
+src/recall_estimation/.env
+src/recall_estimation/.venv
+src/recall_estimation/elasticsearch-*

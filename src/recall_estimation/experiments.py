@@ -43,8 +43,10 @@ class ExperimentFramework:
     CANDIDATE_DEFAULT_VISIT_PERCENTAGE = [0.5, 0.75, 1.0, 1.25, 1.5]
     CANDIDATE_OVERSAMPLE = [1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 7.5, 10.0]
 
-    def __init__(self) -> None:
+    def __init__(self, seed: int) -> None:
         """Initializes the client and connects to Elasticsearch."""
+        np.random.seed(seed)
+
         # Load the .env file for credentials if it exists
         load_dotenv()
 
@@ -146,23 +148,19 @@ class ExperimentFramework:
                 return None
 
             corpus = self._read_fvecs(fvec_file_name, sample_size)
-            print("Corpus shape:", corpus.shape)
 
             if not already_exists and not self._index_vectors(sample_index_name, corpus):
                 print(f"Indexing failed for index '{sample_index_name}'.")
                 return None
 
-            queries = self._random_samples(corpus, num_samples=500)
-            print("Queries shape:", queries.shape)
+            corpus, queries = self._random_samples(corpus, num_samples=5)
 
             brute_force_top_k = self._brute_force_indices(
                 queries, corpus, similarity=field_mapping["similarity"], k=10
             )
 
             for params in query_params:
-                ann_top_k = self._ann_indices(
-                    sample_index_name, queries, params
-                )
+                ann_top_k = self._ann_indices(sample_index_name, queries, params)
 
                 # Calculate recall
                 total_recall = 0.0
@@ -300,21 +298,24 @@ class ExperimentFramework:
             return False
         return True
 
-    def _random_samples(self, corpus: np.ndarray, num_samples: int) -> np.ndarray:
+    def _random_samples(self,
+                        corpus: np.ndarray,
+                        num_samples: int) -> tuple[np.ndarray, np.ndarray]:
         """Selects random samples from the corpus.
 
         :param corpus: The corpus of vectors.
         :param num_samples: The number of random samples to select.
-        :return: A numpy array of randomly selected samples.
+        :return: A tuple (x, y) of randomly selected samples x and corpus minus those samples y.
         """
         indices = np.random.choice(corpus.shape[0], size=num_samples, replace=False)
-        return corpus[indices]
+        return corpus[np.setdiff1d(np.arange(corpus.shape[0]), indices)], corpus[indices]
 
     def _ann_indices(self,
                      index_name: str,
                      queries: np.ndarray,
                      query_params: dict) -> np.ndarray:
         """Performs an approximate nearest neighbor search using Elasticsearch.
+
         :param index_name: The name of the Elasticsearch index.
         :param queries: The query vectors.
         :param k: The number of nearest neighbors to retrieve.
@@ -359,13 +360,13 @@ class ExperimentFramework:
             topk_indices = np.argpartition(dists, k, axis=1)[:, :k]
         elif similarity == "cosine":
             # Compute the outer product of the vector norms
-            norm_product = np.outer(np.linalg.norm(corpus, axis=1),
-                                    np.linalg.norm(queries, axis=1)) + 1e-10
-            similarities = corpus @ queries.T / norm_product
+            norm_product = np.outer(np.linalg.norm(queries, axis=1),
+                                    np.linalg.norm(corpus, axis=1)) + 1e-10
+            similarities = queries @ corpus.T / norm_product
             topk_indices = np.argpartition(-similarities, k, axis=1)[:, :k]
-        elif similarity == "max_inner_product":
-            inner_products = corpus @ queries.T
-            topk_indices = np.argpartition(-inner_products, k, axis=1)[:, :k]
+        elif similarity in ["dot_product", "max_inner_product"]:
+            similarities = queries @ corpus.T
+            topk_indices = np.argpartition(-similarities, k, axis=1)[:, :k]
         else:
             raise ValueError(f"Unsupported similarity metric: {similarity}")
         return topk_indices
@@ -374,13 +375,15 @@ def _run_experiments(fvec_file_name: str,
                      similarity: str,
                      index_type: str,
                      clear_caches: bool,
+                     seed: int = 42,
                      m: int | None = None,
                      ef_construction: int | None = None,
                      cluster_size: int | None = None,
                      k: int | None = None,
                      visit_percentage: list[float] | None = None,
                      oversample: list[float] | None = None) -> list[dict]:
-    client = ExperimentFramework()
+
+    client = ExperimentFramework(seed=seed)
 
     if clear_caches:
         client.delete_all_indices()
@@ -414,7 +417,7 @@ def _run_experiments(fvec_file_name: str,
     recalls = client.recall_experiment(
         index_name=index_name,
         fvec_file_name=fvec_file_name,
-        sample_sizes=[None, 5000, 6000, 7000, 8000, 9000, 10000],
+        sample_sizes=[5000],#[None, 5000, 6000, 7000, 8000, 9000, 10000],
         field_mapping=field_mapping,
         query_params=query_params
     )
@@ -428,6 +431,7 @@ def _run_experiments(fvec_file_name: str,
 
 def main(fvec_file_name: str,
          similarity: str,
+         seed: int = 42,
          k: int | None = 10,
          all_params: bool = True,
          visualize: bool = False,
@@ -443,6 +447,7 @@ def main(fvec_file_name: str,
     Args:
         fvec_file_name: The path to the .fvec file containing the vectors.
         similarity: The similarity metric to use.
+        seed: The random seed for reproducibility.
         k: The number of nearest neighbors to retrieve.
         all_params: Whether to run experiments for all parameter combinations.
         visualize: Whether to visualize existing experiment results.
@@ -492,6 +497,7 @@ def main(fvec_file_name: str,
                 fvec_file_name=fvec_file_name,
                 similarity=similarity,
                 index_type=index_type_,
+                seed=seed,
                 k=k,
                 clear_caches=clear_caches,
                 m=m_,
@@ -505,6 +511,7 @@ def main(fvec_file_name: str,
                 fvec_file_name=fvec_file_name,
                 similarity=similarity,
                 index_type=index_type_,
+                seed=seed,
                 clear_caches=clear_caches,
                 m=None,
                 ef_construction=None,
@@ -518,6 +525,7 @@ def main(fvec_file_name: str,
                 fvec_file_name=fvec_file_name,
                 similarity=similarity,
                 index_type=index_type_,
+                seed=seed,
                 clear_caches=clear_caches,
                 m=None,
                 ef_construction=None,
@@ -543,6 +551,7 @@ def main(fvec_file_name: str,
         fvec_file_name=fvec_file_name,
         similarity=similarity,
         index_type=index_type,
+        seed=seed,
         clear_caches=clear_caches,
         m=m,
         ef_construction=ef_construction,
