@@ -43,7 +43,7 @@ class ExperimentFramework:
     CANDIDATE_DEFAULT_VISIT_PERCENTAGE = [0.5, 0.75, 1.0, 1.25, 1.5]
     CANDIDATE_OVERSAMPLE = [1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 7.5, 10.0]
 
-    def __init__(self, seed: int) -> None:
+    def __init__(self, seed: int, num_queries: int = 100) -> None:
         """Initializes the client and connects to Elasticsearch."""
         np.random.seed(seed)
 
@@ -55,6 +55,7 @@ class ExperimentFramework:
         self.username = os.getenv("ELASTIC_USERNAME", "elastic")
         self.password = os.getenv("ELASTIC_PASSWORD", "")
         self.cert_fingerprint = os.getenv("CERT_FINGERPRINT", "")
+        self.num_queries = num_queries
 
         self.es = Elasticsearch(self._https(),
                                 ssl_assert_fingerprint=self.cert_fingerprint,
@@ -126,6 +127,7 @@ class ExperimentFramework:
                           fvec_file_name: str,
                           sample_sizes: list[int | None],
                           field_mapping: dict,
+                          k: int,
                           query_params: list[dict]) -> list[dict] | None:
         """Indexes vectors from a .fvec file into the specified Elasticsearch index.
 
@@ -133,6 +135,7 @@ class ExperimentFramework:
         :param fvec_file_name: The path to the .fvec file containing the vectors.
         :param sample_sizes: The list of numbers of vectors to sample from the .fvec file.
         :param field_mapping: The field mapping for the dense_vector field.
+        :param k: The number of nearest neighbors to retrieve.
         :param query_params: The query parameters for the recall experiment.
         :return: A list of average recall values for each sample size, or None if an error occurs.
         """
@@ -148,15 +151,14 @@ class ExperimentFramework:
                 return None
 
             corpus = self._read_fvecs(fvec_file_name, sample_size)
+            corpus, queries = self._random_queries(corpus, num_queries=self.num_queries)
 
             if not already_exists and not self._index_vectors(sample_index_name, corpus):
                 print(f"Indexing failed for index '{sample_index_name}'.")
                 return None
 
-            corpus, queries = self._random_samples(corpus, num_samples=5)
-
             brute_force_top_k = self._brute_force_indices(
-                queries, corpus, similarity=field_mapping["similarity"], k=10
+                queries, corpus, similarity=field_mapping["similarity"], k=k
             )
 
             for params in query_params:
@@ -166,8 +168,8 @@ class ExperimentFramework:
                 total_recall = 0.0
                 num_queries = queries.shape[0]
                 for i in range(num_queries):
-                    ann_set = set(ann_top_k[i])
-                    brute_force_set = set(brute_force_top_k[i])
+                    ann_set = set(ann_top_k[i].tolist())
+                    brute_force_set = set(brute_force_top_k[i].tolist())
                     intersection_size = len(ann_set.intersection(brute_force_set))
                     recall = intersection_size / len(brute_force_set)
                     total_recall += recall
@@ -284,6 +286,8 @@ class ExperimentFramework:
                 self.es, actions, stats_only=True, chunk_size=10000
             )
             print(f"Successfully indexed {success} vectors.")
+            # Ensure that the index is refreshed before searching
+            self.es.indices.refresh(index=index_name)
             if failed and (isinstance(failed, list) and len(failed) > 0):
                 print(f"Failed to index {len(failed)} vectors.")
                 # Log the first 5 failures for debugging
@@ -298,16 +302,16 @@ class ExperimentFramework:
             return False
         return True
 
-    def _random_samples(self,
+    def _random_queries(self,
                         corpus: np.ndarray,
-                        num_samples: int) -> tuple[np.ndarray, np.ndarray]:
-        """Selects random samples from the corpus.
+                        num_queries: int) -> tuple[np.ndarray, np.ndarray]:
+        """Selects random queries from the corpus.
 
         :param corpus: The corpus of vectors.
-        :param num_samples: The number of random samples to select.
-        :return: A tuple (x, y) of randomly selected samples x and corpus minus those samples y.
+        :param num_queries: The number of random queries to select.
+        :return: A tuple (x, y) of randomly selected queries y and corpus minus those queries x.
         """
-        indices = np.random.choice(corpus.shape[0], size=num_samples, replace=False)
+        indices = np.random.choice(corpus.shape[0], size=num_queries, replace=False)
         return corpus[np.setdiff1d(np.arange(corpus.shape[0]), indices)], corpus[indices]
 
     def _ann_indices(self,
@@ -356,17 +360,24 @@ class ExperimentFramework:
         :return: A list of document IDs representing the nearest neighbors.
         """
         if similarity == "l2_norm":
-            dists = cdist(queries, corpus, metric='sqeuclidean')
-            topk_indices = np.argpartition(dists, k, axis=1)[:, :k]
-        elif similarity == "cosine":
+            scores = 1 / (1 + cdist(queries, corpus, metric='sqeuclidean'))
+            topk_indices = np.argpartition(-scores, k, axis=1)[:, :k]
+        elif similarity in ["cosine", "dot_product"]:
             # Compute the outer product of the vector norms
             norm_product = np.outer(np.linalg.norm(queries, axis=1),
                                     np.linalg.norm(corpus, axis=1)) + 1e-10
-            similarities = queries @ corpus.T / norm_product
-            topk_indices = np.argpartition(-similarities, k, axis=1)[:, :k]
-        elif similarity in ["dot_product", "max_inner_product"]:
-            similarities = queries @ corpus.T
-            topk_indices = np.argpartition(-similarities, k, axis=1)[:, :k]
+            # Match Lucene's cost function for cosine similarity
+            scores = (0.5 + 0.5 * queries @ corpus.T / norm_product)
+            topk_indices = np.argpartition(-scores, k, axis=1)[:, :k]
+        elif similarity == "max_inner_product":
+            # The score is 1 / (1 - inner_product) if inner_product < 0
+            # otherwise it's 1 + inner_product
+            scores = np.where(
+                queries @ corpus.T < 0,
+                1 / (1 - (queries @ corpus.T)),
+                1 + (queries @ corpus.T)
+            )
+            topk_indices = np.argpartition(-scores, k, axis=1)[:, :k]
         else:
             raise ValueError(f"Unsupported similarity metric: {similarity}")
         return topk_indices
@@ -417,8 +428,9 @@ def _run_experiments(fvec_file_name: str,
     recalls = client.recall_experiment(
         index_name=index_name,
         fvec_file_name=fvec_file_name,
-        sample_sizes=[5000],#[None, 5000, 6000, 7000, 8000, 9000, 10000],
+        sample_sizes=[None, 5000, 6000, 7000, 8000, 9000, 10000],
         field_mapping=field_mapping,
+        k=k or 10,
         query_params=query_params
     )
     if recalls is None:
