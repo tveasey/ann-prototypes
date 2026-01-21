@@ -1,6 +1,7 @@
 import itertools
 import json
 import os
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -37,13 +38,13 @@ class ExperimentFramework:
         "bbq_flat",
         "bbq_disk"
     ]
-    CANDIDATE_M = [8, 16, 24, 32, 40, 48, 56, 64]
-    CANDIDATE_EF_CONSTRUCTION = [100, 200, 300, 400, 500]
+    CANDIDATE_M = [8, 16, 32, 64]
+    CANDIDATE_EF_CONSTRUCTION = [100, 200, 400]
     CANDIDATE_CLUSTER_SIZE = [64, 96, 128, 192, 256, 384]
     CANDIDATE_DEFAULT_VISIT_PERCENTAGE = [0.5, 0.75, 1.0, 1.25, 1.5]
     CANDIDATE_OVERSAMPLE = [1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 7.5, 10.0]
 
-    def __init__(self, seed: int, num_queries: int = 100) -> None:
+    def __init__(self, seed: int, num_queries: int = 500) -> None:
         """Initializes the client and connects to Elasticsearch."""
         np.random.seed(seed)
 
@@ -122,6 +123,13 @@ class ExperimentFramework:
             query_params["rescore_vector"] = {"oversample": oversample}
         return query_params
 
+    def experiment_hash(self,
+                        index_name: str,
+                        field_mapping: dict,
+                        query_params: dict) -> str:
+        hash_input = f"{index_name}_{field_mapping}_{query_params}"
+        return sha256(hash_input.encode()).hexdigest()
+
     def recall_experiment(self,
                           index_name: str,
                           fvec_file_name: str,
@@ -176,9 +184,14 @@ class ExperimentFramework:
 
                 average_recall = total_recall / num_queries
                 result = {
+                    "hash": self.experiment_hash(
+                        sample_index_name, field_mapping, params
+                    ),
                     "index_name": sample_index_name,
-                    "index_params": field_mapping["index_options"],
-                    "query_params": params,
+                    **{f"index_params_{key}": value
+                       for key, value in field_mapping["index_options"].items()},
+                    **{f"query_params_{key}": value
+                       for key, value in params.items()},
                     "sample_size": sample_size,
                     "average_recall": average_recall
                 }
@@ -283,7 +296,7 @@ class ExperimentFramework:
         )
         try:
             success, failed = bulk(
-                self.es, actions, stats_only=True, chunk_size=10000
+                self.es, actions, stats_only=True, chunk_size=20000
             )
             print(f"Successfully indexed {success} vectors.")
             # Ensure that the index is refreshed before searching
@@ -386,6 +399,7 @@ def _run_experiments(fvec_file_name: str,
                      similarity: str,
                      index_type: str,
                      clear_caches: bool,
+                     hashes: set[str] | None = None,
                      seed: int = 42,
                      m: int | None = None,
                      ef_construction: int | None = None,
@@ -425,10 +439,21 @@ def _run_experiments(fvec_file_name: str,
         )
     ]
 
+    if hashes is not None:
+        experiment_hash = client.experiment_hash(
+            index_name=index_name,
+            field_mapping=field_mapping,
+            query_params=query_params[0]  # Just use the first set for hashing
+        )
+        if experiment_hash in hashes:
+            print(f"Skipping experiment for index '{index_name}' ('{index_type}') "
+                  "as it has already been run.")
+            return []
+
     recalls = client.recall_experiment(
         index_name=index_name,
         fvec_file_name=fvec_file_name,
-        sample_sizes=[None, 5000, 6000, 7000, 8000, 9000, 10000],
+        sample_sizes=[None, 2000, 4000, 8000, 16000],
         field_mapping=field_mapping,
         k=k or 10,
         query_params=query_params
@@ -485,11 +510,14 @@ def main(fvec_file_name: str,
         return
 
     if all_params:
+        def _flush_intermediate_results(initial_results: pd.DataFrame,
+                                        results: list[dict]) -> None:
+            if len(results) > 0 and len(results) % 10 == 0:
+                df = pd.concat([initial_results, pd.DataFrame(results)], ignore_index=True)
+                df.to_csv(output_file, index=False)
+                print(f"Intermediate results saved to {output_file}")
+
         output_file = Path(fvec_file_name).stem + "_experiment_results.csv"
-        if Path(output_file).exists():
-            print(f"Output file '{output_file}' already exists. "
-                  "Remove it if you want to rerun all experiments.")
-            return
 
         hnsw_experiments = itertools.product(
             ["hnsw", "int8_hnsw", "int4_hnsw", "bbq_hnsw"],
@@ -503,28 +531,38 @@ def main(fvec_file_name: str,
             ["bbq_disk"],
             ExperimentFramework.CANDIDATE_CLUSTER_SIZE
         )
+
+        initial_results = (
+            pd.read_csv(output_file) if Path(output_file).exists() else pd.DataFrame()
+        )
+        hashes = initial_results["hash"].to_set() if not initial_results.empty else None
+
         results: list[dict] = []
         for index_type_, m_, ef_construction_ in hnsw_experiments:
             results += _run_experiments(
                 fvec_file_name=fvec_file_name,
                 similarity=similarity,
                 index_type=index_type_,
+                clear_caches=clear_caches,
+                hashes=hashes,
                 seed=seed,
                 k=k,
-                clear_caches=clear_caches,
                 m=m_,
                 ef_construction=ef_construction_,
                 cluster_size=None,
                 visit_percentage=None,
                 oversample=ExperimentFramework.CANDIDATE_OVERSAMPLE,
             )
+            _flush_intermediate_results(initial_results, results)
+
         for index_type_ in flat_experiments:
             results += _run_experiments(
                 fvec_file_name=fvec_file_name,
                 similarity=similarity,
                 index_type=index_type_,
-                seed=seed,
                 clear_caches=clear_caches,
+                hashes=hashes,
+                seed=seed,
                 m=None,
                 ef_construction=None,
                 cluster_size=None,
@@ -532,6 +570,8 @@ def main(fvec_file_name: str,
                 visit_percentage=None,
                 oversample=ExperimentFramework.CANDIDATE_OVERSAMPLE,
             )
+            _flush_intermediate_results(initial_results, results)
+
         for index_type_, cluster_size_ in disk_experiments:
             results += _run_experiments(
                 fvec_file_name=fvec_file_name,
@@ -539,6 +579,7 @@ def main(fvec_file_name: str,
                 index_type=index_type_,
                 seed=seed,
                 clear_caches=clear_caches,
+                hashes=hashes,
                 m=None,
                 ef_construction=None,
                 cluster_size=cluster_size_,
@@ -546,10 +587,12 @@ def main(fvec_file_name: str,
                 visit_percentage=ExperimentFramework.CANDIDATE_DEFAULT_VISIT_PERCENTAGE,
                 oversample=ExperimentFramework.CANDIDATE_OVERSAMPLE,
             )
+            _flush_intermediate_results(initial_results, results)
+
         print(f"All experiments completed. Have {len(results)} results")
 
-        # Write out as a pandas DataFrame
-        df = pd.DataFrame(results)
+        # Concatenate with the initial results and write out as a pandas DataFrame
+        df = pd.concat([initial_results, pd.DataFrame(results)], ignore_index=True)
         df.to_csv(output_file, index=False)
         print(f"Results saved to {output_file}")
         return
