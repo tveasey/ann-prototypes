@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 from elasticsearch import Elasticsearch
-from elasticsearch.helpers import bulk
+from elasticsearch.helpers import streaming_bulk
 from elasticsearch.exceptions import ConnectionError
 from jsonargparse import auto_cli
 from scipy.spatial.distance import cdist
@@ -220,13 +220,7 @@ class ExperimentFramework:
         try:
             # Fetch all indices
             # We use "*" to get everything, then filter in Python
-            all_indices = self.es.indices.get_alias(index="*").keys()
-
-            indices_to_delete = []
-            for index in all_indices:
-                # standard convention: system indices start with a dot (.)
-                if not index.startswith('.'):
-                    indices_to_delete.append(index)
+            indices_to_delete = self.es.indices.get_alias(index="*,-.*").keys()
 
             if not indices_to_delete:
                 print("\nNo non-system indices found to delete.")
@@ -310,25 +304,17 @@ class ExperimentFramework:
                 corpus, total=len(corpus), desc=f"Indexing vectors into '{index_name}'")
             )
         )
-        try:
-            success, failed = bulk(
-                self.es, actions, stats_only=True, chunk_size=20000
-            )
-            print(f"Successfully indexed {success} vectors.")
-            # Ensure that the index is refreshed before searching
-            self.es.indices.refresh(index=index_name)
-            if failed and (isinstance(failed, list) and len(failed) > 0):
-                print(f"Failed to index {len(failed)} vectors.")
-                # Log the first 5 failures for debugging
-                for i, item in enumerate(failed[:5]):
-                    print(f"  Failure {i+1}: {item['index']['error']}")
+        for success, info in streaming_bulk(
+            self.es.options(request_timeout=120),
+            actions,
+            chunk_size=10000,
+            raise_on_error=False
+        ):
+            if not success:
+                print(f"Failed to index document: {info}")
                 return False
-            if failed:
-                print(f"Failed to index {failed} vectors.")
-                return False
-        except Exception as e:
-            print(f"An error occurred during bulk indexing: {e}")
-            return False
+        # Ensure that the index is refreshed before searching.
+        self.es.indices.refresh(index=index_name)
         return True
 
     def _random_queries(self,
@@ -456,15 +442,22 @@ def _run_experiments(fvec_file_name: str,
     ]
 
     if hashes is not None:
-        experiment_hash = client.experiment_hash(
-            index_name=index_name,
-            field_mapping=field_mapping,
-            query_params=query_params[0]  # Just use the first set for hashing
-        )
-        if experiment_hash in hashes:
-            print(f"Skipping experiment for index '{index_name}' ('{index_type}') "
-                  "as it has already been run.")
-            return []
+        # Remove any experiments that have already been run
+        new_experiments = []
+        for params in query_params:
+            experiment_hash = client.experiment_hash(
+                index_name=index_name,
+                field_mapping=field_mapping,
+                query_params=params
+            )
+            if experiment_hash not in hashes:
+                new_experiments.append(params)
+        query_params = new_experiments
+
+    if not query_params:
+        print(f"Skipping all experiments for index '{index_name}' ('{index_type}') "
+                "as they have already been run.")
+        return []
 
     recalls = client.recall_experiment(
         index_name=index_name,
