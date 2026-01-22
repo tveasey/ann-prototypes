@@ -17,6 +17,22 @@ from tqdm.auto import tqdm
 
 ROOT_DIR = Path(os.getenv("ROOT_DIR", Path.cwd()))
 
+def flatten_dict(d: dict, parent_key: str = '', sep: str = '_') -> dict:
+    """Flattens a nested dictionary.
+
+    :param d: The dictionary to flatten.
+    :param parent_key: The base key string for recursion.
+    :param sep: The separator between keys.
+    :return: A flattened dictionary.
+    """
+    items: list[tuple[str, Any]] = []
+    for k, v in d.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.extend(flatten_dict(v, new_key, sep=sep).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
 
 class ExperimentFramework:
     """
@@ -41,7 +57,7 @@ class ExperimentFramework:
     CANDIDATE_M = [8, 16, 32, 64]
     CANDIDATE_EF_CONSTRUCTION = [100, 200, 400]
     CANDIDATE_CLUSTER_SIZE = [64, 96, 128, 192, 256, 384]
-    CANDIDATE_DEFAULT_VISIT_PERCENTAGE = [0.5, 0.75, 1.0, 1.25, 1.5]
+    CANDIDATE_DEFAULT_VISIT_PERCENTAGE = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0]
     CANDIDATE_OVERSAMPLE = [1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 7.5, 10.0]
 
     def __init__(self, seed: int, num_queries: int = 500) -> None:
@@ -173,27 +189,27 @@ class ExperimentFramework:
                 ann_top_k = self._ann_indices(sample_index_name, queries, params)
 
                 # Calculate recall
-                total_recall = 0.0
+                recalls = []
                 num_queries = queries.shape[0]
                 for i in range(num_queries):
                     ann_set = set(ann_top_k[i].tolist())
                     brute_force_set = set(brute_force_top_k[i].tolist())
                     intersection_size = len(ann_set.intersection(brute_force_set))
                     recall = intersection_size / len(brute_force_set)
-                    total_recall += recall
-
-                average_recall = total_recall / num_queries
+                    recalls.append(recall)
+                
+                average_recall = np.mean(recalls)
+                recall_std = np.std(recalls)
                 result = {
                     "hash": self.experiment_hash(
                         sample_index_name, field_mapping, params
                     ),
                     "index_name": sample_index_name,
-                    **{f"index_params_{key}": value
-                       for key, value in field_mapping["index_options"].items()},
-                    **{f"query_params_{key}": value
-                       for key, value in params.items()},
+                    **flatten_dict({"index_params": field_mapping["index_options"]}),
+                    **flatten_dict({"query_params": params}),
                     "sample_size": sample_size,
-                    "average_recall": average_recall
+                    "average_recall": average_recall,
+                    "recall_std": recall_std
                 }
                 average_recalls.append(result)
 
@@ -510,12 +526,15 @@ def main(fvec_file_name: str,
         return
 
     if all_params:
-        def _flush_intermediate_results(initial_results: pd.DataFrame,
-                                        results: list[dict]) -> None:
-            if len(results) > 0 and len(results) % 10 == 0:
+        def _flush_results(initial_results: pd.DataFrame,
+                           results: list[dict],
+                           last_output_size: int) -> int:
+            if len(results) - last_output_size >= 50:
                 df = pd.concat([initial_results, pd.DataFrame(results)], ignore_index=True)
                 df.to_csv(output_file, index=False)
+                last_output_size = len(results)
                 print(f"Intermediate results saved to {output_file}")
+            return last_output_size
 
         output_file = Path(fvec_file_name).stem + "_experiment_results.csv"
 
@@ -535,9 +554,10 @@ def main(fvec_file_name: str,
         initial_results = (
             pd.read_csv(output_file) if Path(output_file).exists() else pd.DataFrame()
         )
-        hashes = initial_results["hash"].to_set() if not initial_results.empty else None
+        hashes = set(initial_results["hash"].to_list()) if not initial_results.empty else None
 
         results: list[dict] = []
+        last_output_size = 0
         for index_type_, m_, ef_construction_ in hnsw_experiments:
             results += _run_experiments(
                 fvec_file_name=fvec_file_name,
@@ -553,7 +573,7 @@ def main(fvec_file_name: str,
                 visit_percentage=None,
                 oversample=ExperimentFramework.CANDIDATE_OVERSAMPLE,
             )
-            _flush_intermediate_results(initial_results, results)
+            last_output_size = _flush_results(initial_results, results, last_output_size)
 
         for index_type_ in flat_experiments:
             results += _run_experiments(
@@ -570,7 +590,7 @@ def main(fvec_file_name: str,
                 visit_percentage=None,
                 oversample=ExperimentFramework.CANDIDATE_OVERSAMPLE,
             )
-            _flush_intermediate_results(initial_results, results)
+            last_output_size = _flush_results(initial_results, results, last_output_size)
 
         for index_type_, cluster_size_ in disk_experiments:
             results += _run_experiments(
@@ -587,7 +607,7 @@ def main(fvec_file_name: str,
                 visit_percentage=ExperimentFramework.CANDIDATE_DEFAULT_VISIT_PERCENTAGE,
                 oversample=ExperimentFramework.CANDIDATE_OVERSAMPLE,
             )
-            _flush_intermediate_results(initial_results, results)
+            last_output_size = _flush_results(initial_results, results, last_output_size)
 
         print(f"All experiments completed. Have {len(results)} results")
 
