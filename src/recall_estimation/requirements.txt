@@ -1,6 +1,7 @@
 dotenv
 elasticsearch
 jsonargparse[signatures]
+matplotlib
 numpy
 pandas
 scipy

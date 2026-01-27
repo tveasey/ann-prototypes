@@ -143,6 +143,13 @@ class ExperimentFramework:
                         index_name: str,
                         field_mapping: dict,
                         query_params: dict) -> str:
+        """Generates a unique hash for the experiment configuration.
+
+        :param index_name: The name of the Elasticsearch index.
+        :param field_mapping: The field mapping for the dense_vector field.
+        :param query_params: The query parameters for the recall experiment.
+        :return: A SHA-256 hash string representing the experiment configuration.
+        """
         hash_input = f"{index_name}_{field_mapping}_{query_params}"
         return sha256(hash_input.encode()).hexdigest()
 
@@ -475,8 +482,80 @@ def _run_experiments(fvec_file_name: str,
     print(f"Recalls: {json.dumps(recalls, indent=2)}")
     return recalls
 
-def main(fvec_file_name: str,
-         similarity: str,
+def _visualize_results(results: pd.DataFrame) -> None:
+    """Calculates the percentage difference between the recall estimate and the exact recall.
+
+    :param recall_estimate: The estimated recall from the ANN search.
+    :param exact_recall: The exact recall from the brute-force search.
+    :return: The percentage difference between the two recall values.
+    """
+    from matplotlib import pyplot as plt
+
+    # Get the unique non-nan values of sample_size
+    unique_sample_sizes = results["sample_size"].unique()
+    unique_sample_sizes = [s for s in unique_sample_sizes if pd.notna(s)]
+
+    # Create a map "comparable experiment" -> [(sample size, average recall)]
+    parameter_columns = [
+        "source_file",
+        "index_params_type",
+        "index_params_m",
+        "index_params_ef_construction",
+        "index_params_cluster_size",
+        "query_params_k",
+        "query_params_rescore_vector_oversample",
+        "query_params_visit_percentage",
+    ]
+    results[parameter_columns] = results[parameter_columns].fillna("n/a")
+    results["sample_size"] = results["sample_size"].fillna("full")
+    for i, sample_size in enumerate(unique_sample_sizes):
+        plt.figure(i, figsize=(12, 8))
+    for i, (filter_results, label) in enumerate([
+        (results, "All"),
+        (results[((results["index_params_type"] == "hnsw") |
+                  (results["index_params_type"] == "int8_hnsw") |
+                  (results["index_params_type"] == "int4_hnsw") |
+                  (results["index_params_type"] == "bbq_hnsw"))], "HNSW"),
+        (results[((results["index_params_type"] == "int8_flat") |
+                  (results["index_params_type"] == "int4_flat") |
+                  (results["index_params_type"] == "bbq_flat"))], "Flat"),
+        (results[(results["index_params_type"] == "bbq_disk")], "DiskBBQ"),
+    ]):
+        pivot_results = filter_results.pivot_table(
+            index=parameter_columns,
+            columns="sample_size",
+            values="average_recall"
+        )
+        all_results = {}
+        for col in pivot_results.columns:
+            all_results[col] = pivot_results[col].dropna().to_dict()
+
+        # Create a scatter plot of recall for sample size vs full for each sample size.
+        for j, sample_size in enumerate(unique_sample_sizes):
+            sample_size_results = all_results.get(sample_size, {})
+            full_results = all_results.get("full", {})
+            estimated_recalls = []
+            exact_recalls = []
+            for params in sample_size_results.keys():
+                if params in full_results:
+                    estimated_recalls.append(sample_size_results[params])
+                    exact_recalls.append(full_results[params])
+            # Compute R^2 for the scatter plot
+            r2 = np.corrcoef(np.array(estimated_recalls), np.array(exact_recalls))[0, 1] ** 2
+            fig = plt.figure(j)
+            fig.add_subplot(2, 2, i + 1)
+            plt.scatter(estimated_recalls, exact_recalls, alpha=0.6, label=label)
+            plt.plot([0, 1], [0, 1], 'r--')
+            plt.xlabel(f"Estimated Recall (Sample Size = {sample_size})")
+            plt.ylabel("Exact Recall (Full Dataset)")
+            plt.title(f"Recall Estimate vs Exact Recall (R² = {r2:.4f})")
+            plt.xlim(0, 1)
+            plt.ylim(0, 1)
+            plt.legend()
+    plt.show()
+
+def main(fvec_file_name: str | None = None,
+         similarity: str | None = None,
          seed: int = 42,
          k: int | None = 10,
          all_params: bool = True,
@@ -505,20 +584,37 @@ def main(fvec_file_name: str,
         visit_percentage: The percentage of the index to visit during the search.
         oversample: The oversampling factor for the search.
     """
-    if visualize:
-        output_file = Path(fvec_file_name).stem + "_experiment_results.csv"
-        if not Path(output_file).exists():
-            print(f"Output file '{output_file}' does not exist. "
-                  "Run experiments first to generate results.")
-            return
-        df = pd.read_csv(output_file)
 
-        # We're interested in visualizing how the recall varies as a function of
-        # the sample size compared to the full dataset.
-        # TODO
+    if visualize:
+        # If fvec_file_name is not supplied, load all files in the results directory
+        if fvec_file_name is None:
+            results_files = list((Path("results")).glob("*_experiment_results.csv"))
+            if not results_files:
+                print("No results files found in the 'results' directory.")
+                return
+            all_results = pd.DataFrame()
+            for file in results_files:
+                df = pd.read_csv(file)
+                # Add a column for the source file
+                df["source_file"] = file.name
+                all_results = pd.concat([all_results, df], ignore_index=True)
+            _visualize_results(all_results)
+            return
+
+        output_file = Path("results") / (Path(fvec_file_name).stem + "_experiment_results.csv")
+        if not output_file.exists():
+            print(f"Output file '{output_file}' does not exist.")
+            return
+
+        _visualize_results(pd.read_csv(output_file))
+        return
+
+    if fvec_file_name is None or similarity is None:
+        print("Error: fvec_file_name and similarity must be specified when not visualizing.")
         return
 
     if all_params:
+        output_file = Path("results") / (Path(fvec_file_name).stem + "_experiment_results.csv")
         def _flush_results(initial_results: pd.DataFrame,
                            results: list[dict],
                            last_output_size: int) -> int:
@@ -528,8 +624,6 @@ def main(fvec_file_name: str,
                 last_output_size = len(results)
                 print(f"Intermediate results saved to {output_file}")
             return last_output_size
-
-        output_file = Path(fvec_file_name).stem + "_experiment_results.csv"
 
         hnsw_experiments = itertools.product(
             ["hnsw", "int8_hnsw", "int4_hnsw", "bbq_hnsw"],
@@ -545,7 +639,7 @@ def main(fvec_file_name: str,
         )
 
         initial_results = (
-            pd.read_csv(output_file) if Path(output_file).exists() else pd.DataFrame()
+            pd.read_csv(output_file) if output_file.exists() else pd.DataFrame()
         )
         hashes = set(initial_results["hash"].to_list()) if not initial_results.empty else None
 
