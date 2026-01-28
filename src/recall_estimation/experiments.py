@@ -153,13 +153,13 @@ class ExperimentFramework:
         hash_input = f"{index_name}_{field_mapping}_{query_params}"
         return sha256(hash_input.encode()).hexdigest()
 
-    def recall_experiment(self,
-                          index_name: str,
-                          fvec_file_name: str,
-                          sample_sizes: list[int | None],
-                          field_mapping: dict,
-                          k: int,
-                          query_params: list[dict]) -> list[dict] | None:
+    def sampling_recall_experiment(self,
+                                   index_name: str,
+                                   fvec_file_name: str,
+                                   sample_sizes: list[int | None],
+                                   field_mapping: dict,
+                                   k: int,
+                                   query_params: list[dict]) -> list[dict] | None:
         """Indexes vectors from a .fvec file into the specified Elasticsearch index.
 
         :param index_name: The name of the Elasticsearch index.
@@ -168,7 +168,8 @@ class ExperimentFramework:
         :param field_mapping: The field mapping for the dense_vector field.
         :param k: The number of nearest neighbors to retrieve.
         :param query_params: The query parameters for the recall experiment.
-        :return: A list of average recall values for each sample size, or None if an error occurs.
+        :return: A list of average recall values for each sample size and query parameter set,
+        or None if an error occurs.
         """
         average_recalls = []
         for sample_size in sample_sizes:
@@ -208,9 +209,7 @@ class ExperimentFramework:
                 average_recall = np.mean(recalls)
                 recall_std = np.std(recalls)
                 result = {
-                    "hash": self.experiment_hash(
-                        sample_index_name, field_mapping, params
-                    ),
+                    "hash": self.experiment_hash(sample_index_name, field_mapping, params),
                     "index_name": sample_index_name,
                     **flatten_dict({"index_params": field_mapping["index_options"]}),
                     **flatten_dict({"query_params": params}),
@@ -219,6 +218,130 @@ class ExperimentFramework:
                     "recall_std": recall_std
                 }
                 average_recalls.append(result)
+
+        return average_recalls
+
+    def canary_recall_experiment(self,
+                                 index_name: str,
+                                 fvec_file_name: str,
+                                 field_mapping: dict,
+                                 k: int,
+                                 query_params: list[dict]) -> list[dict] | None:
+        """Performs a canary-based recall estimation experiment.
+
+        :param index_name: The name of the Elasticsearch index.
+        :param fvec_file_name: The path to the .fvec file containing the vectors.
+        :param field_mapping: The field mapping for the dense_vector field.
+        :param k: The number of nearest neighbors to retrieve.
+        :param query_params: The query parameters for the recall experiment.
+        :return: A list of average recall values for each query parameter set,
+        or None if an error occurs.
+        """
+
+        # The idea is to construct known nearest neighbour sets for canary queries and use
+        # these to estimate recall for other vectors. We do this as follows:
+        #   1. Index random half of the corpus.
+        #   2. Pick random query vectors from the other 0.25 of the corpus.
+        #   3. For each query vector, find its approximate 4 * sqrt(dim) nearest neighbors
+        #      in the indexed half.
+        #   4. Compute the minimum distance d_min of any vector found to the query vector.
+        #   5. For each query, create a set of k "vectors" by sampling pairs (i, j) i < j
+        #      from its nearest neighbors and constructing a * v_i + (1 - a) * v_j where "a"
+        #      is random in [0, 1] and normalizing.
+        #   6. For each query, uniformly sample inside a sphere which centered on the query
+        #      along each neighbour vector to create its nearest neighbours.
+        #   7. Index all remaining vectors (including canary nearest neighbours).
+        #   8. Measure recall over the canary nearest neighbour sets.
+
+        if not self._create_index(index_name, field_mapping)[0]:
+            print(f"Skipping indexing for '{index_name}' due to index creation failure.")
+            return None
+
+        corpus = self._read_fvecs(fvec_file_name, sample_size=None)
+        np.random.shuffle(corpus)
+        sample_index_corpus = corpus[:corpus.shape[0] // 4]
+        if not self._index_vectors(index_name, sample_index_corpus):
+            print(f"Indexing failed for index '{index_name}'.")
+            return None
+
+        sample_size = corpus.shape[0] // 4
+        remaining_corpus = corpus[sample_size:]
+        _, query_vectors = self._random_queries(remaining_corpus, num_queries=self.num_queries)
+
+        dim = corpus.shape[1]
+        num_neighbors = int(4 * np.sqrt(dim))
+        ann_top_k = self._ann_indices(index_name, query_vectors, query_params={"k": num_neighbors})
+
+        canary_neighbors = []
+        for i, query in enumerate(tqdm(
+            query_vectors, total=len(query_vectors), desc="Generating canary neighbors"
+        )):
+            neighbor_indices = ann_top_k[i]
+            neighbor_vectors = sample_index_corpus[neighbor_indices]
+            distances = cdist(
+                query.reshape(1, -1), neighbor_vectors, metric='euclidean'
+            ).flatten()
+            d_min = np.min(distances)
+
+            canary_set: list[np.ndarray] = []
+            while len(canary_set) < k:
+                i, j = np.random.choice(len(neighbor_vectors), size=2, replace=False)
+                a = np.random.uniform(0, 1)
+                avg_vector = a * neighbor_vectors[i] + (1 - a) * neighbor_vectors[j]
+                avg_vector /= np.linalg.norm(avg_vector) + 1e-10
+                # The volume of a d-dimensional sphere scales as r^d so to get a uniform
+                # distribution within the sphere we need to sample with probability
+                # proportional to r^(d-1). This can be done using the inverse transform
+                # method.
+                scale = np.random.uniform(0.1 * d_min, 0.9 * d_min) * 0.95**dim
+                scale = scale ** (1 / dim)
+                canary_vector = query + scale * avg_vector
+                canary_set.append(canary_vector)
+            canary_neighbors.append(np.array(canary_set))
+
+        # We want to randomly spread the canary neighbors throughout the remaining corpus
+        # at index time to avoid any indexing edge case.
+        remaining_corpus = np.vstack([remaining_corpus] + canary_neighbors)
+        indices = np.array(range(sample_index_corpus.shape[0], 
+                                 sample_index_corpus.shape[0] + remaining_corpus.shape[0]))
+        np.random.shuffle(indices)
+        inverse_indices = np.empty_like(indices)
+        inverse_indices[indices] = np.arange(len(indices))
+        if not self._index_vectors(index_name, remaining_corpus, 
+                                  offset=sample_index_corpus.shape[0]):
+            print(f"Indexing failed for index '{index_name}'.")
+            return None
+
+        exact_top_k = []
+        for i in range(len(query_vectors)):
+            canary_indices = {
+                inverse_indices[sample_index_corpus.shape[0] + i * k + j]
+                for j in range(k)
+            }
+            exact_top_k.append(canary_indices)
+
+        average_recalls = []
+        for params in query_params:
+            recalls = []
+            ann_top_k = self._ann_indices(index_name, query_vectors, query_params=params)
+            for i in range(len(query_vectors)):
+                ann_set = set(ann_top_k[i].tolist())
+                intersection_size = len(ann_set.intersection(exact_top_k[i]))
+                recall = intersection_size / len(exact_top_k[i])
+                recalls.append(recall)
+
+            average_recall = np.mean(recalls)
+            recall_std = np.std(recalls)
+            result = {
+                "hash": self.experiment_hash(index_name, field_mapping, params),
+                "index_name": index_name,
+                **flatten_dict({"index_params": field_mapping["index_options"]}),
+                **flatten_dict({"query_params": params}),
+                "sample_size": sample_size,
+                "average_recall": average_recall,
+                "recall_std": recall_std
+            }
+            average_recalls.append(result)
 
         return average_recalls
 
@@ -300,11 +423,12 @@ class ExperimentFramework:
 
     def _index_vectors(self,
                        index_name: str,
-                       corpus: np.ndarray) -> bool:
+                       corpus: np.ndarray,
+                       offset: int = 0) -> bool:
         actions = (
             {
                 "_index": index_name,
-                "_id": f"{id}",
+                "_id": f"{offset + id}",
                 "_source": {"vec": vector.tolist()}
             }
             for id, vector in enumerate(tqdm(
@@ -436,53 +560,68 @@ def _run_experiments(fvec_file_name: str,
         cluster_size=cluster_size
     )
 
-    query_params = [
-        client.make_query_params(
-            k=k or 10,
-            visit_percentage=visit_percentage,
-            oversample=oversample
-        )
-        for visit_percentage, oversample in itertools.product(
-            visit_percentage or [None], # type: ignore
-            oversample or [None] # type: ignore
-        )
-    ]
-
-    if hashes is not None:
-        # Remove any experiments that have already been run
-        new_experiments = []
-        for params in query_params:
-            experiment_hash = client.experiment_hash(
-                index_name=index_name,
-                field_mapping=field_mapping,
-                query_params=params
+    def _base_query_params():
+        yield from (
+            client.make_query_params(
+                k=k or 10,
+                visit_percentage=visit_percentage,
+                oversample=oversample
             )
-            if experiment_hash not in hashes:
-                new_experiments.append(params)
-        query_params = new_experiments
+            for visit_percentage, oversample in itertools.product(
+                visit_percentage or [None], # type: ignore
+                oversample or [None] # type: ignore
+            )
+        )
 
+    def _hash(index_name_: str, params: dict) -> str:
+        return client.experiment_hash(
+            index_name=index_name_,
+            field_mapping=field_mapping,
+            query_params=params
+        )
+
+    recalls = []
+
+    # Remove any experiments that have already been run
+    non_null_hashes: set = hashes or set()
+    query_params = [
+        params for params in _base_query_params()
+        if _hash(index_name, params) not in non_null_hashes
+    ]
     if not query_params:
-        print(f"Skipping all experiments for index '{index_name}' ('{index_type}') "
-                "as they have already been run.")
-        return []
+        print(f"Skipping all sampling experiments for index '{index_name}' ('{index_type}') "
+              "as they have already been run.")
+    else:
+        recalls += client.sampling_recall_experiment(
+            index_name=index_name,
+            fvec_file_name=fvec_file_name,
+            sample_sizes=[None, 2000, 4000, 8000, 16000],
+            field_mapping=field_mapping,
+            k=k or 10,
+            query_params=query_params
+        ) or []
 
-    recalls = client.recall_experiment(
-        index_name=index_name,
-        fvec_file_name=fvec_file_name,
-        sample_sizes=[None, 2000, 4000, 8000, 16000],
-        field_mapping=field_mapping,
-        k=k or 10,
-        query_params=query_params
-    )
-    if recalls is None:
-        print(f"Experiment failed for index '{index_name}' ('{index_type}').")
-        return []
+    query_params = [
+        params for params in _base_query_params()
+        if _hash(f"{index_name}_canary", params) not in non_null_hashes
+    ]
+    if not query_params:
+        print(f"Skipping all canary experiments for index '{index_name}' ('{index_type}') "
+              "as they have already been run.")
+    else:
+        recalls += client.canary_recall_experiment(
+            index_name=f"{index_name}_canary",
+            fvec_file_name=fvec_file_name,
+            field_mapping=field_mapping,
+            k=k or 10,
+            query_params=query_params
+        ) or []
 
     print(f"Experiments completed for index '{index_name}' ('{index_type}').")
     print(f"Recalls: {json.dumps(recalls, indent=2)}")
     return recalls
 
-def _visualize_results(results: pd.DataFrame) -> None:
+def _visualize_correlation(results: pd.DataFrame) -> None:
     """Calculates the percentage difference between the recall estimate and the exact recall.
 
     :param recall_estimate: The estimated recall from the ANN search.
@@ -598,7 +737,7 @@ def main(fvec_file_name: str | None = None,
                 # Add a column for the source file
                 df["source_file"] = file.name
                 all_results = pd.concat([all_results, df], ignore_index=True)
-            _visualize_results(all_results)
+            _visualize_correlation(all_results)
             return
 
         output_file = Path("results") / (Path(fvec_file_name).stem + "_experiment_results.csv")
@@ -606,7 +745,7 @@ def main(fvec_file_name: str | None = None,
             print(f"Output file '{output_file}' does not exist.")
             return
 
-        _visualize_results(pd.read_csv(output_file))
+        _visualize_correlation(pd.read_csv(output_file))
         return
 
     if fvec_file_name is None or similarity is None:
