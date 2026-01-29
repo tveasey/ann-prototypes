@@ -125,9 +125,9 @@ class ExperimentFramework:
                           k: int,
                           visit_percentage: float | None = None,
                           oversample: float | None = None) -> dict[str, Any]:
-        """Creates the query parameters for an approximate nearest neighbor search.
+        """Creates the query parameters for an approximate nearest neighbour search.
 
-        :param k: The number of nearest neighbors to retrieve.
+        :param k: The number of nearest neighbours to retrieve.
         :param visit_percentage: The percentage of the index to visit during the search.
         :param oversample: The oversampling factor for the search.
         :return: A dictionary representing the query parameters.
@@ -166,12 +166,12 @@ class ExperimentFramework:
         :param fvec_file_name: The path to the .fvec file containing the vectors.
         :param sample_sizes: The list of numbers of vectors to sample from the .fvec file.
         :param field_mapping: The field mapping for the dense_vector field.
-        :param k: The number of nearest neighbors to retrieve.
+        :param k: The number of nearest neighbours to retrieve.
         :param query_params: The query parameters for the recall experiment.
-        :return: A list of average recall values for each sample size and query parameter set,
-        or None if an error occurs.
+        :return: A list of average recall values for each sample size and query parameter
+        set, or None if an error occurs.
         """
-        average_recalls = []
+        results = []
         for sample_size in sample_sizes:
             print(f"Running recall experiments with sample size: {sample_size}")
 
@@ -205,7 +205,7 @@ class ExperimentFramework:
                     intersection_size = len(ann_set.intersection(brute_force_set))
                     recall = intersection_size / len(brute_force_set)
                     recalls.append(recall)
-                
+
                 average_recall = np.mean(recalls)
                 recall_std = np.std(recalls)
                 result = {
@@ -217,9 +217,9 @@ class ExperimentFramework:
                     "average_recall": average_recall,
                     "recall_std": recall_std
                 }
-                average_recalls.append(result)
+                results.append(result)
 
-        return average_recalls
+        return results
 
     def canary_recall_experiment(self,
                                  index_name: str,
@@ -232,118 +232,13 @@ class ExperimentFramework:
         :param index_name: The name of the Elasticsearch index.
         :param fvec_file_name: The path to the .fvec file containing the vectors.
         :param field_mapping: The field mapping for the dense_vector field.
-        :param k: The number of nearest neighbors to retrieve.
+        :param k: The number of nearest neighbours to retrieve.
         :param query_params: The query parameters for the recall experiment.
         :return: A list of average recall values for each query parameter set,
         or None if an error occurs.
         """
-
-        # The idea is to construct known nearest neighbour sets for canary queries and use
-        # these to estimate recall for other vectors. We do this as follows:
-        #   1. Index random half of the corpus.
-        #   2. Pick random query vectors from the other 0.25 of the corpus.
-        #   3. For each query vector, find its approximate 4 * sqrt(dim) nearest neighbors
-        #      in the indexed half.
-        #   4. Compute the minimum distance d_min of any vector found to the query vector.
-        #   5. For each query, create a set of k "vectors" by sampling pairs (i, j) i < j
-        #      from its nearest neighbors and constructing a * v_i + (1 - a) * v_j where "a"
-        #      is random in [0, 1] and normalizing.
-        #   6. For each query, uniformly sample inside a sphere which centered on the query
-        #      along each neighbour vector to create its nearest neighbours.
-        #   7. Index all remaining vectors (including canary nearest neighbours).
-        #   8. Measure recall over the canary nearest neighbour sets.
-
-        if not self._create_index(index_name, field_mapping)[0]:
-            print(f"Skipping indexing for '{index_name}' due to index creation failure.")
-            return None
-
-        corpus = self._read_fvecs(fvec_file_name, sample_size=None)
-        np.random.shuffle(corpus)
-        sample_index_corpus = corpus[:corpus.shape[0] // 4]
-        if not self._index_vectors(index_name, sample_index_corpus):
-            print(f"Indexing failed for index '{index_name}'.")
-            return None
-
-        sample_size = corpus.shape[0] // 4
-        remaining_corpus = corpus[sample_size:]
-        _, query_vectors = self._random_queries(remaining_corpus, num_queries=self.num_queries)
-
-        dim = corpus.shape[1]
-        num_neighbors = int(4 * np.sqrt(dim))
-        ann_top_k = self._ann_indices(index_name, query_vectors, query_params={"k": num_neighbors})
-
-        canary_neighbors = []
-        for i, query in enumerate(tqdm(
-            query_vectors, total=len(query_vectors), desc="Generating canary neighbors"
-        )):
-            neighbor_indices = ann_top_k[i]
-            neighbor_vectors = sample_index_corpus[neighbor_indices]
-            distances = cdist(
-                query.reshape(1, -1), neighbor_vectors, metric='euclidean'
-            ).flatten()
-            d_min = np.min(distances)
-
-            canary_set: list[np.ndarray] = []
-            while len(canary_set) < k:
-                i, j = np.random.choice(len(neighbor_vectors), size=2, replace=False)
-                a = np.random.uniform(0, 1)
-                avg_vector = a * neighbor_vectors[i] + (1 - a) * neighbor_vectors[j]
-                avg_vector /= np.linalg.norm(avg_vector) + 1e-10
-                # The volume of a d-dimensional sphere scales as r^d so to get a uniform
-                # distribution within the sphere we need to sample with probability
-                # proportional to r^(d-1). This can be done using the inverse transform
-                # method.
-                scale = np.random.uniform(0.1 * d_min, 0.9 * d_min) * 0.95**dim
-                scale = scale ** (1 / dim)
-                canary_vector = query + scale * avg_vector
-                canary_set.append(canary_vector)
-            canary_neighbors.append(np.array(canary_set))
-
-        # We want to randomly spread the canary neighbors throughout the remaining corpus
-        # at index time to avoid any indexing edge case.
-        remaining_corpus = np.vstack([remaining_corpus] + canary_neighbors)
-        indices = np.array(range(sample_index_corpus.shape[0], 
-                                 sample_index_corpus.shape[0] + remaining_corpus.shape[0]))
-        np.random.shuffle(indices)
-        inverse_indices = np.empty_like(indices)
-        inverse_indices[indices] = np.arange(len(indices))
-        if not self._index_vectors(index_name, remaining_corpus, 
-                                  offset=sample_index_corpus.shape[0]):
-            print(f"Indexing failed for index '{index_name}'.")
-            return None
-
-        exact_top_k = []
-        for i in range(len(query_vectors)):
-            canary_indices = {
-                inverse_indices[sample_index_corpus.shape[0] + i * k + j]
-                for j in range(k)
-            }
-            exact_top_k.append(canary_indices)
-
-        average_recalls = []
-        for params in query_params:
-            recalls = []
-            ann_top_k = self._ann_indices(index_name, query_vectors, query_params=params)
-            for i in range(len(query_vectors)):
-                ann_set = set(ann_top_k[i].tolist())
-                intersection_size = len(ann_set.intersection(exact_top_k[i]))
-                recall = intersection_size / len(exact_top_k[i])
-                recalls.append(recall)
-
-            average_recall = np.mean(recalls)
-            recall_std = np.std(recalls)
-            result = {
-                "hash": self.experiment_hash(index_name, field_mapping, params),
-                "index_name": index_name,
-                **flatten_dict({"index_params": field_mapping["index_options"]}),
-                **flatten_dict({"query_params": params}),
-                "sample_size": sample_size,
-                "average_recall": average_recall,
-                "recall_std": recall_std
-            }
-            average_recalls.append(result)
-
-        return average_recalls
+        # TODO
+        return None
 
     def delete_all_indices(self, dry_run: bool = False) -> None:
         """Deletes all indices in the Elasticsearch cluster."""
@@ -464,12 +359,12 @@ class ExperimentFramework:
                      index_name: str,
                      queries: np.ndarray,
                      query_params: dict) -> np.ndarray:
-        """Performs an approximate nearest neighbor search using Elasticsearch.
+        """Performs an approximate nearest neighbour search using Elasticsearch.
 
         :param index_name: The name of the Elasticsearch index.
         :param queries: The query vectors.
-        :param k: The number of nearest neighbors to retrieve.
-        :return: A list of document IDs representing the nearest neighbors.
+        :param k: The number of nearest neighbours to retrieve.
+        :return: A list of document IDs representing the nearest neighbours.
         """
         # We use the position of each vector in the corpus collection as its document ID.
         # Thus, the brute-force top-k indices correspond directly to document IDs.
@@ -497,13 +392,13 @@ class ExperimentFramework:
                              corpus: np.ndarray,
                              similarity: str,
                              k: int) -> np.ndarray:
-        """Performs a brute-force search to find the top-k nearest neighbors.
+        """Performs a brute-force search to find the top-k nearest neighbours.
 
         :param corpus: The corpus of vectors.
         :param queries: The query vectors.
         :param similarity: The similarity metric to use.
-        :param k: The number of nearest neighbors to retrieve.
-        :return: A list of document IDs representing the nearest neighbors.
+        :param k: The number of nearest neighbours to retrieve.
+        :return: A list of document IDs representing the nearest neighbours.
         """
         if similarity == "l2_norm":
             scores = 1 / (1 + cdist(queries, corpus, metric='sqeuclidean'))
@@ -632,23 +527,11 @@ def _visualize_correlation(results: pd.DataFrame) -> None:
 
     # Get the unique non-nan values of sample_size
     unique_sample_sizes = results["sample_size"].unique()
-    unique_sample_sizes = [s for s in unique_sample_sizes if pd.notna(s)]
+    unique_sample_sizes = [s for s in unique_sample_sizes if s != "full"]
 
     # Create a map "comparable experiment" -> [(sample size, average recall)]
-    parameter_columns = [
-        "source_file",
-        "index_params_type",
-        "index_params_m",
-        "index_params_ef_construction",
-        "index_params_cluster_size",
-        "query_params_k",
-        "query_params_rescore_vector_oversample",
-        "query_params_visit_percentage",
-    ]
-    results[parameter_columns] = results[parameter_columns].fillna("n/a")
-    results["sample_size"] = results["sample_size"].fillna("full")
     for i, sample_size in enumerate(unique_sample_sizes):
-        plt.figure(i, figsize=(12, 8))
+        plt.figure(i, figsize=(15, 12))
     for i, (filter_results, label) in enumerate([
         (results, "All"),
         (results[((results["index_params_type"] == "hnsw") |
@@ -661,7 +544,14 @@ def _visualize_correlation(results: pd.DataFrame) -> None:
         (results[(results["index_params_type"] == "bbq_disk")], "DiskBBQ"),
     ]):
         pivot_results = filter_results.pivot_table(
-            index=parameter_columns,
+            index=["source_file",
+                   "index_params_type",
+                   "index_params_m",
+                   "index_params_ef_construction",
+                   "index_params_cluster_size",
+                   "query_params_k",
+                   "query_params_rescore_vector_oversample",
+                   "query_params_visit_percentage"],
             columns="sample_size",
             values="average_recall"
         )
@@ -691,7 +581,39 @@ def _visualize_correlation(results: pd.DataFrame) -> None:
             plt.xlim(0, 1)
             plt.ylim(0, 1)
             plt.legend()
-    plt.show()
+            plt.savefig(f"results/estimate_correlation_sample_size_{sample_size}.png")
+
+def _visualize_sensitivity(results: pd.DataFrame) -> None:
+    """Visualizes the sensitivity of recall estimates to different parameters."""
+    from matplotlib import pyplot as plt
+
+    for param in [
+        "index_params_m",
+        "index_params_ef_construction",
+        "index_params_cluster_size",
+        "query_params_visit_percentage",
+        "query_params_rescore_vector_oversample",
+    ]:
+        plt.figure(figsize=(10, 6))
+        pivot_results = results.pivot_table(
+            columns=param,
+            values="average_recall"
+        )
+        param_values = []
+        average_recalls = []
+        for col in pivot_results.columns:
+            if col == "n/a":
+                continue
+            param_values.append(col)
+            average_recalls.append(pivot_results[col].dropna().mean())
+
+        plt.plot(param_values, average_recalls, marker='o')
+        plt.xlabel(f"Parameter: {param}")
+        plt.ylabel("Average Recall")
+        plt.title(f"Sensitivity of Recall to Parameter: {param}")
+        plt.grid(True)
+        plt.savefig(f"results/recall_sensitivity_{param}.png")
+    
 
 def main(fvec_file_name: str | None = None,
          similarity: str | None = None,
@@ -712,7 +634,7 @@ def main(fvec_file_name: str | None = None,
         fvec_file_name: The path to the .fvec file containing the vectors.
         similarity: The similarity metric to use.
         seed: The random seed for reproducibility.
-        k: The number of nearest neighbors to retrieve.
+        k: The number of nearest neighbours to retrieve.
         all_params: Whether to run experiments for all parameter combinations.
         visualize: Whether to visualize existing experiment results.
         clear_caches: Whether to clear all existing indices before running the experiment.
@@ -737,16 +659,16 @@ def main(fvec_file_name: str | None = None,
                 # Add a column for the source file
                 df["source_file"] = file.name
                 all_results = pd.concat([all_results, df], ignore_index=True)
+            all_results["sample_size"] = all_results["sample_size"].fillna("full")
+            all_results = all_results.fillna("n/a")
             _visualize_correlation(all_results)
+            _visualize_sensitivity(all_results)
             return
 
         output_file = Path("results") / (Path(fvec_file_name).stem + "_experiment_results.csv")
         if not output_file.exists():
             print(f"Output file '{output_file}' does not exist.")
             return
-
-        _visualize_correlation(pd.read_csv(output_file))
-        return
 
     if fvec_file_name is None or similarity is None:
         print("Error: fvec_file_name and similarity must be specified when not visualizing.")
