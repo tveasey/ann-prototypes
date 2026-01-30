@@ -1,3 +1,4 @@
+from cProfile import label
 import itertools
 import json
 import os
@@ -516,35 +517,133 @@ def _run_experiments(fvec_file_name: str,
     print(f"Recalls: {json.dumps(recalls, indent=2)}")
     return recalls
 
-def _visualize_correlation(results: pd.DataFrame) -> None:
-    """Calculates the percentage difference between the recall estimate and the exact recall.
+def _all_filter(df: pd.DataFrame, source: str | None = None) -> pd.DataFrame:
+    if source is not None:
+        return df[df["source"] == source]
+    return df
 
-    :param recall_estimate: The estimated recall from the ANN search.
-    :param exact_recall: The exact recall from the brute-force search.
-    :return: The percentage difference between the two recall values.
+def _hnsw_filter(df: pd.DataFrame, source: str | None = None) -> pd.DataFrame:
+    if source is not None:
+        return df[(df["index_params_type"] == "hnsw") |
+                  (df["index_params_type"] == "int8_hnsw") |
+                  (df["index_params_type"] == "int4_hnsw") |
+                  (df["index_params_type"] == "bbq_hnsw") &
+                  (df["source"] == source)]
+    return df[(df["index_params_type"] == "hnsw") |
+              (df["index_params_type"] == "int8_hnsw") |
+              (df["index_params_type"] == "int4_hnsw") |
+              (df["index_params_type"] == "bbq_hnsw")]
+
+def _flat_filter(df: pd.DataFrame, source: str | None = None) -> pd.DataFrame:
+    if source is not None:
+        return df[(df["index_params_type"] == "int8_flat") |
+                  (df["index_params_type"] == "int4_flat") |
+                  (df["index_params_type"] == "bbq_flat") &
+                  (df["source"] == source)]
+    return df[(df["index_params_type"] == "int8_flat") |
+              (df["index_params_type"] == "int4_flat") |
+              (df["index_params_type"] == "bbq_flat")]
+
+def _diskbbq_filter(df: pd.DataFrame, source: str | None = None) -> pd.DataFrame:
+    if source is not None:
+        return df[(df["index_params_type"] == "bbq_disk") &
+                  (df["source"] == source)]
+    return df[(df["index_params_type"] == "bbq_disk")]
+
+def _visualize_r2(results: pd.DataFrame, figure_index: int) -> int:
+    """Visualizes the average R² between the recall estimate and the exact recall.
+
+    :param figure_index: The current figure index for plotting.
+    :return: The updated figure index after plotting.
     """
     from matplotlib import pyplot as plt
 
-    # Get the unique non-nan values of sample_size
+    # Get the unique values of sample_size
     unique_sample_sizes = results["sample_size"].unique()
-    unique_sample_sizes = [s for s in unique_sample_sizes if s != "full"]
+    unique_sample_sizes = [int(s) for s in unique_sample_sizes if s != "full"]
 
-    # Create a map "comparable experiment" -> [(sample size, average recall)]
-    for i, sample_size in enumerate(unique_sample_sizes):
+    # Get unique values of source
+    unique_sources = results["source"].unique()
+
+    index = [
+        "source",
+        "index_params_type",
+        "index_params_m",
+        "index_params_ef_construction",
+        "index_params_cluster_size",
+        "query_params_k",
+        "query_params_rescore_vector_oversample",
+        "query_params_visit_percentage"
+    ]
+
+    fig = plt.figure(figure_index, figsize=(15, 12))
+    figure_index += 1
+    for i in range(len(unique_sample_sizes)):
+        fig.add_subplot(2, 2, i + 1)
+
+    def _compute_r2(sample_size_results: dict, full_results: dict) -> float | None:
+        estimated_recalls = []
+        exact_recalls = []
+        for params in sample_size_results.keys():
+            if params in full_results:
+                estimated_recalls.append(sample_size_results[params])
+                exact_recalls.append(full_results[params])
+        if not estimated_recalls:
+            print(f"No comparable results for sample size {sample_size} and label '{label}'")
+            return None
+        return np.corrcoef(np.array(estimated_recalls), np.array(exact_recalls))[0, 1] ** 2
+
+    for source in [None, *unique_sources]:
+        for i, (filter_results, label_) in enumerate([
+            (_all_filter(results, source), "All"),
+            (_hnsw_filter(results, source), "HNSW"),
+            (_flat_filter(results, source), "Flat"),
+            (_diskbbq_filter(results, source), "DiskBBQ"),
+        ]):
+            pivot_results = filter_results.pivot_table(
+                index=index, columns="sample_size", values="average_recall"
+            )
+            all_results = {}
+            for col in pivot_results.columns:
+                all_results[col] = pivot_results[col].dropna().to_dict()
+            r2 = []
+            for sample_size in unique_sample_sizes:
+                r2.append(_compute_r2(all_results.get(sample_size, {}),
+                                      all_results.get("full", {})))
+            plt.subplot(2, 2, i + 1)
+            plt.plot(unique_sample_sizes, r2, marker='o',
+                     label="all" if source is None else f"{source}")
+            plt.xlabel("Sample Size")
+            plt.ylabel("Average R²")
+            plt.title(f"Average R² of Recall Estimate vs Exact Recall ({label_})")
+            if i == 1:
+                plt.legend()
+
+    plt.savefig("results/average_r2_sample_size.png")
+
+    return figure_index
+
+def _visualize_correlation(results: pd.DataFrame, figure_index: int) -> int:
+    """Visualizes the average R² between the recall estimate and the exact recall.
+
+    :param figure_index: The current figure index for plotting.
+    :return: The updated figure index after plotting.
+    """
+    from matplotlib import pyplot as plt
+
+    unique_sample_sizes = [s for s in results["sample_size"].unique() if s != "full"]
+
+    for i in range(figure_index, figure_index + len(unique_sample_sizes)):
         plt.figure(i, figsize=(15, 12))
-    for i, (filter_results, label) in enumerate([
-        (results, "All"),
-        (results[((results["index_params_type"] == "hnsw") |
-                  (results["index_params_type"] == "int8_hnsw") |
-                  (results["index_params_type"] == "int4_hnsw") |
-                  (results["index_params_type"] == "bbq_hnsw"))], "HNSW"),
-        (results[((results["index_params_type"] == "int8_flat") |
-                  (results["index_params_type"] == "int4_flat") |
-                  (results["index_params_type"] == "bbq_flat"))], "Flat"),
-        (results[(results["index_params_type"] == "bbq_disk")], "DiskBBQ"),
+
+    for i, (filter_results, label_) in enumerate([
+        (_all_filter(results), "All"),
+        (_hnsw_filter(results), "HNSW"),
+        (_flat_filter(results), "Flat"),
+        (_diskbbq_filter(results), "DiskBBQ"),
     ]):
         pivot_results = filter_results.pivot_table(
-            index=["source_file",
+            index=["source",
                    "index_params_type",
                    "index_params_m",
                    "index_params_ef_construction",
@@ -558,8 +657,6 @@ def _visualize_correlation(results: pd.DataFrame) -> None:
         all_results = {}
         for col in pivot_results.columns:
             all_results[col] = pivot_results[col].dropna().to_dict()
-
-        # Create a scatter plot of recall for sample size vs full for each sample size.
         for j, sample_size in enumerate(unique_sample_sizes):
             sample_size_results = all_results.get(sample_size, {})
             full_results = all_results.get("full", {})
@@ -569,21 +666,29 @@ def _visualize_correlation(results: pd.DataFrame) -> None:
                 if params in full_results:
                     estimated_recalls.append(sample_size_results[params])
                     exact_recalls.append(full_results[params])
-            # Compute R^2 for the scatter plot
+            if not estimated_recalls:
+                print(f"No comparable results for sample size {sample_size} and label '{label_}'")
+                continue
+            # Compute R^2 for the scatter plot.
             r2 = np.corrcoef(np.array(estimated_recalls), np.array(exact_recalls))[0, 1] ** 2
-            fig = plt.figure(j)
+            fig = plt.figure(figure_index + j)
             fig.add_subplot(2, 2, i + 1)
-            plt.scatter(estimated_recalls, exact_recalls, alpha=0.6, label=label)
+            plt.scatter(estimated_recalls, exact_recalls, alpha=0.6, label=label_)
             plt.plot([0, 1], [0, 1], 'r--')
+            plt.xlim(0, 1)
+            plt.ylim(0, 1)
             plt.xlabel(f"Estimated Recall (Sample Size = {sample_size})")
             plt.ylabel("Exact Recall (Full Dataset)")
             plt.title(f"Recall Estimate vs Exact Recall (R² = {r2:.4f})")
-            plt.xlim(0, 1)
-            plt.ylim(0, 1)
-            plt.legend()
-            plt.savefig(f"results/estimate_correlation_sample_size_{sample_size}.png")
 
-def _visualize_sensitivity(results: pd.DataFrame) -> None:
+    for i, sample_size in enumerate(unique_sample_sizes):
+        plt.figure(figure_index + i)
+        plt.legend()
+        plt.savefig(f"results/estimate_correlation_sample_size_{sample_size}.png")
+
+    return figure_index + len(unique_sample_sizes)
+
+def _visualize_sensitivity(results: pd.DataFrame, figure_index: int) -> int:
     """Visualizes the sensitivity of recall estimates to different parameters."""
     from matplotlib import pyplot as plt
 
@@ -594,7 +699,8 @@ def _visualize_sensitivity(results: pd.DataFrame) -> None:
         "query_params_visit_percentage",
         "query_params_rescore_vector_oversample",
     ]:
-        plt.figure(figsize=(10, 6))
+        plt.figure(figure_index, figsize=(10, 6))
+        figure_index += 1
         pivot_results = results.pivot_table(
             columns=param,
             values="average_recall"
@@ -607,12 +713,17 @@ def _visualize_sensitivity(results: pd.DataFrame) -> None:
             param_values.append(col)
             average_recalls.append(pivot_results[col].dropna().mean())
 
+        if not param_values:
+            print(f"No data available to plot sensitivity for parameter '{param}'")
+            continue
+
         plt.plot(param_values, average_recalls, marker='o')
         plt.xlabel(f"Parameter: {param}")
         plt.ylabel("Average Recall")
         plt.title(f"Sensitivity of Recall to Parameter: {param}")
         plt.grid(True)
         plt.savefig(f"results/recall_sensitivity_{param}.png")
+    return figure_index
     
 
 def main(fvec_file_name: str | None = None,
@@ -621,6 +732,7 @@ def main(fvec_file_name: str | None = None,
          k: int | None = 10,
          all_params: bool = True,
          visualize: bool = False,
+         visualize_results_file_name: str | None = None,
          clear_caches: bool = True,
          index_type: str = "hnsw",
          m: int | None = None,
@@ -637,6 +749,7 @@ def main(fvec_file_name: str | None = None,
         k: The number of nearest neighbours to retrieve.
         all_params: Whether to run experiments for all parameter combinations.
         visualize: Whether to visualize existing experiment results.
+        visualize_results_file_name: The specific results file to visualize.
         clear_caches: Whether to clear all existing indices before running the experiment.
         index_type: The index type to use.
         m: The 'm' parameter for HNSW indices.
@@ -648,7 +761,7 @@ def main(fvec_file_name: str | None = None,
 
     if visualize:
         # If fvec_file_name is not supplied, load all files in the results directory
-        if fvec_file_name is None:
+        if visualize_results_file_name is None:
             results_files = list((Path("results")).glob("*_experiment_results.csv"))
             if not results_files:
                 print("No results files found in the 'results' directory.")
@@ -656,22 +769,28 @@ def main(fvec_file_name: str | None = None,
             all_results = pd.DataFrame()
             for file in results_files:
                 df = pd.read_csv(file)
-                # Add a column for the source file
                 df["source_file"] = file.name
                 all_results = pd.concat([all_results, df], ignore_index=True)
-            all_results["sample_size"] = all_results["sample_size"].fillna("full")
-            all_results = all_results.fillna("n/a")
-            _visualize_correlation(all_results)
-            _visualize_sensitivity(all_results)
-            return
+        else:
+            if not Path(visualize_results_file_name).exists():
+                print(f"Results file '{visualize_results_file_name}' does not exist.")
+                return
+            all_results = pd.read_csv(visualize_results_file_name)
 
-        output_file = Path("results") / (Path(fvec_file_name).stem + "_experiment_results.csv")
-        if not output_file.exists():
-            print(f"Output file '{output_file}' does not exist.")
-            return
+        all_results["sample_size"] = all_results["sample_size"].fillna("full")
+        all_results = all_results.fillna("n/a")
+        figure_index = _visualize_r2(all_results, figure_index=1)
+        figure_index = _visualize_correlation(all_results, figure_index=figure_index)
+        figure_index = _visualize_sensitivity(all_results, figure_index=figure_index)
+        return
 
     if fvec_file_name is None or similarity is None:
         print("Error: fvec_file_name and similarity must be specified when not visualizing.")
+        return
+
+    output_file = Path("results") / (Path(fvec_file_name).stem + "_experiment_results.csv")
+    if not output_file.exists():
+        print(f"Output file '{output_file}' does not exist.")
         return
 
     if all_params:
