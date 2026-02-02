@@ -550,9 +550,43 @@ def _diskbbq_filter(df: pd.DataFrame, source: str | None = None) -> pd.DataFrame
                   (df["source"] == source)]
     return df[(df["index_params_type"] == "bbq_disk")]
 
+def _visualize_recall_distribution(results: pd.DataFrame, figure_index: int) -> int:
+    """Visualizes the distribution of recall estimates for different sample sizes
+    using kernel density estimation (KDE) plots broken down by index type.
+
+    :param results: The DataFrame containing the experiment results.
+    :param figure_index: The current figure index for plotting.
+    :return: The updated figure index after plotting.
+    """
+    from matplotlib import pyplot as plt
+    import seaborn as sns
+
+    fig = plt.figure(figure_index, figsize=(12, 15))
+    figure_index += 1
+    for i, (filter_results, label_) in enumerate([
+        (_hnsw_filter(results[results["sample_size"] == "full"]), "HNSW"),
+        (_flat_filter(results[results["sample_size"] == "full"]), "Flat"),
+        (_diskbbq_filter(results[results["sample_size"] == "full"]), "DiskBBQ"),
+    ]):
+        fig.add_subplot(3, 1, i + 1)
+        sns.kdeplot(
+            data=filter_results,
+            x="average_recall",
+            fill=True,
+            common_norm=False,
+            alpha=0.5
+        )
+        plt.xlabel("Average Recall")
+        plt.ylabel("Density")
+        plt.title(f"Recall Estimate Distribution by Sample Size ({label_})")
+    plt.savefig("results/recall_distribution.png")
+
+    return figure_index
+
 def _visualize_r2(results: pd.DataFrame, figure_index: int) -> int:
     """Visualizes the average R² between the recall estimate and the exact recall.
 
+    :param results: The DataFrame containing the experiment results.
     :param figure_index: The current figure index for plotting.
     :return: The updated figure index after plotting.
     """
@@ -692,6 +726,8 @@ def _visualize_sensitivity(results: pd.DataFrame, figure_index: int) -> int:
     """Visualizes the sensitivity of recall estimates to different parameters."""
     from matplotlib import pyplot as plt
 
+    unique_sample_sizes = [s for s in results["sample_size"].unique()]
+
     for param in [
         "index_params_m",
         "index_params_ef_construction",
@@ -701,27 +737,31 @@ def _visualize_sensitivity(results: pd.DataFrame, figure_index: int) -> int:
     ]:
         plt.figure(figure_index, figsize=(10, 6))
         figure_index += 1
-        pivot_results = results.pivot_table(
-            columns=param,
-            values="average_recall"
-        )
-        param_values = []
-        average_recalls = []
-        for col in pivot_results.columns:
-            if col == "n/a":
+        for sample_size in unique_sample_sizes:
+            filter_results = results[results["sample_size"] == sample_size]
+            pivot_results = filter_results.pivot_table(
+                columns=param,
+                values="average_recall"
+            )
+            param_values = []
+            average_recalls = []
+            for col in pivot_results.columns:
+                if col == "n/a":
+                    continue
+                param_values.append(col)
+                average_recalls.append(pivot_results[col].dropna().mean())
+
+            if not param_values:
+                print(f"No data available to plot sensitivity for parameter '{param}'")
                 continue
-            param_values.append(col)
-            average_recalls.append(pivot_results[col].dropna().mean())
 
-        if not param_values:
-            print(f"No data available to plot sensitivity for parameter '{param}'")
-            continue
-
-        plt.plot(param_values, average_recalls, marker='o')
+            plt.plot(param_values, average_recalls, marker='o',
+                     label=f"Sample Size: {sample_size}")
         plt.xlabel(f"Parameter: {param}")
         plt.ylabel("Average Recall")
         plt.title(f"Sensitivity of Recall to Parameter: {param}")
         plt.grid(True)
+        plt.legend()
         plt.savefig(f"results/recall_sensitivity_{param}.png")
     return figure_index
     
@@ -779,7 +819,8 @@ def main(fvec_file_name: str | None = None,
 
         all_results["sample_size"] = all_results["sample_size"].fillna("full")
         all_results = all_results.fillna("n/a")
-        figure_index = _visualize_r2(all_results, figure_index=1)
+        figure_index = _visualize_recall_distribution(all_results, figure_index=1)
+        figure_index = _visualize_r2(all_results, figure_index=figure_index)
         figure_index = _visualize_correlation(all_results, figure_index=figure_index)
         figure_index = _visualize_sensitivity(all_results, figure_index=figure_index)
         return
