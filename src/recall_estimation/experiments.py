@@ -18,7 +18,7 @@ from tqdm.auto import tqdm
 
 ROOT_DIR = Path(os.getenv("ROOT_DIR", Path.cwd()))
 
-def flatten_dict(d: dict, parent_key: str = '', sep: str = '_') -> dict:
+def _flatten_dict(d: dict, parent_key: str = '', sep: str = '_') -> dict:
     """Flattens a nested dictionary.
 
     :param d: The dictionary to flatten.
@@ -30,10 +30,35 @@ def flatten_dict(d: dict, parent_key: str = '', sep: str = '_') -> dict:
     for k, v in d.items():
         new_key = f"{parent_key}{sep}{k}" if parent_key else k
         if isinstance(v, dict):
-            items.extend(flatten_dict(v, new_key, sep=sep).items())
+            items.extend(_flatten_dict(v, new_key, sep=sep).items())
         else:
             items.append((new_key, v))
     return dict(items)
+
+def _read_fvecs(fvec_file_name: str,
+                sample_size: int | None) -> np.ndarray:
+    x = np.fromfile(fvec_file_name, dtype='int32')
+    d = x[0]
+    x = x.reshape(-1, d + 1)[:, 1:].copy()
+    x = x.view('float32')
+    if sample_size is not None and sample_size < x.shape[0]:
+        selected_indices = np.random.choice(
+            x.shape[0], size=sample_size, replace=False
+        )
+        x = x[selected_indices]
+    return x
+
+def _random_queries(corpus: np.ndarray,
+                    num_queries: int) -> tuple[np.ndarray, np.ndarray]:
+    """Selects random queries from the corpus.
+
+    :param corpus: The corpus of vectors.
+    :param num_queries: The number of random queries to select.
+    :return: A tuple (x, y) of randomly selected queries y and corpus minus those queries x.
+    """
+    indices = np.random.choice(corpus.shape[0], size=num_queries, replace=False)
+    return corpus[np.setdiff1d(np.arange(corpus.shape[0]), indices)], corpus[indices]
+
 
 class ExperimentFramework:
     """
@@ -183,8 +208,8 @@ class ExperimentFramework:
                 print(f"Skipping indexing for '{sample_index_name}' due to index creation failure.")
                 return None
 
-            corpus = self._read_fvecs(fvec_file_name, sample_size)
-            corpus, queries = self._random_queries(corpus, num_queries=self.num_queries)
+            corpus = _read_fvecs(fvec_file_name, sample_size)
+            corpus, queries = _random_queries(corpus, num_queries=self.num_queries)
 
             if not already_exists and not self._index_vectors(sample_index_name, corpus):
                 print(f"Indexing failed for index '{sample_index_name}'.")
@@ -212,8 +237,8 @@ class ExperimentFramework:
                 result = {
                     "hash": self.experiment_hash(sample_index_name, field_mapping, params),
                     "index_name": sample_index_name,
-                    **flatten_dict({"index_params": field_mapping["index_options"]}),
-                    **flatten_dict({"query_params": params}),
+                    **_flatten_dict({"index_params": field_mapping["index_options"]}),
+                    **_flatten_dict({"query_params": params}),
                     "sample_size": sample_size,
                     "average_recall": average_recall,
                     "recall_std": recall_std
@@ -303,20 +328,6 @@ class ExperimentFramework:
             print(f"Error creating index: {e}")
             return False, False
 
-    def _read_fvecs(self,
-                    fvec_file_name: str,
-                    sample_size: int | None) -> np.ndarray:
-        x = np.fromfile(fvec_file_name, dtype='int32')
-        d = x[0]
-        x = x.reshape(-1, d + 1)[:, 1:].copy()
-        x = x.view('float32')
-        if sample_size is not None and sample_size < x.shape[0]:
-            selected_indices = np.random.choice(
-                x.shape[0], size=sample_size, replace=False
-            )
-            x = x[selected_indices]
-        return x
-
     def _index_vectors(self,
                        index_name: str,
                        corpus: np.ndarray,
@@ -343,18 +354,6 @@ class ExperimentFramework:
         # Ensure that the index is refreshed before searching.
         self.es.indices.refresh(index=index_name)
         return True
-
-    def _random_queries(self,
-                        corpus: np.ndarray,
-                        num_queries: int) -> tuple[np.ndarray, np.ndarray]:
-        """Selects random queries from the corpus.
-
-        :param corpus: The corpus of vectors.
-        :param num_queries: The number of random queries to select.
-        :return: A tuple (x, y) of randomly selected queries y and corpus minus those queries x.
-        """
-        indices = np.random.choice(corpus.shape[0], size=num_queries, replace=False)
-        return corpus[np.setdiff1d(np.arange(corpus.shape[0]), indices)], corpus[indices]
 
     def _ann_indices(self,
                      index_name: str,
@@ -657,6 +656,65 @@ def _visualize_r2(results: pd.DataFrame, figure_index: int) -> int:
 
     return figure_index
 
+def _visualize_average_nn_distance(file: str, figure_index: int, similarity: str) -> int:
+    """Visualizes the average nearest neighbour distance as a function of sample sizes.
+
+    :param file: The path to the .fvec file.
+    :param figure_index: The current figure index for plotting.
+    :param similarity: The similarity metric to use ("l2_norm", "cosine", or "max_inner_product").
+    :return: The updated figure index after plotting.
+    """
+    # We load the fvecs file and compute the average exact nearest neighbour distance
+    # for different sample sizes.
+    from matplotlib import pyplot as plt
+
+    if not Path(file).exists():
+        return figure_index
+
+    x = _read_fvecs(file, sample_size=None)
+    sample_sizes = [s for s in [2000, 4000, 8000, 16000, 32000, 64000, 128000] if s <= x.shape[0]]
+    average_nn_distances = []
+    for sample_size in sample_sizes:
+        selected_indices = np.random.choice(x.shape[0], size=sample_size, replace=False)
+        sampled_x = x[selected_indices]
+        sampled_x, queries = _random_queries(sampled_x, num_queries=500)
+        distances = cdist(queries, sampled_x, metric=similarity)
+        nearest_distances = np.partition(distances, 10, axis=1)[:, :10]
+        average_distance = np.mean(nearest_distances)
+        average_nn_distances.append(average_distance)
+    plt.figure(figure_index, figsize=(10, 6))
+    figure_index += 1
+    plt.plot(np.log(sample_sizes), np.log(average_nn_distances), marker='o')
+    # Compute the best fit line
+    z = np.polyfit(np.log(sample_sizes), np.log(average_nn_distances), 1)
+    p = np.poly1d(z)
+    plt.plot(np.log(sample_sizes), p(np.log(sample_sizes)), "tab:orange", linestyle='--', label='Best fit line')
+    # Get a string for the equation of the line. Because we fit log-log then we have that
+    # log(y) = m * log(x) + b  =>  y = exp(b) * x^m
+    plt.text(0.05, 0.15,
+             f"D = {np.exp(z[1]):.3f} * SS^{z[0]:.3f}",
+             fontsize=10,
+             transform=plt.gca().transAxes,
+             verticalalignment='top')
+    # Extract R^2
+    y_fit = p(np.log(sample_sizes))
+    ss_res = np.sum((np.log(average_nn_distances) - y_fit) ** 2)
+    ss_tot = np.sum((np.log(average_nn_distances) - np.mean(np.log(average_nn_distances))) ** 2)
+    r2 = 1 - (ss_res / ss_tot)
+    plt.text(0.05, 0.10,
+             f"R² = {r2:.4f}",
+             fontsize=10,
+             transform=plt.gca().transAxes,
+             verticalalignment='top')
+    plt.legend()
+    plt.xlabel("Log Sample Size")
+    plt.ylabel("Log Average Nearest Neighbour Distance")
+    plt.title(f"Log Average Nearest Neighbour Distance vs Log Sample Size ({Path(file).stem})")
+    plt.grid(True)
+    plt.savefig(f"results/average_nn_distance_{Path(file).stem}.png")
+
+    return figure_index
+
 def _visualize_correlation(results: pd.DataFrame, figure_index: int) -> int:
     """Visualizes the average R² between the recall estimate and the exact recall.
 
@@ -820,6 +878,9 @@ def main(fvec_file_name: str | None = None,
         all_results["sample_size"] = all_results["sample_size"].fillna("full")
         all_results = all_results.fillna("n/a")
         figure_index = _visualize_recall_distribution(all_results, figure_index=1)
+        figure_index = _visualize_average_nn_distance(fvec_file_name or "",
+                                                      figure_index=figure_index,
+                                                      similarity=similarity or "euclidean")
         figure_index = _visualize_r2(all_results, figure_index=figure_index)
         figure_index = _visualize_correlation(all_results, figure_index=figure_index)
         figure_index = _visualize_sensitivity(all_results, figure_index=figure_index)
