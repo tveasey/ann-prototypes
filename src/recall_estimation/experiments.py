@@ -664,12 +664,10 @@ def _visualize_average_nn_distance(file: str, figure_index: int, similarity: str
     :param similarity: The similarity metric to use ("l2_norm", "cosine", or "max_inner_product").
     :return: The updated figure index after plotting.
     """
-    # We load the fvecs file and compute the average exact nearest neighbour distance
-    # for different sample sizes.
-    from matplotlib import pyplot as plt
-
-    if not Path(file).exists():
+    if not file or not Path(file).exists():
         return figure_index
+
+    from matplotlib import pyplot as plt
 
     x = _read_fvecs(file, sample_size=None)
     sample_sizes = [s for s in [2000, 4000, 8000, 16000, 32000, 64000, 128000] if s <= x.shape[0]]
@@ -726,13 +724,11 @@ def _visualize_correlation(results: pd.DataFrame, figure_index: int) -> int:
     unique_sample_sizes = [s for s in results["sample_size"].unique() if s != "full"]
 
     for i in range(figure_index, figure_index + len(unique_sample_sizes)):
-        plt.figure(i, figsize=(15, 12))
+        plt.figure(i, figsize=(15, 8))
 
     for i, (filter_results, label_) in enumerate([
-        (_all_filter(results), "All"),
         (_hnsw_filter(results), "HNSW"),
         (_flat_filter(results), "Flat"),
-        (_diskbbq_filter(results), "DiskBBQ"),
     ]):
         pivot_results = filter_results.pivot_table(
             index=["source",
@@ -764,18 +760,18 @@ def _visualize_correlation(results: pd.DataFrame, figure_index: int) -> int:
             # Compute R^2 for the scatter plot.
             r2 = np.corrcoef(np.array(estimated_recalls), np.array(exact_recalls))[0, 1] ** 2
             fig = plt.figure(figure_index + j)
-            fig.add_subplot(2, 2, i + 1)
-            plt.scatter(estimated_recalls, exact_recalls, alpha=0.6, label=label_)
+            fig.add_subplot(1, 2, i + 1)
+            plt.scatter(estimated_recalls, exact_recalls, alpha=0.6)
             plt.plot([0, 1], [0, 1], 'r--')
             plt.xlim(0, 1)
             plt.ylim(0, 1)
             plt.xlabel(f"Estimated Recall (Sample Size = {sample_size})")
             plt.ylabel("Exact Recall (Full Dataset)")
-            plt.title(f"Recall Estimate vs Exact Recall (R² = {r2:.4f})")
+            plt.title(f"Recall Estimate vs Exact Recall for {label_} (R² = {r2:.4f})")
 
     for i, sample_size in enumerate(unique_sample_sizes):
         plt.figure(figure_index + i)
-        plt.legend()
+        #plt.legend()
         plt.savefig(f"results/estimate_correlation_sample_size_{sample_size}.png")
 
     return figure_index + len(unique_sample_sizes)
