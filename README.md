@@ -22,8 +22,8 @@ Next install dvc and pull test data sets:
 Note that this requires gsutils and access to our gcp bucket. You can also download just a single data set using:
 
 ```
->>> dvc pull data queries-quora-E5-small.fvec.dvc
->>> dvc pull data corpus-quora-E5-small.fvec.dvc
+>>> dvc pull data/queries-quora-E5-small.fvec.dvc
+>>> dvc pull data/corpus-quora-E5-small.fvec.dvc
 ```
 
 ## Mac Setup
