@@ -56,7 +56,7 @@ public:
     const std::vector<std::size_t>& spilledAssignments() const { return spilledAssignments_; }
     std::size_t iterationsRun() const { return iterationsRun_; }
     bool converged() const { return converged_; }
-    float computeDispersion(std::size_t dim, const Dataset& dataset) const;
+    float computeInertia(std::size_t dim, const Dataset& dataset) const;
     std::vector<float> quantizationErrors(std::size_t dim,
                                           const Dataset& dataset) const;
     std::pair<float, float> clusterSizeMoments() const;
@@ -92,7 +92,7 @@ public:
     void updateAssignmentsWithRecursiveSplit(std::size_t dim,
                                              std::size_t cluster,
                                              HierarchicalKMeansResult splitClusters);
-    float computeDispersion(std::size_t dim, const Dataset& dataset) const;
+    float computeInertia(std::size_t dim, const Dataset& dataset) const;
     std::vector<float> quantizationErrors(std::size_t dim,
                                           const Dataset& dataset) const;
     std::pair<float, float> clusterSizeMoments() const;

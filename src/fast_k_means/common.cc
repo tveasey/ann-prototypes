@@ -85,14 +85,14 @@ std::vector<std::size_t> KMeansResult::clusterSizes() const {
     return sizes;
 }
 
-float KMeansResult::computeDispersion(std::size_t dim, const Dataset& dataset) const {
-    float totalDispersion{0.0F};
+float KMeansResult::computeInertia(std::size_t dim, const Dataset& dataset) const {
+    float totalInertia{0.0F};
     std::size_t n{assignments_.size()};
     for (std::size_t i = 0, id = 0; i < n; ++i, id += dim) {
         std::size_t cluster{assignments_[i]};
-        totalDispersion +=  distanceSq(dim, &dataset[id], &finalCenters_[cluster]);
+        totalInertia +=  distanceSq(dim, &dataset[id], &finalCenters_[cluster]);
     }
-    return totalDispersion / n;
+    return totalInertia / n;
 }
 
 std::vector<float> KMeansResult::quantizationErrors(std::size_t dim,
@@ -260,16 +260,16 @@ void HierarchicalKMeansResult::updateAssignmentsWithRecursiveSplit(std::size_t d
     }
 }
 
-float HierarchicalKMeansResult::computeDispersion(std::size_t dim, const Dataset& dataset) const {
-    float totalDispersion{0.0F};
+float HierarchicalKMeansResult::computeInertia(std::size_t dim, const Dataset& dataset) const {
+    float totalInertia{0.0F};
     std::size_t n{0};
     for (std::size_t i = 0; i < assignments_.size(); ++i) {
         for (std::size_t j : assignments_[i]) {
-            totalDispersion += distanceSq(dim, &dataset[j * dim], &finalCenters_[i][0]);
+            totalInertia += distanceSq(dim, &dataset[j * dim], &finalCenters_[i][0]);
             ++n;
         }
     }
-    return totalDispersion / n;
+    return totalInertia / n;
 }
 
 std::vector<float> HierarchicalKMeansResult::quantizationErrors(std::size_t dim,

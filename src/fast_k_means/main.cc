@@ -308,10 +308,10 @@ int main(int argc, char** argv) {
     }
     if (parameterSearch) {
         std::vector<std::vector<std::size_t>> parameters;
-        std::vector<float> dispersions;
+        std::vector<float> inertias;
         std::vector<double> seconds;
 
-        for (std::size_t maxK : {120, 128, 136}) {
+        for (std::size_t maxK : {256}) {
             for (std::size_t samplesPerCluster : {256, 384, 512}) {
                 for (std::size_t maxIterations : {6, 8, 10}) {
                     std::cout << "Running parameter search with maxK=" << maxK
@@ -323,28 +323,28 @@ int main(int argc, char** argv) {
                             dim, corpus, 512, maxK, maxIterations, samplesPerCluster
                     );
                     }, "K-Means Hierarchical").count();
-                    float dispersion{result.computeDispersion(dim, corpus)};
-                    std::cout << "Took " << took << " seconds, dispersion: " << dispersion << std::endl;
+                    float inertia{result.computeInertia(dim, corpus)};
+                    std::cout << "Took " << took << " seconds, inertia: " << inertia << std::endl;
                     parameters.push_back({maxK, samplesPerCluster, maxIterations});
                     seconds.push_back(took);
-                    dispersions.push_back(dispersion);
+                    inertias.push_back(inertia);
                 }
             }
         }
 
-        double minDispersion{*std::min_element(dispersions.begin(), dispersions.end())};
+        double minInertia{*std::min_element(inertias.begin(), inertias.end())};
         double minSeconds{*std::min_element(seconds.begin(), seconds.end())};
-        std::cout << "Min dispersion: " << minDispersion << std::endl;
+        std::cout << "Min inertia: " << minInertia << std::endl;
         std::cout << "Min seconds: " << minSeconds << std::endl;
-        std::transform(dispersions.begin(), dispersions.end(), dispersions.begin(),
-                       [minDispersion](double d) { return d / minDispersion; });
+        std::transform(inertias.begin(), inertias.end(), inertias.begin(),
+                       [minInertia](double d) { return d / minInertia; });
         std::transform(seconds.begin(), seconds.end(), seconds.begin(),
                        [minSeconds](double s) { return s / minSeconds; });
 
         std::vector<std::size_t> bestParameters;
         double bestScore{std::numeric_limits<double>::max()};
         for (std::size_t i = 0; i < parameters.size(); ++i) {
-            double score{10.0 * dispersions[i] + seconds[i]};
+            double score{10.0 * inertias[i] + seconds[i]};
             if (score < bestScore) {
                 bestScore = score;
                 bestParameters = parameters[i];
@@ -352,7 +352,7 @@ int main(int argc, char** argv) {
         }
 
         std::cout << "Parameters: " << parameters << std::endl;
-        std::cout << "Dispersions: " << dispersions << std::endl;
+        std::cout << "Inertia: " << inertias << std::endl;
         std::cout << "Seconds: " << seconds << std::endl;
         std::cout << "Best parameters: maxK=" << bestParameters[0]
                   << ", samplesPerCluster=" << bestParameters[1]
@@ -382,7 +382,7 @@ int main(int argc, char** argv) {
                 result = kMeans(dim, corpus, sampleSize, initialCenters, 8);
             }, "K-Means Lloyd");
             std::cout << "\n--- Results ---" << result.print() << std::endl;
-            std::cout << "Average distance to final centers: " << result.computeDispersion(dim, corpus) << std::endl;
+            std::cout << "Inertia: " << result.computeInertia(dim, corpus) << std::endl;
             break;
         }
         case Experiment::KMEANS_HIERARCHICAL: {
@@ -391,7 +391,7 @@ int main(int argc, char** argv) {
             HierarchicalKMeansResult result;
             time([&] { result = kMeansHierarchical(dim, corpus, target); }, "K-Means Hierarchical");
             std::cout << "\n--- Results ---" << result.print() << std::endl;
-            std::cout << "Average distance to final centers: " << result.computeDispersion(dim, corpus) << std::endl;
+            std::cout << "Inertia: " << result.computeInertia(dim, corpus) << std::endl;
             break;
         }
         case Experiment::IVF: {

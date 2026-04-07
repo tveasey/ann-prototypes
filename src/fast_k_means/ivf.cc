@@ -208,7 +208,7 @@ void CQuantizedIvfIndex::buildIndex(const Dataset& corpus,
 
     HierarchicalKMeansResult result;
     time([&] { result = kMeansHierarchical(dim_, corpus, target); }, "K-Means Hierarchical");
-    std::cout << "Average distance to final centers: " << result.computeDispersion(dim_, corpus) << std::endl;
+    std::cout << "Average distance to final centers: " << result.computeInertia(dim_, corpus) << std::endl;
 
     centers_ = result.finalCenters();
     assignments_ = result.assignments();

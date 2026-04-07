@@ -36,7 +36,7 @@ void reorderCentroids(std::size_t dim,
         result = kMeansHierarchical(dim, corpus, targetClusterSize);
     }, "K-Means Hierarchical");
     std::cout << "Average distance to final centers: "
-              << result.computeDispersion(dim, corpus) << std::endl;
+              << result.computeInertia(dim, corpus) << std::endl;
 
     std::cout << "Computing optimal centroid ordering..." << std::endl;
     std::cout << "\n--- Results ---" << result.print() << std::endl;
@@ -51,41 +51,6 @@ void reorderCentroids(std::size_t dim,
             );
         }, "Annealing Order");
         costs.push_back(cost);
-
-        /*
-        // Compute cosine similarity martix before and after reordering.
-        // Normalize centroids.
-        Centers normalizedCenters{result.finalCentersFlat()};
-        normalize(dim, normalizedCenters);
-
-        Permutation identityPermutation(permutation.size());
-        std::iota(identityPermutation.begin(), identityPermutation.end(), 0UL);
-
-        auto simMatrixBefore{computeCosineSimilarity(identityPermutation, normalizedCenters)};
-        std::cout << "Cosine Similarity Matrix Before Reordering:" << std::endl;
-        std::cout << std::fixed << std::setprecision(4);
-        std::cout << "before = [" << std::endl;
-        for (const auto& row : simMatrixBefore) {
-            std::cout << "[" << row[0];
-            for (std::size_t j = 1; j < row.size(); ++j) {
-                std::cout << ", " << row[j];
-            }
-            std::cout << "]" << std::endl;
-        }
-        std::cout << "];" << std::endl;
-
-        auto simMatrixAfter{computeCosineSimilarity(permutation, normalizedCenters)};
-        std::cout << "Cosine Similarity Matrix After Reordering:" << std::endl;
-        std::cout << "after = [ " << std::endl;
-        for (const auto& row : simMatrixAfter) {
-            std::cout << "[" << row[0];
-            for (std::size_t j = 1; j < row.size(); ++j) {
-                std::cout << ", " << row[j];
-            }
-            std::cout << "]" << std::endl;
-        }
-        std::cout << "];" << std::endl;
-        */
     }
 
     std::cout << "Trial costs: " << costs << std::endl;
