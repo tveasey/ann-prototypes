@@ -148,7 +148,7 @@ BitVector hilbertEncode(const std::vector<std::uint32_t>& pt,
         P = calc_P(tS, dim);
 
         // Pack P into the Hilbert Index. The index in the 1D hcode is i * dim.
-        for (std::uint32_t j = 0, id = i * dim; j < dim; ++j, ++id) {
+        for (std::uint32_t j = 0, id = i * dim; j < dim; ++j) {
             if (P.get_bit(j)) {
                 hcode.set_bit(id + j, true);
             }
